@@ -174,7 +174,8 @@ def _fold_raw(op: Op, vals):
             if src.is_float and dst.kind in ("int", "uint"):
                 return _f32_bits(vals[0])
             if src.kind in ("int", "uint") and dst.is_float:
-                return float(np.array(u[0], np.uint32).view(np.float32))
+                f = float(np.array(u[0], np.uint32).view(np.float32))
+                return None if f != f else f      # a python float would not keep a NaN's bits
             if src.kind in ("int", "uint") and dst.kind in ("int", "uint"):
                 return u[0]
             return None
@@ -493,14 +494,15 @@ def sink_broadcasts(fn: ir.Function) -> bool:
 
 INT_MAX = 2 ** 31 - 1
 INT_MIN = -2 ** 31
-PID_MAX = 65535
 
 
 class RangeAnalysis:
     """Conservative [lo, hi] bounds for i32 values (None = unknown)."""
 
-    def __init__(self, fn: ir.Function):
+    def __init__(self, fn: ir.Function, pid_max=None):
         self.fn = fn
+        # largest program id per axis: from the launch grid, else anything an int32 holds
+        self.pid_max = tuple(pid_max) if pid_max is not None else (INT_MAX - 1,) * 3
         self.r = {}
         self.run()
 
@@ -536,9 +538,9 @@ class RangeAnalysis:
         elif n == "tt.make_range":
             self._set(res, (op.attrs["start"], op.attrs["end"] - 1))
         elif n == "tt.get_program_id":
-            self._set(res, (0, PID_MAX))
+            self._set(res, (0, self.pid_max[op.attrs["axis"]]))
         elif n == "tt.get_num_programs":
-            self._set(res, (1, PID_MAX + 1))
+            self._set(res, (1, self.pid_max[op.attrs["axis"]] + 1))
         elif n in ("tt.splat", "tt.broadcast", "tt.expand_dims", "tt.reshape", "tt.trans",
                    "arith.bitcast"):
             self._set(res, g(0))
@@ -548,6 +550,8 @@ class RangeAnalysis:
             if a is None or b is None:
                 if n == "arith.remsi" and b is not None and b[0] > 0 and a is not None and a[0] >= 0:
                     self._set(res, (0, b[1] - 1))
+                elif n == "arith.divsi" and a is None and b is not None and b[0] > 0:
+                    self._set(res, (-(-INT_MIN // b[0]), INT_MAX // b[0]))
                 elif n == "arith.andi" and ((a and a[0] >= 0) or (b and b[0] >= 0)):
                     hi = min(x[1] for x in (a, b) if x is not None and x[0] >= 0)
                     self._set(res, (0, hi))
@@ -710,7 +714,7 @@ def remat_across_loops(fn: ir.Function, max_ops: int = 64) -> int:
     return count
 
 
-def optimize(fn: ir.Function) -> RangeAnalysis:
+def optimize(fn: ir.Function, pid_max=None) -> RangeAnalysis:
     canonicalize(fn)
     for _ in range(4):
         changed = licm(fn)
@@ -718,10 +722,10 @@ def optimize(fn: ir.Function) -> RangeAnalysis:
         canonicalize(fn)
         if not changed:
             break
-    ranges = RangeAnalysis(fn)
+    ranges = RangeAnalysis(fn, pid_max)
     canonicalize(fn, ranges)
     licm(fn)
     canonicalize(fn)
     remat_across_loops(fn)
     dce(fn)
-    return RangeAnalysis(fn)
+    return RangeAnalysis(fn, pid_max)

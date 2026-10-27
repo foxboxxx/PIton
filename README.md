@@ -24,14 +24,15 @@ Status:
 
 * The Triton tutorial **vector add**, **fused softmax** and **grouped matmul** (`tl.dot`, masks,
   `%`-wraparound, runtime strides, runtime or constexpr K) compile and pass against numpy in the
-  emulator (118 tests, including small-tile reductions/transposes/dots, IEEE comparisons with
-  NaN/inf/±0, and exp/log/div/sqrt accuracy); the `.qasm` we emit assembles with `vc4asm` to
+  emulator (238 tests, including small-tile reductions/transposes/dots, IEEE comparisons with
+  NaN/inf/±0, exp/log/div/sqrt accuracy, exact 32-bit integer division, and regression tests
+  for every bug found in review); the `.qasm` we emit assembles with `vc4asm` to
   exactly the bits our encoder produces.
 * On a Pi Zero W every hardware test is **bit-identical to the emulator**: vector add, softmax,
   ragged matmuls with up to 32 concurrent programs, exp/log/division/sqrt, float comparisons on
-  special values, lane permutations, and stores with negative row strides
-  (`PITON_HW=1 pytest tests/test_hw.py`, 9 tests). The emulator models the QPU's float quirks
-  measured with `tools/float_specials_probe.py` (see the findings table).
+  special values, lane permutations, stores with negative row strides, and exact 32-bit integer
+  division (`PITON_HW=1 pytest tests/test_hw.py`, 10 tests). The emulator models the QPU's float
+  quirks measured with `tools/float_specials_probe.py` (see the findings table).
 * No QPU op whose result we cannot reproduce is used: exp, log, reciprocal and rsqrt run on the
   ALUs (≈22-23 bits, within ~2 ulp) instead of the special function unit.
 
@@ -42,15 +43,17 @@ Triton tutorial matmul (`examples/kernels.py`), square N×N×N, inputs generated
 
 | N | config (BM, BN, BK) | time | GFLOPS |
 |---|---|---|---|
-| 128 | 8, 64, 4 | 0.50 ms | 8.5 |
-| 256 | 8, 64, 4 | 4.34 ms | 7.7 |
-| 512 | 8, 64, 4 | 34.9 ms | 7.7 |
-| 512 | **8, 64, 8** | **30.6 ms** | **8.8** |
-| 1024 | 8, 64, 4 | 347 ms | 6.2 |
+| 128 | 8, 64, 4 | 0.52 ms | 8.1 |
+| 256 | 8, 64, 4 | 4.38 ms | 7.7 |
+| 512 | 8, 64, 4 | 34.8 ms | 7.7 |
+| 512 | **8, 64, 8** | **30.7 ms** | **8.8** |
+| 1024 | 8, 64, 4 | 352 ms | 6.1 |
 
 (Measured 2026-10-27 after the correctness fixes; with a constant K the loop is unchanged at 198
 instructions. With a runtime K, clamping the prefetch index and the overflow-safe K-mask compare
-add 4.)
+add 4. Exact 32-bit `//` and `%` in the tutorial's program-id arithmetic and `% M` wrap-around
+cost ~3% at 128³, where per-program setup is a larger share; the full-range division path is
+placed out of line, after the program's end.)
 
 For scale: the CS240LX GPU lab's hand-written 1-QPU kernel does 128³ in 116 ms (≈0.036 GFLOPS) and
 the ARM1176 ≈0.009 GFLOPS — PIton is ~235× faster than the lab kernel on 128³.
@@ -144,12 +147,22 @@ block is powered off (`V3D_IDENT0` reads `0xdeadbeef`).
 `tl.maximum/minimum`, `tl.cdiv`, `tl.static_range`, `tl.multiple_of` (no-op), `.to()`, `[:, None]`
 indexing, `tl.reshape/trans`, runtime `for` loops with loop-carried values (including swaps),
 runtime `if` (also the `if pid >= n: return` early exit), inlined `@jit` helpers, Python
-`min/max` on tensors. Integer `//` and `%` follow C semantics like Triton; integer and float
-comparisons are exact (no overflow, IEEE NaN/inf/±0). Types: `float32`, `int32`, `uint32`, `int1`
+`min/max` on tensors. Integer `//` and `%` follow C semantics like Triton and are exact for all 32-bit values
+(a float estimate refined with the exact remainder; a uniform branch takes a short path when
+all operands are below 2²³); integer and float comparisons are exact (no overflow, IEEE
+NaN/inf/±0). Types: `float32`, `int32`, `uint32`, `int1`
 (the QPU has no fp16/fp64). Block shapes must be powers of two; `tl.dot` needs `BLOCK_N` dividing
-16 or a multiple of 16 (fastest). As in Triton, `return` inside a runtime `for` is rejected, and
-re-binding a tuple inside a runtime loop is a compile error. Floats round toward zero and
-denormals flush to zero, as on the hardware.
+16 or a multiple of 16 (fastest). Variables follow Python semantics across runtime loops and ifs:
+numbers carried through a loop widen (bool → int32 → uint32 → float32), the loop variable keeps
+its last value after the loop. As in Triton, `return` inside any `for` is rejected, a carried
+tensor cannot change type, re-binding a tuple inside a runtime loop and using a name assigned
+only inside a runtime loop (or one branch of an `if`) are compile errors, and loop bounds must
+fit int32. Floats round toward zero and denormals flush to zero, as on the hardware.
+
+Known limits: masked tile stores assume the masked index (`base + arange`) does not wrap past
+INT_MAX inside one tile (offsets that large cannot address memory on the Pi); a carried Python
+number that first becomes an int tensor in a nested loop and later a float is rejected rather
+than promoted; there is no register spilling, so very large tiles fail with `RegAllocError`.
 
 ## How it maps to the QPU
 
@@ -179,6 +192,10 @@ denormals flush to zero, as on the hardware.
   operands share an instruction" graph to respect the one-read-port-per-file rule, and inserts
   accumulator copies when it cannot. Kernel arguments needed only after a loop are dropped and
   re-read from the program's own uniform list (`unif_addr` reset) — a free spill slot.
+* **Ranges.** `kernel[grid](...)` compiles for its grid (rounded up to a power of two), so range
+  analysis can bound `program_id` arithmetic (narrower compares, 24-bit multiplies);
+  `piton.compiler.compile(..., grid=None)` and the AOT tool without `--max-grid` assume any
+  int32 program id.
 * **Scheduling** packs add/mul ops, signals (`ldtmu`) and small immediates into 64-bit
   instructions under the pipeline rules (2-cycle regfile latency, rotation and SFU delays,
   3 branch delay slots, …) and fixes hazards across block boundaries.

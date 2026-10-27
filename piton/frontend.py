@@ -13,6 +13,7 @@ import ast
 import builtins
 import inspect
 import operator
+import struct
 import textwrap
 from typing import Any
 
@@ -74,6 +75,62 @@ _CMP = {ast.Lt: operator.lt, ast.LtE: operator.le, ast.Gt: operator.gt, ast.GtE:
         ast.Eq: operator.eq, ast.NotEq: operator.ne, ast.Is: operator.is_,
         ast.IsNot: operator.is_not, ast.In: lambda a, b: a in b,
         ast.NotIn: lambda a, b: a not in b}
+
+
+class _Undefined:
+    """Scope entry for a name assigned only inside a runtime loop or one branch of a
+    runtime if: using it afterwards is an error (not a fall-through to a global)."""
+
+    def __init__(self, where):
+        self.where = where
+
+
+def _same_value(a, b) -> bool:
+    """Compile-time values that are interchangeable (floats compared by bits, so
+    0.0 and -0.0 differ and a NaN equals itself)."""
+    if a is b:
+        return True
+    if type(a) is not type(b):
+        return False
+    if isinstance(a, float):
+        return struct.pack("<d", a) == struct.pack("<d", b)
+    if isinstance(a, (tuple, list)):
+        return len(a) == len(b) and all(_same_value(x, y) for x, y in zip(a, b))
+    try:
+        return bool(a == b)
+    except Exception:
+        return False
+
+
+_NUMBER_ORDER = (tl.int1, tl.int32, tl.uint32, tl.float32)     # as Triton promotes
+_MISSING = object()
+
+
+def _value_type(v):
+    """(dtype, shape) of a tensor or Python number (None for other values)."""
+    if isinstance(v, tensor):
+        return v.dtype, v.handle.shape
+    if isinstance(v, bool):
+        return tl.int1, ()
+    if isinstance(v, int):
+        return tl.int32, ()
+    if isinstance(v, float):
+        return tl.float32, ()
+    return None
+
+
+def _join_types(t1, t2):
+    """Smallest (dtype, shape) holding both: bool < int32 < float32, a scalar
+    broadcast to a tile.  None if they do not combine."""
+    (d1, s1), (d2, s2) = t1, t2
+    if s1 != s2 and s1 and s2:
+        return None
+    shape = s1 or s2
+    if d1 == d2:
+        return d1, shape
+    if d1 not in _NUMBER_ORDER or d2 not in _NUMBER_ORDER:
+        return None
+    return (d1 if _NUMBER_ORDER.index(d1) > _NUMBER_ORDER.index(d2) else d2), shape
 
 
 def _assigned_names(stmts) -> set:
@@ -160,7 +217,11 @@ class CodeGenerator:
 
     def lookup(self, name, node):
         if name in self.scope:
-            return self.scope[name]
+            v = self.scope[name]
+            if isinstance(v, _Undefined):
+                raise self.error(node, f"'{name}' is assigned only inside {v.where}, so it is not "
+                                       f"defined here (as in Triton)")
+            return v
         if name in self.globals:
             return self._wrap_global(self.globals[name])
         if hasattr(builtins, name):
@@ -298,24 +359,42 @@ class CodeGenerator:
         else_blk, else_scope = run(else_stmts)
         self.scope = before
         if returns:
-            ra, rb = then_scope.get(_RET), else_scope.get(_RET)
+            ra, rb = then_scope.get(_RET), else_scope.get(_RET)     # (None: no return)
             if (ra is None) != (rb is None):
                 raise self.error(node, "function returns a value on some paths only")
             if ra is not None:
                 assigned.add(_RET)
+        # (name, path into nested tuples) of every value that differs between the branches
         names = []
+        shapes = {}
+
+        def collect(key, a, b):
+            if not isinstance(a, tensor) and not isinstance(b, tensor) and _same_value(a, b):
+                return a
+            if isinstance(a, tuple) and isinstance(b, tuple):
+                if len(a) != len(b):
+                    raise self.error(node, f"'{key[0]}' is a tuple of a different length in each branch")
+                return tuple(collect(key + (i,), x, y) for i, (x, y) in enumerate(zip(a, b)))
+            names.append(key)
+            return None
+
         for name in sorted(assigned):
-            a, b = then_scope.get(name), else_scope.get(name)
-            if a is None or b is None:
-                continue  # defined in one branch only: not visible afterwards
-            if not isinstance(a, tensor) and not isinstance(b, tensor):
-                if a is b or (type(a) == type(b) and a == b):
-                    self.scope[name] = a
-                    continue
-            names.append(name)
+            a, b = then_scope.get(name, _MISSING), else_scope.get(name, _MISSING)
+            if a is _MISSING or b is _MISSING or isinstance(a, _Undefined) or isinstance(b, _Undefined):
+                if name != _RET:
+                    self.scope[name] = _Undefined("one branch of a runtime if")
+                continue
+            shapes[name] = collect((name,), a, b)
+
+        def pick(v, key):
+            for i in key[1:]:
+                v = v[i]
+            return v
+
         then_vals, else_vals = [], []
-        for name in names:
-            a, b = then_scope[name], else_scope[name]
+        for key in names:
+            name = key[0]
+            a, b = pick(then_scope[name], key), pick(else_scope[name], key)
             saved = self.builder.block
             self.builder.block = then_blk
             a = to_tensor(a, self.builder)
@@ -331,14 +410,25 @@ class CodeGenerator:
         op = self.builder.create("scf.if", [cond.handle],
                                  [(v.dtype, v.handle.shape) for v in then_vals],
                                  regions=[then_blk, else_blk])
-        for name, res in zip(names, op.results):
-            self.scope[name] = tensor(res, self.builder)
+        results = {key: tensor(res, self.builder) for key, res in zip(names, op.results)}
+
+        def rebuild(key, v):
+            if key in results:
+                return results[key]
+            if isinstance(v, tuple):
+                return tuple(rebuild(key + (i,), x) for i, x in enumerate(v))
+            return v
+
+        for name, v in shapes.items():
+            self.scope[name] = rebuild((name,), v)
 
     def stmt_For(self, node):
         if node.orelse:
             raise self.error(node, "for/else is not supported")
         it = node.iter
         if not isinstance(it, ast.Call):
+            if _contains_return(node.body):
+                raise self.error(node, "return inside a for loop is not supported (as in Triton)")
             seq = self.eval(it)
             if isinstance(seq, tensor):
                 raise self.error(node, "cannot iterate over a tensor")
@@ -349,6 +439,8 @@ class CodeGenerator:
         func = self.eval(it.func)
         args = [self.eval(a) for a in it.args]
         kwargs = {k.arg: self.eval(k.value) for k in it.keywords}
+        if _contains_return(node.body):
+            raise self.error(node, "return inside a for loop is not supported (as in Triton)")
         if func is tl.static_range:
             r = tl.static_range(*args, **kwargs)
             for v in builtins.range(r.start, r.end, r.step):
@@ -370,6 +462,10 @@ class CodeGenerator:
         if _contains_return(node.body):
             raise self.error(node, "return inside a runtime for loop is not supported (as in Triton)")
         b = self.builder
+        for v in (r.start, r.end, r.step):
+            v = _unwrap(v)
+            if isinstance(v, int) and not -2 ** 31 <= v < 2 ** 31:
+                raise self.error(node, f"loop bound {v} does not fit the int32 loop variable")
         lb = tl.cast(to_tensor(_unwrap(r.start), b, tl.int32), tl.int32, _builder=b)
         ub = tl.cast(to_tensor(_unwrap(r.end), b, tl.int32), tl.int32, _builder=b)
         step_val = _unwrap(r.step)
@@ -377,6 +473,7 @@ class CodeGenerator:
             raise self.error(node, "loop step must be positive")
         step = tl.cast(to_tensor(step_val, b, tl.int32), tl.int32, _builder=b)
         carried, inits = self.loop_carried(node, b)
+        target = node.target.id
         body = ir.Block()
         iv = ir.Value(tl.int32, (), name=None)
         body.args.append(iv)
@@ -386,9 +483,9 @@ class CodeGenerator:
         saved_block = b.block
         b.block = body
         self.scope = dict(before)
-        self.scope[node.target.id] = tensor(iv, b)
         for name, arg in zip(carried, body.args[1:]):
             self.scope[name] = tensor(arg, b)
+        self.scope[target] = tensor(iv, b)
         try:
             self.run_body(node.body)
         except _Return:
@@ -399,6 +496,11 @@ class CodeGenerator:
         for name, init in zip(carried, inits):
             v = self.scope[name]
             v = to_tensor(v, b, init.dtype) if not isinstance(v, tensor) else v
+            t = (init.dtype, init.handle.shape)
+            if (v.dtype, v.handle.shape) != t and _join_types((v.dtype, v.handle.shape), t) == t:
+                v = tl.cast(v, init.dtype, _builder=b)       # e.g. an int update of a float carry
+                if v.handle.shape != init.handle.shape:
+                    v = tl.broadcast_to(v, init.handle.shape, _builder=b)
             if v.dtype != init.dtype or v.handle.shape != init.handle.shape:
                 b.block = saved_block
                 self.scope = before
@@ -408,6 +510,9 @@ class CodeGenerator:
         b.create("scf.yield", [v.handle for v in yields])
         b.block = saved_block
         self.scope = before
+        for name in _assigned_names(node.body) | {node.target.id}:
+            if name not in before:
+                self.scope[name] = _Undefined("a runtime for loop")
         op = b.create("scf.for", [lb.handle, ub.handle, step.handle] + [v.handle for v in inits],
                       [(v.dtype, v.handle.shape) for v in inits], regions=[body],
                       attrs={"num_stages": r.num_stages} if r.num_stages else {})
@@ -415,51 +520,106 @@ class CodeGenerator:
             self.scope[name] = tensor(res, b)
 
     def loop_carried(self, node, b):
-        """Find the loop-carried variables by running the body once in a
-        throwaway block (Triton does the same dry run)."""
+        """Find the loop-carried variables: the names live into the loop that the body
+        assigns and whose value can change.  The body is run in throwaway blocks with
+        the carried names bound to block-argument placeholders, until the set (and
+        the types) stop changing: one dry run alone misses `a = b; b = 1`, or an
+        update under `if x == 1` while x is still a compile-time number."""
         before = dict(self.scope)
-        saved_block = b.block
-        b.block = ir.Block()
-        self.scope = dict(before)
-        self.scope[node.target.id] = tensor(ir.Value(tl.int32, ()), b)
-        try:
-            self.run_body(node.body)
-        except _Return:
-            raise self.error(node, "return inside a runtime for loop is not supported")
-        finally:
-            b.block = saved_block
-            after = self.scope
-            self.scope = before
-        carried, inits = [], []
-        for name in sorted(before):
-            if name == node.target.id or name not in after:
-                continue
-            old, new = before[name], after[name]
-            if old is new:
-                continue
-            scalar_types = (int, float, bool)
-            if not isinstance(old, tensor) and not isinstance(new, tensor):
-                try:
-                    same = type(old) == type(new) and bool(old == new)
-                except CompilationError:
-                    same = False
-                if same:
+        target = node.target.id
+        names = sorted(n for n in _assigned_names(node.body) if n in before and n != target
+                       and not isinstance(before[n], _Undefined))      # loop-local temps stay local
+        scalar_types = (int, float, bool)
+        types = {}                      # carried name -> (dtype, shape)
+        old_t = before.get(target, _MISSING)
+        carry_target = old_t is not _MISSING and not isinstance(old_t, _Undefined)
+        if carry_target:
+            # after the loop the variable holds its last value (its old one for 0 trips)
+            t = _value_type(old_t)
+            t = t and _join_types(t, (tl.int32, ()))
+            if t is None:
+                raise self.error(node, f"loop variable '{target}' shadows a {type(old_t).__name__} "
+                                       f"value; use another name")
+            types[target] = t
+
+        def dry_run():
+            saved_block = b.block
+            b.block = ir.Block()
+            self.scope = dict(before)
+            for name, (dt, shape) in types.items():
+                self.scope[name] = tensor(ir.Value(dt, shape), b)
+            self.scope[target] = tensor(ir.Value(tl.int32, ()), b)
+            try:
+                self.run_body(node.body)
+            except _Return:
+                raise self.error(node, "return inside a runtime for loop is not supported")
+            finally:
+                b.block = saved_block
+                after = self.scope
+                self.scope = before
+            return after
+
+        # types only widen (bool < int32 < float32, scalar < tile), so this converges
+        for _ in range(4 * len(names) + 4):
+            after = dry_run()
+            changed = False
+            if carry_target:
+                tn = _value_type(after.get(target))
+                t = tn and _join_types(types[target], tn)
+                if t is None:
+                    raise self.error(node, f"loop variable '{target}' is re-assigned a value of "
+                                           f"another type")
+                if t != types[target]:
+                    types[target] = t
+                    changed = True
+            for name in names:
+                old, new = before[name], after.get(name, _MISSING)
+                if new is _MISSING or isinstance(new, _Undefined):
                     continue
-                if not (isinstance(old, scalar_types) and isinstance(new, scalar_types)):
-                    raise self.error(node, f"variable '{name}' ({type(old).__name__}) is re-assigned "
-                                           f"inside a runtime loop; only tensors and numbers can be "
-                                           f"loop-carried")
-            if isinstance(old, tensor):
-                init = old
-            elif isinstance(old, scalar_types):
-                dt = new.dtype if isinstance(new, tensor) else None
-                init = to_tensor(old, b, dt)
-                if dt is not None:
-                    init = tl.cast(init, dt, _builder=b)
-                    if new.handle.shape:
-                        init = tl.broadcast_to(init, new.handle.shape, _builder=b)
-            else:
-                raise self.error(node, f"variable '{name}' ({type(old).__name__}) cannot be loop-carried")
+                if name not in types:
+                    if not isinstance(old, tensor) and not isinstance(new, tensor):
+                        if _same_value(old, new):
+                            continue
+                        if not (isinstance(old, scalar_types) and isinstance(new, scalar_types)):
+                            raise self.error(node, f"variable '{name}' ({type(old).__name__}) is re-assigned "
+                                                   f"inside a runtime loop; only tensors and numbers can be "
+                                                   f"loop-carried")
+                    elif old is new:
+                        continue
+                    if not isinstance(old, (tensor,) + scalar_types):
+                        raise self.error(node, f"variable '{name}' ({type(old).__name__}) cannot be "
+                                               f"loop-carried")
+                tn = _value_type(new)
+                if tn is None:
+                    raise self.error(node, f"loop-carried '{name}' is re-assigned a {type(new).__name__}")
+                if isinstance(old, tensor):
+                    t = (old.dtype, old.handle.shape)
+                    if _join_types(t, tn) != t:          # Triton: a carried tensor keeps its type
+                        raise self.error(node, f"loop-carried '{name}' changes type from "
+                                               f"{t[0]}{list(t[1]) or ''} to {tn[0]}{list(tn[1]) or ''}")
+                else:
+                    t = _join_types(types.get(name) or _value_type(old), tn)
+                    if t is None:
+                        raise self.error(node, f"loop-carried '{name}' has incompatible values "
+                                               f"{types.get(name) or _value_type(old)} and {tn}")
+                if types.get(name) != t:
+                    types[name] = t
+                    changed = True
+            if not changed:
+                break
+        else:
+            raise self.error(node, "internal: loop-carried types did not converge")
+        carried, inits = [], []
+        for name in names + ([target] if carry_target else []):
+            if name not in types:
+                continue
+            dt, shape = types[name]
+            old = before[name]
+            init = old if isinstance(old, tensor) else to_tensor(old, b, dt)
+            if init.dtype != dt:                    # a number, or the loop variable's old value
+                init = tl.cast(init, dt, _builder=b)
+            if shape and init.handle.shape != shape:
+                init = tl.broadcast_to(init, shape, _builder=b)
             carried.append(name)
             inits.append(init)
             self.scope[name] = init
@@ -573,6 +733,11 @@ class CodeGenerator:
         result = None
         for op, comp in zip(node.ops, node.comparators):
             right = _unwrap(self.eval(comp))
+            if isinstance(op, (ast.Is, ast.IsNot)):        # `x is None` is decided at compile time
+                r = (left is right) == isinstance(op, ast.Is)
+                result = r if result is None else (result and r)
+                left = right
+                continue
             if isinstance(left, tensor) or isinstance(right, tensor):
                 if len(node.ops) > 1:
                     raise self.error(node, "chained comparisons on tensors are not supported")

@@ -42,19 +42,26 @@ def _pyfn(kernel):
 
 
 def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stages: int = 2,
-            name: Optional[str] = None, verify: bool = True, store_mutex: bool = True) -> CompiledKernel:
+            name: Optional[str] = None, verify: bool = True, store_mutex: bool = True,
+            grid=None) -> CompiledKernel:
     """Compile a Triton kernel for the VideoCore IV QPU.
 
     signature  -- {arg: "*fp32" | "*i32" | "i32" | "fp32"} for runtime arguments
     constants  -- {arg: value} for tl.constexpr arguments and specialised scalars
     num_stages -- 1 disables software pipelining of loop loads
     store_mutex -- serialise store sequences across QPUs with the hardware mutex
+    grid        -- largest launch grid the kernel will run with (enables range-based
+                   optimisations of program-id arithmetic); None: any grid
     """
     fn = _pyfn(kernel)
     constants = dict(constants or {})
     tile = frontend.generate(fn, signature, constants, name=name)
     asm = {"ttir": tile.dump()}
-    ranges = passes.optimize(tile)
+    pid_max = None
+    if grid is not None:
+        g = tuple(grid) if isinstance(grid, (tuple, list)) else (grid,)
+        pid_max = tuple(max(1, int(x)) - 1 for x in g) + (0,) * (3 - len(g))
+    ranges = passes.optimize(tile, pid_max)
     asm["ttir_opt"] = tile.dump()
     lw = Lowering(tile, ranges, {"num_stages": num_stages, "store_mutex": store_mutex})
     mf = lw.run()

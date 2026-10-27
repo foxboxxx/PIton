@@ -234,6 +234,8 @@ class Lowering:
         self.ranges = ranges
         self.opts = options
         self.mf = mir.Function(fn.name)
+        self.cold_blocks = []
+        self.block_sink = self.mf.blocks
         self.blocks = 0
         self.cur = self.new_block("entry")
         self.env = {}
@@ -256,7 +258,9 @@ class Lowering:
         self.scratch_ptr = None
         self.unif_base = None
         self.region_depth = 0
+        self.loop_cmp_wide = False
         self.row_gap_fits = None
+        self.divcache = {}
         self.in_pipelined_body = False
         self.use_counts = {}
         for o in fn.walk():
@@ -270,8 +274,27 @@ class Lowering:
         b = mir.Block(f"{hint}{self.blocks}" if hint != "entry" else "entry",
                       loop_depth=getattr(self, "loop_depth", 0))
         self.blocks += 1
-        self.mf.blocks.append(b)
+        self.add_block(b)
         return b
+
+    def add_block(self, b: mir.Block):
+        self.block_sink.append(b)
+
+    def begin_cold(self, label):
+        """Start out-of-line code (placed after the program's end): returns the
+        state end_cold() restores."""
+        saved = (self.block_sink, self.cur)
+        self.block_sink = []
+        self.cur = mir.Block(label, loop_depth=self.loop_depth)
+        self.block_sink.append(self.cur)
+        return saved
+
+    def end_cold(self, saved, join_label):
+        self.emit(MInst(kind="branch", bcond="always", target=join_label))
+        for b in self.block_sink:
+            b.cold = True
+        self.cold_blocks.extend(self.block_sink)
+        self.block_sink, self.cur = saved
 
     def emit(self, inst: MInst) -> MInst:
         self.cur.insts.append(inst)
@@ -357,6 +380,14 @@ class Lowering:
         key = (self.cur.label, "s", opname, repr(a), repr(b), is_float)
         if key in self.vcache:
             return self.vcache[key]
+        if opname in ("divs", "rems", "divu", "remu"):
+            # valid while no block was started since (the division ends in its own block)
+            dkey = (opname[-1], repr(a), repr(b))
+            ent = self.divcache.get(dkey)
+            if ent is None or ent[2] is not self.cur:
+                q, r = self.idiv(self.sreg(a), self.operand(b), signed=opname.endswith("s"), ra=ra, rb=rb, cb=b)
+                ent = self.divcache[dkey] = (q, r, self.cur)
+            return S(reg=ent[0] if opname.startswith("div") else ent[1])
         out = self.new("s", is_float)
         self.elementwise(opname, out, self.operand(a), self.operand(b), is_float, signed,
                          ra, rb, a, b)
@@ -460,7 +491,7 @@ class Lowering:
         p0, ah, bh, p1, p2, s = (self.new("m") for _ in range(6))
         self.op("mul24", p0, a, b)
         self.op("shr", ah, a, Imm(_shift_imm(24)))
-        self.op("shr", bh, b, Imm(_shift_imm(24)))
+        self.op("shr", bh, b, self.const_reg(24))      # (b is often long-lived: no small imm)
         self.op("mul24", p1, ah, b)
         self.op("mul24", p2, a, bh)
         self.op("add", s, p1, p2)
@@ -554,13 +585,18 @@ class Lowering:
         return r
 
     def idiv(self, a, b, signed=True, ra=None, rb=None, cb=None):
-        """Integer quotient and remainder (C semantics, |a| < 2**24)."""
+        """Integer quotient and remainder (C semantics, exact for all 32-bit values)."""
         bconst = cb.const if cb is not None and cb.is_const else _imm_const(b)
         a_nonneg = ra is not None and ra[0] >= 0
         if bconst is not None:
             bconst = _wrap(bconst)
             if bconst == 0:
                 raise self.error("division by constant zero")
+            if bconst == 1:
+                q, r = self.new("q"), self.new("r")
+                self.op("mov", q, a)
+                self.op("mov", r, Imm(0))
+                return q, r
             if bconst > 0 and bconst & (bconst - 1) == 0:
                 k = bconst.bit_length() - 1
                 q, r = self.new("q"), self.new("r")
@@ -584,40 +620,34 @@ class Lowering:
         ua, ub = a, b
         sa = sb = None
         if signed_a:
-            sa, x, ua = self.new("sa"), self.new("x"), self.new("ua")
-            self.op("asr", sa, a, Imm(_shift_imm(31)))
+            x, ua = self.new("x"), self.new("ua")
+            sa = self.sign_mask(a)
             self.op("xor", x, a, sa)
             self.op("sub", ua, x, sa)
         if signed_b:
-            sb, x, ub = self.new("sb"), self.new("x"), self.new("ub")
-            self.op("asr", sb, b, Imm(_shift_imm(31)))
-            self.op("xor", x, b, sb)
-            self.op("sub", ub, x, sb)
+            # |b| (and its sign) are shared by consecutive divisions by the same b
+            ent = self.divcache.get(("absb", id(b)))
+            if ent is not None and ent[2] is self.cur:
+                sb, ub = ent[0], ent[1]
+            else:
+                x, ub = self.new("x"), self.new("ub")
+                sb = self.sign_mask(b)
+                self.op("xor", x, b, sb)
+                self.op("sub", ub, x, sb)
         if isinstance(ub, Imm):
             u2 = self.new("ub")
             self.op("mov", u2, ub)
             ub = u2
-        fa, fb = self.new("fa", True), self.new("fb", True)
-        self.op("itof", fa, ua)
-        if bconst is not None:
-            rcp = self.sreg(C(float(np.float32(1.0) / np.float32(abs(bconst))), True))
-        else:
-            self.op("itof", fb, ub)
-            rcp = self.recip_core(fb)      # |b| >= 1: no special values
-        fq, q = self.new("fq", True), self.new("q")
-        self.op("fmul", fq, fa, rcp)
-        self.op("ftoi", q, fq)
-        # r = ua - q*ub, then correct q by +-1
-        qb, r = self.new("qb"), self.new("r")
-        self.op("mul24", qb, q, ub)
-        self.op("sub", r, ua, qb)
-        t = self.new("t")
-        self.op("sub", t, r, ub, setf=True)          # r - ub >= 0 -> too small
-        self.op("add", q, q, Imm(1), cond="ifnn")
-        self.op("mov", r, t, cond="ifnn")
-        self.op("mov", isa.NOP, r, setf=True, unit="add")  # r < 0 -> too big
-        self.op("sub", q, q, Imm(1), cond="ifn")
-        self.op("add", r, r, ub, cond="ifn")
+        ubc = abs(bconst) if bconst is not None else None
+        if not signed and bconst is not None:
+            ubc = bconst & 0xFFFFFFFF
+        ub_max = ubc
+        if ub_max is None and rb is not None and (signed or rb[0] >= 0):
+            ub_max = max(abs(rb[0]), abs(rb[1]))
+        ua_max = max(abs(ra[0]), abs(ra[1])) if ra is not None and (signed or ra[0] >= 0) else None
+        q, r = self.udivmod(ua, ub, ubc, ub_max, ua_max)
+        if signed_b and not isinstance(b, Imm):
+            self.divcache[("absb", id(b))] = (sb, ub, self.cur)
         if signed_a or signed_b:
             sq = self.new("sq")
             if signed_a and signed_b:
@@ -633,6 +663,176 @@ class Lowering:
                 self.op("xor", x2, r, sa)
                 self.op("sub", r2, x2, sa)
                 r = r2
+        return q, r
+
+    def u2f(self, x) -> VReg:
+        """uint32 register -> float, to within 2 ulp (for estimates): values >= 2**31
+        read as negative by itof get 2**32 added.  x is read with no small
+        immediate, so a long-lived x is not tied to regfile A."""
+        d = self.new("u", True)
+        self.op("itof", d, x)
+        self.op("mov", isa.NOP, x, setf=True, unit="add")
+        self.op("fadd", d, d, self.const_reg(0x4F800000), cond="ifn")
+        return d
+
+    def sign_mask(self, x) -> VReg:
+        """-1 where x < 0, else 0 (like asr x, 31 without a small immediate on x)."""
+        m = self.new("sg")
+        self.op("mov", m, Imm(0))
+        self.op("mov", isa.NOP, x, setf=True, unit="add")
+        self.op("mov", m, Imm(-1 & 0xFFFFFFFF), cond="ifn")
+        return m
+
+    def f2u(self, x) -> VReg:
+        """float in [0, 2**32) -> uint32: ftoi keeps the low 32 bits of the truncated
+        value (measured, tools/float_specials_probe.py), so this is one ftoi."""
+        d = self.new("u")
+        self.op("ftoi", d, x)
+        return d
+
+    def udivmod(self, ua, ub, ubc=None, ub_max=None, ua_max=None):
+        """Exact uint32 quotient and remainder (ub != 0; ubc: ub's value if constant;
+        ua_max / ub_max: bounds if known).  Operands below 2**23 (the usual case)
+        take a short sequence, chosen at compile time from the ranges or else by a
+        uniform branch on the values."""
+        small = 1 << 23
+        b_small = ub_max is not None and ub_max < small
+        if ubc is not None:
+            rcp = self.sreg(C(float(np.float32(1.0) / np.float32(ubc)), True))
+        else:
+            # 1 / ub, shared by consecutive divisions by the same register (e.g. the
+            # registers of offs % N); computed before the branch so both paths have it
+            ent = self.divcache.get(("rcp", id(ub)))
+            if ent is not None and ent[1] is self.cur:
+                rcp = ent[0]
+            else:
+                fb = self.new("fb", True)
+                if b_small:
+                    self.op("itof", fb, ub)
+                else:
+                    fb = self.u2f(ub)
+                rcp = self.recip_core(fb)
+        if ua_max is not None and ua_max < small and b_small:
+            q, r = self._udivmod_small(ua, ub, rcp)
+        elif ubc is not None and ubc >= small:
+            q, r = self._udivmod_full(ua, ub, rcp, ubc, ub_max)
+        else:
+            q, r = self._udivmod_branch(ua, ub, rcp, ubc, ub_max, b_small)
+        if ubc is None:
+            self.divcache[("rcp", id(ub))] = (rcp, self.cur)
+        return q, r
+
+    def _udivmod_branch(self, ua, ub, rcp, ubc, ub_max, b_small):
+        t = self.new("t")
+        self.op("or", t, ua, ub)
+        self.op("shr", isa.NOP, t, Imm(_shift_imm(23)), setf=True, unit="add")
+        full_label, done_label = f"div_full{self.blocks}", f"div_done{self.blocks + 1}"
+        self.blocks += 2
+        qo, ro = self.new("q"), self.new("r")
+        self.emit(MInst(kind="branch", bcond="anynz", target=full_label))
+        self.cur = self.new_block("div_small")
+        q, r = self._udivmod_small(ua, ub, rcp)
+        self.op("mov", qo, q)
+        self.op("mov", ro, r)
+        done = mir.Block(done_label, loop_depth=self.loop_depth)
+        self.add_block(done)
+        saved = self.begin_cold(full_label)
+        q, r = self._udivmod_full(ua, ub, rcp, ubc, ub_max)
+        self.op("mov", qo, q)
+        self.op("mov", ro, r)
+        self.end_cold(saved, done_label)
+        self.cur = done
+        return qo, ro
+
+    def _udivmod_small(self, ua, ub, rcp):
+        """ua, ub < 2**23: the float estimate is within a few units, one refinement
+        brings it within one, and the products fit mul24."""
+        fa = self.new("fa", True)
+        self.op("itof", fa, ua)
+        fq, q = self.new("fq", True), self.new("q")
+        self.op("fmul", fq, fa, rcp)
+        self.op("ftoi", q, fq)
+        qb, r1 = self.new("qb"), self.new("r")
+        self.op("mul24", qb, q, ub)
+        self.op("sub", r1, ua, qb)
+        fr, fd, dq, q2 = self.new("fr", True), self.new("fd", True), self.new("dq"), self.new("q")
+        self.op("itof", fr, r1)
+        self.op("fmul", fd, fr, rcp)
+        self.op("ftoi", dq, fd)
+        self.op("add", q2, q, dq)
+        qb, r = self.new("qb"), self.new("r")
+        self.op("mul24", qb, q2, ub)
+        self.op("sub", r, ua, qb)
+        return self._div_correct(q2, r, ub)
+
+    def _div_correct(self, q, r, ub):
+        """r in (-ub, 2 ub): one correction each way."""
+        t = self.new("t")
+        self.op("sub", t, r, ub, setf=True)          # r - ub >= 0 -> too small
+        self.op("add", q, q, Imm(1), cond="ifnn")
+        self.op("mov", r, t, cond="ifnn")
+        self.op("mov", isa.NOP, r, setf=True, unit="add")  # r < 0 -> too big
+        self.op("sub", q, q, Imm(1), cond="ifn")
+        self.op("add", r, r, ub, cond="ifn")
+        return q, r
+
+    def _udivmod_full(self, ua, ub, rcp, ubc=None, ub_max=None):
+        """Any uint32 operands.
+
+        A float estimate q1 of ua / ub is off by at most ~ua * 2**-21 + 2, so
+        R1 = ua - q1 * ub (exact, mod 2**32) is a small signed number while
+        ub < 2**29; q2 = q1 + R1 / ub is then within 1 and a last remainder fixes
+        it.  Divisors >= 2**29 have quotients <= 7: three steps of long division."""
+        fa = self.u2f(ua)
+        sb = C(ubc) if ubc is not None else None
+        fq = self.new("fq", True)
+        self.op("fmul", fq, fa, rcp)
+        q = self.f2u(fq)
+        qb, r1 = self.new("qb"), self.new("r")
+        self.imul(qb, q, ub, None, None, None, sb)
+        self.op("sub", r1, ua, qb)
+        fr, fd, dq, q2 = self.new("fr", True), self.new("fd", True), self.new("dq"), self.new("q")
+        self.op("itof", fr, r1)
+        self.op("fmul", fd, fr, rcp)
+        self.op("ftoi", dq, fd)
+        self.op("add", q2, q, dq)
+        q = q2
+        qb, r = self.new("qb"), self.new("r")
+        self.imul(qb, q, ub, None, None, None, sb)
+        self.op("sub", r, ua, qb)
+        q, r = self._div_correct(q, r, ub)
+        if ub_max is not None and ub_max < 1 << 29:
+            return q, r
+        if ubc is not None and ubc < 1 << 29:
+            return q, r
+        # ub >= 2**29 (quotient <= 7): lanes restart from q = 0, r = ua and run three
+        # steps of long division in place; bit k is set when (r >> k) >= ub, compared
+        # unsigned (no overflow).  Other lanes compare against 0xFFFFFFFF, which no
+        # remainder reaches, so they keep the result above.
+        k31 = self.const_reg(0x80000000)
+        self.op("shr", isa.NOP, ub, self.const_reg(29), setf=True, unit="add")   # no small imm on ub
+        ubm = self.new("bm")
+        self.op("mov", ubm, self.const_reg(0xFFFFFFFF))
+        self.op("mov", ubm, ub, cond="ifnz")
+        self.op("mov", q, Imm(0), cond="ifnz")
+        self.op("mov", r, ua, cond="ifnz")
+        ubf = self.new("bf")
+        self.op("xor", ubf, ubm, k31)
+        for k in (2, 1, 0):
+            sh = r
+            if k:
+                sh = self.new("t")
+                self.op("shr", sh, r, Imm(k))
+            x, m = self.new("t"), self.new("t")
+            self.op("xor", x, sh, k31)
+            self.op("min", m, x, ubf)
+            bk = ubm
+            if k:
+                bk = self.new("t")
+                self.op("shl", bk, ubm, Imm(k))
+            self.op("sub", isa.NOP, m, ubf, setf=True, unit="add")   # min == ub  <=>  (r >> k) >= ub
+            self.op("sub", r, r, bk, cond="ifz")
+            self.op("add", q, q, Imm(1 << k), cond="ifz")
         return q, r
 
     # -- value access ------------------------------------------------------------
@@ -1287,6 +1487,7 @@ class Lowering:
         if self.vdw_pending or self.stats["dma_stores"]:
             self.op("mov", isa.NOP, isa.VW_WAIT)
         self.emit(MInst(ops=[], sig="thrend"))
+        self.mf.blocks.extend(self.cold_blocks)
         entry.insts[0:0] = self.entry_uniform_insts
         return self.mf
 
@@ -1623,7 +1824,8 @@ class Lowering:
                     sv = self.operand(s)
                     regs = [self.scaled(self.reg_of(A.dense, j), s, sv) for j in range(nregs(res.shape))]
                     dense = Dense(res.shape, res.dtype, regs)
-                return Affine(res.shape, res.dtype, self.s_mul(A.base, s, ra, rb),
+                # ra bounds the whole tensor; with a dense term the base alone is not in it
+                return Affine(res.shape, res.dtype, self.s_mul(A.base, s, ra if A.dense is None else None, rb),
                               [self.s_mul(c, s) for c in A.coeffs], dense)
         if A.dense is not None or B.dense is not None:
             return None             # only + - and * by a uniform keep a dense term
@@ -1696,6 +1898,16 @@ class Lowering:
             if sa.is_const and sb.is_const:
                 return Pred("const", (), _cmp_const(pred, sa.const, sb.const))
             a, b = sa, sb
+        if is_float:
+            ca, cb = _float_const(a), _float_const(b)
+            if any(c is not None and math.isnan(c) for c in (ca, cb)):
+                return Pred("const", shape, pred == "une")
+            if ca is not None and cb is not None:
+                return Pred("const", shape, _cmp_const(pred, ca, cb))
+        else:
+            ua, ub = _uniform_scalar(a), _uniform_scalar(b)
+            if ua is not None and ub is not None and ua.is_const and ub.is_const:
+                return Pred("const", shape, _cmp_const(pred, ua.const, ub.const))
         ra, rb = self.rng(op.operands[0]), self.rng(op.operands[1])
         wide = not is_float and pred not in ("eq", "ne") and not _sub_cannot_overflow(ra, rb, pred[0] == "u")
         if wide and pred[0] == "s":
@@ -1705,7 +1917,7 @@ class Lowering:
                 u = _uniform_scalar(other)
                 if known is not None and u is not None and u.reg is not None and \
                         known[1] - known[0] < 2 ** 30:
-                    c = self.clamp_scalar(u, known[0] - 1, known[1] + 1)
+                    c = self.clamp_scalar(u, max(known[0] - 1, -2 ** 31), min(known[1] + 1, 2 ** 31 - 1))
                     if isinstance(other, Splat):
                         c = Splat(other.shape, other.dtype, c)
                     elif isinstance(other, Affine):
@@ -1827,7 +2039,9 @@ class Lowering:
                                lambda c: int(np.trunc(c)) & 0xFFFFFFFF if np.isfinite(c) and c >= 0 else None)
 
     def op_arith_negf(self, op):
-        return self.unary_regs(op, lambda d, x: self.op("fsub", d, Imm(0), x), True, lambda c: -float(c))
+        # flip the sign bit: exact for -0.0 and NaN (0 - x gives +0 and NaN-as-inf)
+        return self.unary_regs(op, lambda d, x: self.op("xor", d, x, self.const_reg(0x80000000)), True,
+                               lambda c: -float(c))
 
     def op_math_absf(self, op):
         return self.unary_regs(op, lambda d, x: self.op("fmaxabs", d, x, x), True, lambda c: abs(float(c)))
@@ -2052,12 +2266,22 @@ class Lowering:
         return self.retype(x, op.result)
 
     def retype(self, x, res):
+        if isinstance(x, Splat):
+            s = self.retype(x.s, res)
+            return Splat(x.shape, res.dtype, s)
         if isinstance(x, S):
+            if x.is_const and x.is_float != res.dtype.is_float:
+                # reinterpret the constant's bits (float constants are python floats)
+                bits = _f2u(x.const) if x.is_float else int(x.const) & 0xFFFFFFFF
+                if res.dtype.is_float:
+                    f = float(np.array(bits, np.uint32).view(np.float32))
+                    if math.isnan(f) and _f2u(f) != bits:
+                        return S(reg=self.const_reg(bits), is_float=True)   # keep a NaN's payload
+                    return C(f, True)
+                return C(_wrap(bits))
             return S(const=x.const, reg=x.reg, is_float=res.dtype.is_float)
         if isinstance(x, Affine):
             return Affine(x.shape, res.dtype, x.base, x.coeffs, x.dense)
-        if isinstance(x, Splat):
-            return Splat(x.shape, res.dtype, x.s)
         if isinstance(x, Dense):
             return Dense(x.shape, res.dtype, x.regs)
         if isinstance(x, Scal):
@@ -2137,8 +2361,7 @@ class Lowering:
             o = other if other is not None else Splat(shape, dtype, C(0, dtype.is_float))
             return self.materialize(o) if not isinstance(o, (Splat, S)) else o
         other_d = None
-        other_zero = other is None or (isinstance(other, (Splat, S)) and
-                                       (other.s if isinstance(other, Splat) else other).const in (0, 0.0))
+        other_zero = other is None or _is_zero(other)      # masked lanes read the zero page
         if need_mask and not other_zero:
             other_d = self.materialize(other)
         for j in range(n):
@@ -2303,17 +2526,14 @@ class Lowering:
             self.cur = self.new_block("store_fast")
             self.row_gap_fits = True
             self._store_versions(layout, dv, bounds, shape)
-            self.dma_wait()
-            self.emit(MInst(kind="branch", bcond="always", target=done_label))
-            slow = mir.Block(slow_label, loop_depth=self.loop_depth)
-            self.mf.blocks.append(slow)
-            self.cur = slow
+            done = mir.Block(done_label, loop_depth=self.loop_depth)
+            self.add_block(done)
+            saved = self.begin_cold(slow_label)
             self.vdw_pending = pending
             self.row_gap_fits = False
             self.store_chunks(layout, dv, bounds if bounds is not None else {})
             self.row_gap_fits = None
-            done = mir.Block(done_label, loop_depth=self.loop_depth)
-            self.mf.blocks.append(done)
+            self.end_cold(saved, done_label)
             self.cur = done
             self.vdw_pending = True
             return None
@@ -2329,18 +2549,20 @@ class Lowering:
         slow_label = f"store_part{self.blocks}"
         done_label = f"store_done{self.blocks + 1}"
         self.blocks += 2
+        pending = self.vdw_pending
         self.emit(MInst(kind="branch", bcond="allnz", target=slow_label))
         self.cur = self.new_block("store_full")
         self.store_chunks(layout, dv, None)
         self.dma_wait()
         self.emit(MInst(kind="branch", bcond="always", target=done_label))
         slow = mir.Block(slow_label, loop_depth=self.loop_depth)
-        self.mf.blocks.append(slow)
+        self.add_block(slow)
         self.cur = slow
+        self.vdw_pending = pending          # the branch skipped the full path's wait
         self.vdw_stride = None
         self.store_chunks(layout, dv, bounds)
         done = mir.Block(done_label, loop_depth=self.loop_depth)
-        self.mf.blocks.append(done)
+        self.add_block(done)
         self.cur = done
         self.vdw_pending = True
         self.vdw_stride = None
@@ -2514,10 +2736,9 @@ class Lowering:
             d = dims[0]
             if not (a.coeffs[d].is_const and a.coeffs[d].const == 1):
                 return None
-            # base + i < b  <=>  i < b - base
-            lim = self.s_sub(bs, a.base)
-            if pred == "sle":
-                lim = self.s_add(lim, C(1))
+            # base + i < b  <=>  i < b - base, as a count in [0, extent] (b - base and
+            # b - base + 1 can exceed 32 bits even when the compare itself cannot overflow)
+            lim = self.bound_count(bs, a.base, shape[d], pred == "sle")
             if d in bounds:
                 lim = self.s_bin("min", bounds[d], lim, False)
             bounds[d] = lim
@@ -2530,6 +2751,29 @@ class Lowering:
                 return None
             out[d] = lim
         return out
+
+    def bound_count(self, b: S, base: S, ext: int, le: bool) -> S:
+        """#{i in [0, ext): base + i < b} (<= b if le) without 32-bit overflow:
+        b - base is read as unsigned where b > base (b >= base)."""
+        if b.is_const and base.is_const:
+            n = int(b.const) - int(base.const) + (1 if le else 0)
+            return C(max(0, min(n, ext)))
+        k = ext - 1 if le else ext
+        d, t, m = self.new("bc"), self.new("bc"), self.new("bc")
+        self.op("sub", d, self.operand(b), self.operand(base))
+        self.op("min", t, d, self.operand(C(k)))
+        self.op("mov", isa.NOP, d, setf=True, unit="add")
+        self.op("mov", t, self.operand(C(k)), cond="ifn")       # unsigned min(d, k)
+        if le:
+            self.op("add", t, t, Imm(1))
+        self.op("min", m, self.operand(b), self.operand(base))
+        if le:   # min(b, base) == base  <=>  b >= base
+            self.op("sub", isa.NOP, m, self.operand(base), setf=True, unit="add")
+            self.op("mov", t, Imm(0), cond="ifnz")
+        else:    # min(b, base) == b  <=>  b <= base
+            self.op("sub", isa.NOP, m, self.operand(b), setf=True, unit="add")
+            self.op("mov", t, Imm(0), cond="ifz")
+        return S(reg=t)
 
     def store_masked_chunk(self, layout, bounds, regs, addr, vdw, row_stride_bytes):
         """DMA a chunk with a runtime number of valid rows / columns."""
@@ -2710,7 +2954,7 @@ class Lowering:
         # whether an earlier guarded DMA ran is only known at run time
         self.vdw_pending = self.vdw_pending or self.stats["dma_stores"] > 0
         body()
-        self.mf.blocks.append(skip)
+        self.add_block(skip)
         self.cur = skip
         self.vdw_pending = True
         self.vdw_stride = None
@@ -2887,6 +3131,8 @@ class Lowering:
         res = op.result
         is_float = res.dtype.is_float
         opname = {"sum": "add", "max": "max", "min": "min"}[kind]
+        if res.dtype.kind == "uint" and kind != "sum":
+            opname += "u"
         if isinstance(x, Splat) and kind in ("max", "min"):
             return x.s if not res.shape else Splat(res.shape, res.dtype, x.s)
         rank = len(src)
@@ -2931,11 +3177,15 @@ class Lowering:
                 self.elementwise(opname, n, cur, self.reg_of(d, j), is_float)
                 cur = n
             if L < LANES:
-                ident = self.identity(kind, is_float)
+                if is_float and kind in ("max", "min"):
+                    # fmin / fmax order +NaN above +inf and -NaN below -inf
+                    pad = self.const_reg(0x7FFFFFFF if kind == "min" else 0xFFFFFFFF)
+                else:
+                    pad = self.operand(self.identity(kind, is_float, unsigned=opname.endswith("u")))
                 t = self.new("rd", is_float)
                 self.op("mov", t, cur)
                 self.op("sub", isa.NOP, isa.ELEM_NUM, self.operand(C(L)), setf=True, unit="add")
-                self.op("mov", t, self.operand(ident), cond="ifnn")
+                self.op("mov", t, pad, cond="ifnn")
                 cur = t
             return S(reg=self.lane_reduce(cur, opname, is_float), is_float=is_float)
         inner, red, outer = numel(src[axis + 1:]), src[axis], numel(src[:axis])
@@ -2988,9 +3238,11 @@ class Lowering:
         srcs = [(at[f // inner][0], at[f // inner][1] + f % inner) for f in range(outer * inner)]
         return self.permute(srcs, res.shape, res.dtype)
 
-    def identity(self, kind, is_float) -> S:
+    def identity(self, kind, is_float, unsigned=False) -> S:
         if kind == "sum":
             return C(0.0 if is_float else 0, is_float)
+        if unsigned:
+            return C(0 if kind == "max" else -1)
         if kind == "max":
             return C(float("-inf"), True) if is_float else C(-2 ** 31)
         return C(float("inf"), True) if is_float else C(2 ** 31 - 1)
@@ -3008,9 +3260,13 @@ class Lowering:
             self.op("mov", rot, src, rot=s, unit="mul")
             # intermediate results are rotation sources (accumulators); the
             # final one is an ordinary value
-            n = self.new("lr", is_float, cls="acc" if s > 1 else "any")
+            n = self.new("lr", is_float, cls="acc" if s > 1 or is_float else "any")
             self.elementwise(opname, n, src, rot, is_float)
             cur = n
+        if is_float:
+            # fmin / fmax ties (+0 / -0) and inf + -inf depend on the operand order, so
+            # lanes can end with different bits: use lane 0's everywhere
+            cur = self.lane_broadcast(cur, 0)
         return cur
 
     def reduce_scal(self, x: Scal, axis, opname, is_float, res):
@@ -3081,10 +3337,18 @@ class Lowering:
     def carried_moves(self, form, kind, newval):
         """(carried register, source) pairs that make `form` hold `newval`."""
         if kind == "affine":
-            if not (isinstance(newval, Affine) and _same_coeffs(newval.coeffs, form.coeffs)
-                    and _same_dense(newval.dense, form.dense)):
-                raise self.error("internal: loop-carried affine value changed its lane structure")
-            return [(form.base.reg, newval.base)]
+            if isinstance(newval, Affine) and _same_coeffs(newval.coeffs, form.coeffs) \
+                    and _same_dense(newval.dense, form.dense):
+                return [(form.base.reg, newval.base)]
+            # _affine_carry_ok proved newval = form + a uniform increment, however the
+            # increment was lowered (e.g. a compare turned into a dense register), so
+            # register 0 of newval - form holds the increment in every lane
+            n0 = self.reg_of(self.materialize(newval), 0)
+            o0 = self.reg_of(self.materialize(form), 0)
+            d, nb = self.new("ci"), self.new("cb")
+            self.op("sub", d, n0, o0)
+            self.op("add", nb, form.base.reg, d)
+            return [(form.base.reg, S(reg=nb))]
         if kind == "scalar":
             return [(form.reg, newval if isinstance(newval, S) else self.scalar_of(newval))]
         if kind == "pred":
@@ -3171,11 +3435,22 @@ class Lowering:
                                                                     "scf.for", "scf.if"))
         stream = self.plan_pipeline(op, forms)
         self.pipelined = {}
-        if stream is not None:
-            stream.prologue(lb, inits)
+        # iv < ub as one subtraction unless iv - ub can overflow (then min(iv, ub) != ub)
+        st_r = self.rng(op.operands[2])
+        iv_r = None
+        if lb_r is not None and ub_r is not None and st_r is not None and st_r[0] > 0:
+            iv_r = (lb_r[0], max(lb_r[1], ub_r[1] - 1 + st_r[1]))
+        wide = self.loop_cmp_wide = not _sub_cannot_overflow(iv_r, ub_r, False)
+        # iv + step can wrap past INT_MAX unless the ranges say otherwise
+        sat = self.iv_saturate = iv_r is None or iv_r[1] > 2 ** 31 - 1
         if not known_nonempty:
-            self.op("sub", isa.NOP, iv, self.operand(ub), setf=True, unit="add")
-            self.emit(MInst(kind="branch", bcond="allnn", target=exit_label))
+            c = self.loop_lt_flags(iv, ub, wide=wide)
+            self.emit(MInst(kind="branch", bcond="allnn" if c == "ifn" else "allz", target=exit_label))
+            self.cur = self.new_block("loop_pre")
+        if stream is not None:
+            stream.wide = wide
+            stream.sat = sat
+            stream.prologue(lb, inits)     # after the zero-trip guard: no speculative loads
         self.loop_depth += 1
         self.region_depth += 1
         loop = self.new_block("loop")
@@ -3201,21 +3476,49 @@ class Lowering:
         for v, (form, copies, kind) in zip(yield_op.operands, forms):
             moves += self.carried_moves(form, kind, self.get(v))
         self.parallel_copy(moves)
-        self.op("add", iv, iv, self.operand(step))
-        self.op("sub", isa.NOP, iv, self.operand(ub), setf=True, unit="add")
-        self.emit(MInst(kind="branch", bcond="anyn", target=loop.label))
+        self.iv_step(iv, iv, step, sat)
+        c = self.loop_lt_flags(iv, ub, wide=wide)      # (an inner loop changed self.loop_cmp_wide)
+        self.emit(MInst(kind="branch", bcond="anyn" if c == "ifn" else "anynz", target=loop.label))
         self.loop_depth -= 1
         self.region_depth -= 1
+        if stream is not None:
+            # the last prefetches (clamped to this iteration) are received on the way
+            # out of the loop, not on the zero-trip path, which issued none
+            self.cur = self.new_block("loop_end")
+            self.tmu.drain()
         exit_blk = mir.Block(exit_label, loop_depth=self.loop_depth)
         self.blocks += 1
-        self.mf.blocks.append(exit_blk)
+        self.add_block(exit_blk)
         self.cur = exit_blk
         self.vdw_pending = self.vdw_pending or has_store
-        if stream is not None:
-            self.tmu.drain()
         self.pipelined = {}
         self.lazy_ok = set()
         return [form for form, _, _ in forms]
+
+    def iv_step(self, dst, iv, step, saturate):
+        """dst = iv + step (step > 0); with saturate, a sum past INT_MAX gives INT_MAX
+        (which is never < ub, so the loop ends instead of wrapping around)."""
+        if not saturate:
+            self.op("add", dst, iv, self.operand(step))
+            return
+        n, t = self.new("ivs"), self.new("ivs")
+        self.op("add", n, iv, self.operand(step))
+        self.op("min", t, n, iv)
+        self.op("sub", isa.NOP, t, iv, setf=True, unit="add")       # n < iv: wrapped
+        self.op("mov", n, self.const_reg(0x7FFFFFFF), cond="ifnz")
+        self.op("mov", dst, n)
+
+    def loop_lt_flags(self, iv, ub, wide=None) -> str:
+        """Set flags for iv < ub; returns the condition that holds when it is true."""
+        if wide is None:
+            wide = self.loop_cmp_wide
+        if not wide:
+            self.op("sub", isa.NOP, iv, self.operand(ub), setf=True, unit="add")
+            return "ifn"
+        t = self.new("lt")
+        self.op("min", t, iv, self.operand(ub))
+        self.op("sub", isa.NOP, t, self.operand(ub), setf=True, unit="add")
+        return "ifnz"
 
     def plan_pipeline(self, op, forms):
         if self.opts.get("num_stages", 2) < 2:
@@ -3227,16 +3530,19 @@ class Lowering:
         if not loads:
             return None
         body_ids = {r.id for o in body.ops for r in o.results} | {a.id for a in body.args}
-        load_ids = {o.result.id for o in loads}
+        yield_of = {a.id: y for a, y in zip(body.args[1:], body.ops[-1].operands)}
 
         def pure_slice(v, seen):
+            """v is computed without loads (or dots, stores, reductions) of this
+            iteration; for a loop-carried value that includes its next value, which
+            the prefetch for the next iteration needs early."""
             if v is None or v.id not in body_ids:
                 return True
             if v.id in seen:
                 return True
             seen.add(v.id)
             if v.op is None:
-                return True
+                return v.id not in yield_of or pure_slice(yield_of[v.id], seen)
             if v.op.name in ("tt.load", "tt.dot", "tt.store", "tt.reduce"):
                 return False
             return all(pure_slice(o, seen) for o in v.op.operands)
@@ -3273,9 +3579,10 @@ class Lowering:
         else_lbl = f"else{self.blocks}"
         end_lbl = f"endif{self.blocks + 1}"
         self.blocks += 2
-        self.emit(MInst(kind="branch", bcond={"ifz": "allnz", "ifnz": "allz", "ifn": "allnn",
-                                              "ifnn": "alln", "always": "never"}.get(c, "allz"),
-                        target=else_lbl))
+        if c != "always":                      # branch to else where the condition fails
+            self.emit(MInst(kind="branch", bcond={"ifz": "allnz", "ifnz": "allz", "ifn": "allnn",
+                                                  "ifnn": "alln", "never": "always"}[c],
+                            target=else_lbl))
         then_blk = self.new_block("then")
         self.cur = then_blk
         self.lower_block(op.regions[0])
@@ -3284,14 +3591,14 @@ class Lowering:
         self._if_assign(outs, op.regions[0].ops[-1])
         self.emit(MInst(kind="branch", bcond="always", target=end_lbl))
         eb = mir.Block(else_lbl, loop_depth=self.loop_depth)
-        self.mf.blocks.append(eb)
+        self.add_block(eb)
         self.cur = eb
         self.lower_block(op.regions[1])
         self.tmu.drain()
         self.dma_wait()
         self._if_assign(outs, op.regions[1].ops[-1])
         end = mir.Block(end_lbl, loop_depth=self.loop_depth)
-        self.mf.blocks.append(end)
+        self.add_block(end)
         self.cur = end
         self.region_depth -= 1
         return tuple(outs) if len(outs) != 1 else (outs[0] if outs else None)
@@ -3513,34 +3820,31 @@ class LoopStream:
         nexts = []
         for arg, yv, (form, copies, kind) in zip(body.args[1:], yield_op.operands, self.forms):
             if arg.id in self.addr_args:
-                nexts.append((arg, form, kind, lw.get(yv)))
+                # (old register, next value) pairs, computed before the flags below
+                moves = lw.carried_moves(form, kind, lw.get(yv))
+                nexts.append((arg, form, kind, [(old, lw.operand(src)) for old, src in moves]))
         iv_next = lw.new("ivn")
-        lw.op("add", iv_next, self.iv, lw.operand(self.step))
-        # flags: N set <=> iv_next < ub (another iteration follows)
-        lw.op("sub", isa.NOP, iv_next, lw.operand(self.ub), setf=True, unit="add")
+        lw.iv_step(iv_next, self.iv, self.step, self.sat)
+        # flags: cond holds <=> iv_next < ub (another iteration follows)
+        cond = lw.loop_lt_flags(iv_next, self.ub, wide=self.wide)
         ivp = lw.new("ivp")
         lw.op("mov", ivp, self.iv)
-        lw.op("mov", ivp, iv_next, cond="ifn")
+        lw.op("mov", ivp, iv_next, cond=cond)
         bindings = {body.args[0].id: S(reg=ivp)}
-        for arg, form, kind, nv in nexts:
-            if kind == "affine" and isinstance(nv, Affine):
-                b = lw.new("pfb")
-                lw.op("mov", b, lw.operand(form.base))
-                lw.op("mov", b, lw.operand(nv.base), cond="ifn")
-                bindings[arg.id] = Affine(nv.shape, nv.dtype, S(reg=b), nv.coeffs, nv.dense)
+        for arg, form, kind, moves in nexts:
+            regs = []
+            for old, new in moves:
+                t = lw.new("pf", old.is_float)
+                lw.op("mov", t, old)
+                lw.op("mov", t, new, cond=cond)
+                regs.append(t)
+            if kind == "affine":
+                bindings[arg.id] = Affine(form.shape, form.dtype, S(reg=regs[0]), form.coeffs, form.dense)
             elif kind == "scalar":
-                b = lw.new("pfs", form.is_float)
-                lw.op("mov", b, lw.operand(form))
-                lw.op("mov", b, lw.operand(nv if isinstance(nv, S) else lw.scalar_of(nv)), cond="ifn")
-                bindings[arg.id] = S(reg=b, is_float=form.is_float)
+                bindings[arg.id] = S(reg=regs[0], is_float=form.is_float)
+            elif kind == "pred":
+                bindings[arg.id] = Pred("dense", form.shape, Dense(form.shape, ir.int1, regs))
             else:
-                d = lw.materialize(nv)
-                regs = []
-                for j, r in enumerate(form.regs):
-                    t = lw.new("pfd")
-                    lw.op("mov", t, r)
-                    lw.op("mov", t, lw.reg_of(d, j if len(d.regs) > 1 else 0), cond="ifn")
-                    regs.append(t)
                 bindings[arg.id] = Dense(form.shape, form.dtype, regs)
         return self.scoped_env(bindings)
 
@@ -3568,8 +3872,11 @@ def _walk_ops(block):
 
 
 def _is_zero(x):
+    """x is the constant with all bits zero (int 0 or +0.0, not -0.0)."""
     s = x.s if isinstance(x, Splat) else x if isinstance(x, S) else None
-    return s is not None and s.is_const and s.const in (0, 0.0)
+    if s is None or not s.is_const:
+        return False
+    return (_f2u(s.const) if s.is_float else int(s.const) & 0xFFFFFFFF) == 0
 
 
 def _same_coeffs(a, b):
@@ -3622,12 +3929,27 @@ def _fits24(r) -> bool:
     return r is not None and r[0] >= 0 and r[1] < (1 << 24)
 
 
+def _fkey(x) -> int:
+    """fmin / fmax order of the QPU (sign-magnitude bits; -0 and denormals count as
+    positive): see the emulator."""
+    bits = int(np.array(x, np.float32).view(np.uint32))
+    m = bits & 0x7FFFFFFF
+    return -m if bits >> 31 and (bits >> 23) & 0xFF else m
+
+
 def _const_op(opname, a, b, is_float):
     if is_float:
+        if opname in ("min", "max"):
+            le = _fkey(a) <= _fkey(b)
+            return float(np.float32(a if le == (opname == "min") else b))
         a, b = np.float32(a), np.float32(b)
         with np.errstate(all="ignore"):
-            return float({"add": a + b, "sub": a - b, "mul": a * b, "div": a / b,
-                          "min": min(a, b), "max": max(a, b)}[opname])
+            return float({"add": a + b, "sub": a - b, "mul": a * b, "div": a / b}[opname])
+    if opname in ("divu", "remu", "maxu", "minu"):
+        ua, ub = int(a) & 0xFFFFFFFF, int(b) & 0xFFFFFFFF
+        r = {"divu": lambda: ua // ub, "remu": lambda: ua % ub,
+             "maxu": lambda: max(ua, ub), "minu": lambda: min(ua, ub)}[opname]()
+        return _wrap(r)
     a, b = _wrap(a), _wrap(b)
     if opname == "add":
         return _wrap(a + b)
@@ -3635,10 +3957,10 @@ def _const_op(opname, a, b, is_float):
         return _wrap(a - b)
     if opname == "mul":
         return _wrap(a * b)
-    if opname in ("divs", "divu"):
+    if opname == "divs":
         q = abs(a) // abs(b)
-        return q if (a >= 0) == (b >= 0) else -q
-    if opname in ("rems", "remu"):
+        return _wrap(q if (a >= 0) == (b >= 0) else -q)
+    if opname == "rems":
         r = abs(a) % abs(b)
         return r if a >= 0 else -r
     if opname == "and":

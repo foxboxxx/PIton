@@ -132,14 +132,16 @@ class Launcher:
         launch_opts = {k: kwargs.pop(k) for k in list(kwargs) if k in ("num_warps", "num_ctas")}
         signature, constants, values = bind(fn, args, kwargs, getattr(self.jitfn, "do_not_specialize", ()))
         constants.update(self.extra_constants)
-        key = (tuple(sorted(signature.items())), tuple(sorted((k, repr(v)) for k, v in constants.items())),
-               num_stages)
-        ck = self.jitfn._cache.get(key)
-        if ck is None:
-            ck = compile(self.jitfn, signature, constants, num_stages=num_stages)
-            self.jitfn._cache[key] = ck
         grid = self.grid(dict(constants, **values)) if callable(self.grid) else self.grid
         grid = tuple(grid) if isinstance(grid, (tuple, list)) else (grid,)
+        # compiled for the grid rounded up to a power of two (program-id ranges)
+        bound = tuple(1 << max(0, int(g) - 1).bit_length() for g in grid)
+        key = (tuple(sorted(signature.items())), tuple(sorted((k, repr(v)) for k, v in constants.items())),
+               num_stages, bound)
+        ck = self.jitfn._cache.get(key)
+        if ck is None:
+            ck = compile(self.jitfn, signature, constants, num_stages=num_stages, grid=bound)
+            self.jitfn._cache[key] = ck
         if device == "emu":
             ck.last_stats = run_emulator(ck, grid, values)
         elif device == "pi":

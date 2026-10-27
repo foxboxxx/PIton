@@ -170,3 +170,29 @@ def test_store_row_strides_hw():
             ref[base + r * stride: base + r * stride + L] = x[r * L:(r + 1) * L]
         np.testing.assert_array_equal(emu[1], ref)
         np.testing.assert_array_equal(hw[1], ref)
+
+
+def test_integer_division_hw():
+    """Exact 32-bit // and % (float estimate + integer refinement) on the Pi."""
+    from test_regressions import idiv_k
+    rng = np.random.default_rng(10)
+    n = 512
+    for U in (0, 1):
+        if U:
+            x = rng.integers(0, 2 ** 32, n, dtype=np.uint64).astype(np.uint32).view(np.int32)
+            y = np.maximum(1, rng.integers(0, 2 ** 32, n, dtype=np.uint64) >> rng.integers(0, 32, n).astype(np.uint64))
+            y = y.astype(np.uint32).view(np.int32)
+        else:
+            x = rng.integers(-2 ** 31, 2 ** 31, n).astype(np.int32)
+            y = np.maximum(1, rng.integers(1, 2 ** 31, n) >> rng.integers(0, 31, n)).astype(np.int32)
+            y *= rng.choice([-1, 1], n).astype(np.int32)
+        emu, hw = _both(idiv_k, (piton.cdiv(n, 64),), lambda: [x.copy(), y.copy(), np.zeros(2 * n, np.int32), n],
+                        U=U, BLOCK=64)
+        np.testing.assert_array_equal(hw[2], emu[2])
+        if U:
+            xu, yu = x.view(np.uint32).astype(np.uint64), y.view(np.uint32).astype(np.uint64)
+            ref = np.concatenate([xu // yu, xu % yu]).astype(np.uint32).view(np.int32)
+        else:
+            q = np.array([abs(int(a)) // abs(int(b)) * (1 if (a >= 0) == (b >= 0) else -1) for a, b in zip(x, y)])
+            ref = np.concatenate([q, x.astype(np.int64) - q * y]).astype(np.int64).astype(np.uint32).view(np.int32)
+        np.testing.assert_array_equal(hw[2], ref)

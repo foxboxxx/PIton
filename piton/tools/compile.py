@@ -137,6 +137,8 @@ def main(argv=None):
     ap.add_argument("--constants", "-c", default="", help="name=value,... constexpr / specialised args")
     ap.add_argument("--out-name", default=None)
     ap.add_argument("--num-stages", type=int, default=2)
+    ap.add_argument("--max-grid", default=None,
+                    help="largest launch grid, e.g. 4096 or 64,64 (enables program-id range optimisations)")
     ap.add_argument("-o", "--out-dir", default=".")
     ap.add_argument("--dump", choices=["ttir", "ttir_opt", "mir", "mir_alloc", "qasm"], action="append",
                     default=[])
@@ -144,7 +146,8 @@ def main(argv=None):
     kernel = _load_kernel(args.path, args.kernel_name)
     sig = _parse_kv(args.signature)
     cons = _parse_kv(args.constants)
-    ck = compiler.compile(kernel, sig, cons, num_stages=args.num_stages)
+    grid = tuple(int(x) for x in args.max_grid.split(",")) if args.max_grid else None
+    ck = compiler.compile(kernel, sig, cons, num_stages=args.num_stages, grid=grid)
     name = args.out_name or args.kernel_name
     os.makedirs(args.out_dir, exist_ok=True)
     with open(os.path.join(args.out_dir, name + ".qasm"), "w") as f:

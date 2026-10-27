@@ -143,6 +143,7 @@ class Block:
     insts: list = field(default_factory=list)
     succs: list = field(default_factory=list)    # labels (filled by Function.cfg)
     loop_depth: int = 0
+    cold: bool = False      # rarely run code, placed after the program's end
 
     def __repr__(self):
         return f"Block({self.label}, {len(self.insts)} insts)"

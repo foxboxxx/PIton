@@ -363,6 +363,46 @@ class Allocator:
                 press[orient[k]] += cov[k]
 
         regs_owner = {"A": [[] for _ in range(32)], "B": [[] for _ in range(32)]}
+        vregs_in = {"A": [[] for _ in range(32)], "B": [[] for _ in range(32)]}
+        phys = {"A": isa.RA, "B": isa.RB}
+
+        def evict_for(v, f):
+            """Free a register of file f for v by moving the values overlapping it
+            there into free registers of the other file (when they may live there:
+            read-port conflicts this creates are fixed by the copy pass)."""
+            g = "B" if f == "A" else "A"
+            for r in range(32):
+                if r in RESERVED:
+                    continue
+                blockers = [u for u in vregs_in[f][r] if _overlap(segs[u], segs[v])]
+                if not blockers or any(g in not_file[u] for u in blockers):
+                    continue
+                taken = defaultdict(list)
+                moves = []
+                for u in blockers:
+                    for r2 in range(32):
+                        if r2 in RESERVED:
+                            continue
+                        if all(not _overlap(segs[u], x) for x in regs_owner[g][r2] + taken[r2]):
+                            taken[r2].append(segs[u])
+                            moves.append((u, r2))
+                            break
+                    else:
+                        break
+                if len(moves) != len(blockers):
+                    continue
+                for u, r2 in moves:
+                    regs_owner[f][r].remove(segs[u])
+                    vregs_in[f][r].remove(u)
+                    regs_owner[g][r2].append(segs[u])
+                    vregs_in[g][r2].append(u)
+                    u.phys = phys[g][r2]
+                regs_owner[f][r].append(segs[v])
+                vregs_in[f][r].append(v)
+                v.phys = phys[f][r]
+                return True
+            return False
+
         hint_map = defaultdict(list)
         for d, s in copy_pairs:
             hint_map[d].append(s)
@@ -384,11 +424,15 @@ class Allocator:
                         continue
                     if all(not _overlap(segs[v], s) for s in owners[r]):
                         owners[r].append(segs[v])
+                        vregs_in[attempt][r].append(v)
                         v.phys = isa.RA[r] if attempt == "A" else isa.RB[r]
                         placed = True
                         break
                 if placed:
                     break
+            if not placed:
+                placed = any(evict_for(v, attempt) for attempt in (f, "B" if f == "A" else "A")
+                             if attempt not in not_file[v])
             if not placed:
                 live = int(max(press["A"].max(), press["B"].max()))
                 raise RegAllocError(f"out of registers (peak pressure ~{live} per file); "

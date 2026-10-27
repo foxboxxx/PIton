@@ -519,6 +519,9 @@ class QPU:
             raise EmulatorError(f"unsupported vw_setup value 0x{v:08x}")
 
     def write_vpm(self, vec: np.ndarray):
+        if self.vdw_busy_until is not None and self.cycle < self.vdw_busy_until:
+            # the DMA reads VPM while it runs (here it copied at start)
+            self.hazard("VPM written while this QPU's VDW DMA may still be reading it")
         horiz, addr, stride = self.vpm_write
         self.v3d.vpm.write_vec(horiz, addr, vec)
         self.vpm_write = (horiz, (addr + stride) & 0xFF, stride)

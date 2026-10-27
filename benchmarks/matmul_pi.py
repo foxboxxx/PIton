@@ -22,8 +22,8 @@ def bench(n, bm, bn, bk, group=4, stages=2, repeats=3):
            "stride_am": "i32", "stride_bk": "i32", "stride_cm": "i32"}
     cons = dict(K=n, stride_ak=1, stride_bn=1, stride_cn=1, BLOCK_SIZE_M=bm, BLOCK_SIZE_N=bn,
                 BLOCK_SIZE_K=bk, GROUP_SIZE_M=group)
-    ck = pc.compile(matmul_kernel, sig, cons, num_stages=stages)
     grid = (piton.cdiv(n, bm) * piton.cdiv(n, bn),)
+    ck = pc.compile(matmul_kernel, sig, cons, num_stages=stages, grid=grid)
     r = bench_matmul_on_pi(ck, n, n, n, grid,
                            {"M": n, "N": n, "stride_am": n, "stride_bk": n, "stride_cm": n},
                            repeats=repeats)

@@ -132,8 +132,8 @@ def _loops(fn):
     for i, b in enumerate(fn.blocks):
         if b.insts and b.insts[-1].kind == "branch":
             t = idx.get(b.insts[-1].target)
-            if t is not None and t <= i:
-                out.append((t, i))
+            if t is not None and t <= i and (fn.blocks[t].cold or not b.cold):
+                out.append((t, i))          # (a cold block returning to hot code is no loop)
     out.sort(key=lambda hl: hl[1] - hl[0])
     return out
 
@@ -155,6 +155,35 @@ def _pure_inst(ins: MInst) -> bool:
         if isinstance(s, isa.Reg) and s not in (isa.ELEM_NUM, isa.QPU_NUM):
             return False
     return True
+
+
+def _same_const_in(blk, ins, all_defs):
+    """A register defined once in blk by the same pure instruction (same constant,
+    or same op on the same operands), if any."""
+    op = ins.ops[0]
+
+    def key(i):
+        o = i.ops[0]
+        if i.kind == "ldi":
+            return ("ldi", i.imm)
+        return ("alu", o.op, tuple(id(x) if isinstance(x, VReg) else repr(x) for x in o.srcs),
+                o.rot, o.unit)
+
+    k = key(ins)
+    for other in blk.insts:
+        if other is ins or other.kind != ins.kind or len(other.ops) != 1 or not _pure_inst(other):
+            continue
+        d = other.ops[0].dst
+        if isinstance(d, VReg) and all_defs[d] == 1 and d.cls == op.dst.cls and key(other) == k:
+            return d
+    return None
+
+
+def _rename(fn, old, new):
+    for b in fn.blocks:
+        for ins in b.insts:
+            for op in ins.ops:
+                op.srcs = [new if x is old else x for x in op.srcs]
 
 
 def licm(fn) -> int:
@@ -192,6 +221,15 @@ def licm(fn) -> int:
                         if all_defs[d] == 1 and d not in seen_uses and \
                                 all(not isinstance(x, VReg) or defs_in[x] == 0 for x in srcs):
                             b.insts.remove(ins)
+                            same = _same_const_in(pre, ins, all_defs)
+                            if same is not None:
+                                # the preheader already loads this constant (blocks inside
+                                # the loop each loaded their own copy): share it
+                                _rename(fn, d, same)
+                                defs_in[d] = 0
+                                hoisted += 1
+                                changed = True
+                                continue
                             pos = len(pre.insts)
                             if pre.insts and pre.insts[-1].kind == "branch":
                                 pos -= 1
