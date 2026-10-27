@@ -44,9 +44,23 @@ Triton tutorial matmul (`examples/kernels.py`), square N×N×N, inputs generated
 | 1024 | 8, 64, 4 | 352 ms | 6.1 |
 
 For scale: the CS240LX GPU lab's hand-written 1-QPU kernel does 128³ in 116 ms (≈0.036 GFLOPS) and
-the ARM1176 ≈0.009 GFLOPS — PIton is ~235× faster than the lab kernel on 128³. Theoretical peak is
-24 GFLOPS (12 QPUs × 16 lanes × fmul+fadd × 62.5 M instr/s); the inner loop is at 65% of the ALU
-peak, so the remaining gap is TMU/memory bandwidth (1024³ no longer fits the 128 KB L2).
+the ARM1176 ≈0.009 GFLOPS — PIton is ~235× faster than the lab kernel on 128³.
+
+Where the time goes (512³, measured on the board):
+
+| experiment | GFLOPS |
+|---|---|
+| theoretical peak: 12 QPUs × 16 lanes × (fmul + fadd) × 62.5 M instr/s | 24 |
+| inner loop alone: 128 MACs in 198 instructions (65%) | 15.6 |
+| same kernel, all loads cache-resident (strides 0) | 14.1 |
+| same kernel, A real but B cache-resident | 12.6–13.1 |
+| real data (default `0x4` bus alias) | 8.7 |
+| real data through the `0x8` alias | 8.2 |
+| real data through the uncached `0xC` alias | < 0.1 |
+
+So the compute side is within 10% of what the instruction schedule allows, and the rest is the
+B-matrix stream through the TMU and L2 (each 8×64 tile reads a 128 KB B panel; GROUP_SIZE_M from
+4 to 64 does not change it). At 1024³ the panels no longer fit at all and throughput drops to 6.1.
 Software pipelining of the K-loop loads is worth ~8% (7.2 → 7.8 GFLOPS at 512³ with `num_stages=1`).
 Accumulation uses the QPU's round-toward-zero adds: at K=1024 the sampled error is ~1e-4 relative.
 
