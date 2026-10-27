@@ -121,6 +121,7 @@ class Pred:
     shape: tuple
     value: object = None    # const bool / predicate name / Dense
     args: list = field(default_factory=list)
+    wide: bool = True       # cmp: x - y may overflow, so compare with min/max
 
 
 def numel(shape) -> int:
@@ -254,6 +255,8 @@ class Lowering:
         self.zero_ptr = None
         self.scratch_ptr = None
         self.unif_base = None
+        self.region_depth = 0
+        self.row_gap_fits = None
         self.in_pipelined_body = False
         self.use_counts = {}
         for o in fn.walk():
@@ -275,6 +278,18 @@ class Lowering:
         return inst
 
     def op(self, name, dst, *srcs, cond="always", setf=False, rot=None, unit="") -> VReg:
+        # one small-immediate field per instruction (a rotation also uses it)
+        imms = [x for x in srcs if isinstance(x, Imm)]
+        if imms and (rot is not None or len({i.value for i in imms}) > 1):
+            keep = None if rot is not None else imms[-1].value
+            fixed = []
+            for x in srcs:
+                if isinstance(x, Imm) and x.value != keep:
+                    t = VReg("im")
+                    self.emit(alu("mov", t, x))
+                    x = t
+                fixed.append(x)
+            srcs = fixed
         # a B-file special register cannot share the B port with a small immediate
         if any(isinstance(x, Imm) for x in srcs) or rot is not None:
             fixed = []
@@ -357,8 +372,7 @@ class Lowering:
                 self.op(simple[opname], dst, a, b)
                 return
             if opname == "div":
-                r = self.recip(b)
-                self.op("fmul", dst, a, r)
+                self.fdiv(dst, a, b)
                 return
             raise self.error(f"float op {opname} not supported")
         simple = {"add": "add", "sub": "sub", "and": "and", "or": "or", "xor": "xor", "shl": "shl",
@@ -374,6 +388,15 @@ class Lowering:
         if opname == "mul":
             self.imul(dst, a, b, ra, rb, sa, sb)
             return
+        if opname in ("maxu", "minu"):
+            # unsigned compare = signed compare with the sign bit flipped
+            k = self.const_reg(0x80000000)
+            x, y, m = self.new("u"), self.new("u"), self.new("u")
+            self.op("xor", x, a, k)
+            self.op("xor", y, b, k)
+            self.op("max" if opname == "maxu" else "min", m, x, y)
+            self.op("xor", dst, m, k)
+            return
         if opname in ("divs", "rems", "divu", "remu"):
             q, r = self.idiv(a, b, signed=opname.endswith("s"), ra=ra, rb=rb, cb=sb)
             self.op("mov", dst, q if opname.startswith("div") else r)
@@ -385,8 +408,18 @@ class Lowering:
         cb = sb.const if sb is not None and sb.is_const else _imm_const(b)
         if ca is not None and cb is None:
             a, b, ca, cb, ra, rb = b, a, cb, ca, rb, ra
+        if isinstance(a, Imm):
+            t = self.new("m")
+            self.op("mov", t, a)
+            a = t
         if cb is not None:
             cb = _wrap(cb)
+            if cb < 0 and cb != -(1 << 31):
+                # x * -c == -(x * c)
+                t = self.new("m")
+                self.imul(t, a, self.operand(C(-cb)), ra, None, None, C(-cb))
+                self.op("sub", dst, Imm(0), t)
+                return
             if cb == 0:
                 self.op("mov", dst, Imm(0))
                 return
@@ -415,9 +448,14 @@ class Lowering:
                 self.op("mul24", dst, a, self.operand(C(cb)))
                 return
             b = self.operand(C(cb))
+            rb = (cb, cb) if cb >= 0 else None
         if _fits24(ra) and _fits24(rb):
             self.op("mul24", dst, a, b)
             return
+        if isinstance(b, Imm):
+            t = self.new("m")
+            self.op("mov", t, b)
+            b = t
         # exact 32-bit product from three 24-bit products
         p0, ah, bh, p1, p2, s = (self.new("m") for _ in range(6))
         self.op("mul24", p0, a, b)
@@ -430,16 +468,9 @@ class Lowering:
         self.op("shl", s2, s, Imm(_shift_imm(24)))
         self.op("add", dst, p0, s2)
 
-    def sfu(self, reg, x) -> VReg:
-        v4 = VReg("sfu", cls="r4")
-        self.emit(MInst(ops=[MOp("mov", reg, [x], unit="any"), MOp("r4def", v4, [], unit="none")],
-                        atomic=True))
-        out = self.new("sf", True)
-        self.op("mov", out, v4)
-        return out
-
     def recip(self, b) -> VReg:
-        """1/b with one Newton-Raphson step (SFU recip is ~22 bits)."""
+        """1/b on the ALUs: integer seed (12% error) and three Newton steps.
+        The SFU's results are not reproducible bit for bit, these are."""
         bc = _imm_const_f(b)
         if bc is not None and bc != 0:
             return self.sreg(C(float(np.float32(1.0) / np.float32(bc)), True))
@@ -447,12 +478,80 @@ class Lowering:
             bb = self.new("d", True)
             self.op("mov", bb, b)
             b = bb
-        r = self.sfu(isa.SFU_RECIP, b)
-        t, e, r2 = self.new("nr", True), self.new("nr", True), self.new("nr", True)
-        self.op("fmul", t, b, r)
-        self.op("fsub", e, Imm(_f2u(2.0)), t)
-        self.op("fmul", r2, r, e)
-        return r2
+        r = self.recip_core(b)
+        eb, sg = self.new("ex"), self.new("ex")
+        self.op("and", eb, b, self.const_reg(0x7F800000))
+        self.op("and", sg, b, self.const_reg(0x80000000))
+        # |b| >= 2**126 (and inf): 1/b is a denormal or 0, flushed to +-0
+        self.op("sub", isa.NOP, eb, self.const_reg(0x7E800000), setf=True, unit="add")
+        self.op("mov", r, sg, cond="ifnn")
+        # +-0 (and denormals, flushed): +-inf
+        si = self.new("ex")
+        self.op("or", si, sg, self.const_reg(0x7F800000))
+        self.op("mov", isa.NOP, eb, setf=True, unit="add")
+        self.op("mov", r, si, cond="ifz")
+        self.keep_nan(r, b)
+        return r
+
+    def recip_core(self, b) -> VReg:
+        """1/b for normal b (no special values)."""
+        r = self.new("nr", True)
+        self.op("sub", r, self.const_reg(0x7EF311C3), b)
+        for _ in range(3):
+            t, e, r2 = self.new("nr", True), self.new("nr", True), self.new("nr", True)
+            self.op("fmul", t, b, r)
+            self.op("fsub", e, Imm(_f2u(2.0)), t)
+            self.op("fmul", r2, r, e)
+            r = r2
+        return r
+
+    def fdiv(self, dst, a, b):
+        """a / b = a * (1 / b).  The QPU multiplier reads NaN as inf and gives
+        0 * inf = +0, so NaN operands, 0 / 0 and inf / inf are set to NaN."""
+        key = ("recip", id(b), self.cur.label)
+        if key not in self.consts or not isinstance(b, VReg):
+            self.consts[key] = self.recip(b)
+        self.op("fmul", dst, a, self.consts[key])
+        if _imm_const_f(a) is not None and _imm_const_f(b) is not None:
+            return
+        ma, mb = self.new("dv"), self.new("dv")
+        for m, x in ((ma, a), (mb, b)):
+            if isinstance(x, Imm):
+                self.op("mov", m, x)
+                self.op("and", m, m, self.const_reg(0x7FFFFFFF))
+            else:
+                self.op("and", m, x, self.const_reg(0x7FFFFFFF))
+        nan = self.const_reg(0x7FC00000)
+        t = self.new("dv")
+        self.op("max", t, ma, mb)
+        self.op("sub", isa.NOP, t, self.const_reg(0x7F800001), setf=True, unit="add")
+        self.op("mov", dst, nan, cond="ifnn")                      # a or b is NaN
+        t = self.new("dv")
+        self.op("or", t, ma, mb)
+        self.op("sub", isa.NOP, t, self.const_reg(0x00800000), setf=True, unit="add")
+        self.op("mov", dst, nan, cond="ifn")                       # 0 / 0 (denormals are 0)
+        t = self.new("dv")
+        self.op("and", t, ma, mb)
+        self.op("sub", isa.NOP, t, self.const_reg(0x7F800000), setf=True, unit="add")
+        self.op("mov", dst, nan, cond="ifnn")                      # inf / inf
+
+    def rsqrt_core(self, x) -> VReg:
+        """1/sqrt(x) for x > 0 normal: integer seed (3.4% error), three Newton steps."""
+        h = self.new("rs")
+        self.op("shr", h, x, Imm(1))
+        r = self.new("rs", True)
+        self.op("sub", r, self.const_reg(0x5F375A86), h)
+        for _ in range(3):
+            # r * (1.5 - 0.5 * (x * r) * r): x * r ~ sqrt(x) and (x * r) * r ~ 1 stay
+            # normal for every normal x (r * r or 0.5 * x would underflow at the ends)
+            t1, t2, t3, t4, r2 = (self.new("rs", True) for _ in range(5))
+            self.op("fmul", t1, x, r)
+            self.op("fmul", t2, t1, r)
+            self.op("fmul", t3, t2, Imm(_f2u(0.5)))
+            self.op("fsub", t4, self.fk(1.5), t3)
+            self.op("fmul", r2, r, t4)
+            r = r2
+        return r
 
     def idiv(self, a, b, signed=True, ra=None, rb=None, cb=None):
         """Integer quotient and remainder (C semantics, |a| < 2**24)."""
@@ -504,7 +603,7 @@ class Lowering:
             rcp = self.sreg(C(float(np.float32(1.0) / np.float32(abs(bconst))), True))
         else:
             self.op("itof", fb, ub)
-            rcp = self.recip(fb)
+            rcp = self.recip_core(fb)      # |b| >= 1: no special values
         fq, q = self.new("fq", True), self.new("q")
         self.op("fmul", fq, fa, rcp)
         self.op("ftoi", q, fq)
@@ -542,8 +641,10 @@ class Lowering:
         if v.id in self.env:
             x = self.env[v.id]
             if isinstance(x, ArgReload):
-                x = self.reload_arg(x)
-                self.env[v.id] = x
+                r = self.reload_arg(x)
+                if self.region_depth == 0:
+                    self.env[v.id] = r       # inside a branch / loop the reload may not dominate
+                return r
             return x
         op = v.op
         if op is not None and op.name not in ("tt.load", "tt.dot", "scf.for", "scf.if", "tt.store") \
@@ -889,14 +990,102 @@ class Lowering:
                 regs.append(self.sreg(elems[0]))
                 continue
             dst = self.new("pk", s.dtype is not None and s.dtype.is_float)
-            self.op("mov", dst, self.operand(elems[0]))
-            for lane in range(1, len(elems)):
-                if elems[lane] is elems[lane - 1]:
-                    pass
-                self.op("sub", isa.NOP, isa.ELEM_NUM, Imm(lane), setf=True)
-                self.op("mov", dst, self.operand(elems[lane]), cond="ifz")
+            groups = {}
+            for lane, e in enumerate(elems):
+                key = ("r", id(e.reg)) if e.reg is not None else ("c", e.const, e.is_float)
+                groups.setdefault(key, (e, []))[1].append(lane)
+            order = sorted(groups.values(), key=lambda g: -len(g[1]))
+            self.op("mov", dst, self.operand(order[0][0]))
+            for e, lanes in order[1:]:
+                cond = self.lane_mask_flags(lanes)
+                self.op("mov", dst, self.operand(e), cond=cond)
             regs.append(dst)
         return Dense(s.shape, s.dtype, regs)
+
+    def lane_mask_flags(self, lanes) -> str:
+        """Set flags so that the returned condition holds on exactly `lanes`:
+        bit 31 - lane of the constant is shifted into the sign bit."""
+        k = 0
+        for lane in lanes:
+            k |= 1 << (31 - lane)
+        self.op("shl", isa.NOP, self.const_reg(k), isa.ELEM_NUM, setf=True, unit="add")
+        return "ifn"
+
+    def permute(self, srcs, shape, dtype) -> Dense:
+        """Gather a tile: element f of the result is lane srcs[f][1] of register
+        srcs[f][0] (None: don't care).  Each output register is built from
+        rotated source registers with masked moves, so only the source and
+        result registers are live (to_scal would hold one register per element)."""
+        is_float = dtype is not None and dtype.is_float
+        n = numel(shape)
+        regs = []
+        for J in range(nregs(shape)):
+            groups = {}
+            elems = set()
+            for lane in range(LANES):
+                f = J * LANES + lane
+                if f >= n:
+                    break
+                if srcs[f] is None:
+                    continue
+                r, l = srcs[f]
+                elems.add((id(r), l))
+                groups.setdefault((id(r), (lane - l) % LANES), (r, []))[1].append(lane)
+            if not groups:
+                regs.append(self.sreg(C(0.0 if is_float else 0, is_float)))
+                continue
+            if len(elems) == 1 and len(groups) > 1:
+                (r, l), = [srcs[f] for f in range(J * LANES, min(n, J * LANES + LANES))
+                           if srcs[f] is not None][:1]
+                regs.append(self.lane_broadcast(r, l))
+                continue
+            # group by source register so its accumulator copy is short-lived
+            order = sorted(groups.items(), key=lambda kv: (kv[0][0], -len(kv[1][1])))
+            first = max(range(len(order)), key=lambda i: len(order[i][1][1]))
+            order = [order[first]] + order[:first] + order[first + 1:]
+            dst = self.new("pm", is_float)
+            accs = {}
+            for i, ((rid, rot), (r, lanes)) in enumerate(order):
+                src = r
+                if rot:
+                    if r.cls != "acc":
+                        if rid not in accs:
+                            t = self.new("pa", is_float, cls="acc")
+                            self.op("mov", t, r)
+                            accs[rid] = t
+                        src = accs[rid]
+                if i == 0:
+                    self.op("mov", dst, src, rot=rot or None, unit="mul" if rot else "")
+                else:
+                    cond = self.lane_mask_flags(lanes)
+                    self.op("mov", dst, src, rot=rot or None, unit="mul" if rot else "", cond=cond)
+            regs.append(dst)
+        return Dense(shape, dtype, regs)
+
+    def permute_dense(self, d: Dense, shape, src_of) -> Dense:
+        """permute() with sources given as flat element indices of d."""
+        srcs = []
+        for g in src_of:
+            if g is None:
+                srcs.append(None)
+                continue
+            j, l = divmod(g, LANES)
+            srcs.append((self.reg_of(d, j), l))
+        return self.permute(srcs, shape, d.dtype)
+
+    def row_reg(self, d: Dense, r: int, n: int) -> VReg:
+        """Register holding row r of a [*, n] tile (n < 16) in lanes 0..n-1."""
+        j, l = divmod(r * n, LANES)
+        src = self.reg_of(d, j)
+        if l == 0:
+            return src
+        if src.cls != "acc":
+            t = self.new("ra", src.is_float, cls="acc")
+            self.op("mov", t, src)
+            src = t
+        out = self.new("row", src.is_float)
+        self.op("mov", out, src, rot=LANES - l, unit="mul")
+        return out
 
     # -- predicates ---------------------------------------------------------------
 
@@ -926,6 +1115,8 @@ class Lowering:
             return "always" if p.value else "never"
         if p.kind == "cmp":
             pred, a, b, is_float = p.value
+            if is_float:
+                return self.float_cmp_flags(pred, a, b, j)
             x = self.pred_elem_operands(a, j)
             y = self.pred_elem_operands(b, j)
             if pred in ("ult", "ule", "ugt", "uge"):
@@ -939,6 +1130,13 @@ class Lowering:
                 t = self.new("c")
                 self.op("mov", t, x)
                 x = t
+            if p.wide and base in ("lt", "gt", "ge", "le"):
+                # x - y may overflow; with x, y swapped for gt/le the question is
+                # x < y (lt, gt) or x >= y (ge, le), i.e. min(x, y) != y or == y
+                t = self.new("c")
+                self.op("min", t, x, y)
+                self.op("sub", isa.NOP, t, y, setf=True, unit="add")
+                return "ifnz" if base in ("lt", "gt") else "ifz"
             self.op(op, isa.NOP, x, y, setf=True, unit="add")
             if base in ("lt", "gt"):
                 return "ifn"
@@ -950,6 +1148,74 @@ class Lowering:
         m = self.pred_mask(p, j)
         self.op("mov", isa.NOP, m, setf=True, unit="add")
         return "ifnz"
+
+    def float_cmp_flags(self, pred, a, b, j) -> str:
+        """IEEE float compare (olt/ole/ogt/oge/oeq/une) of register j.
+
+        fsub-based flags are wrong for NaN (its sign decides), inf - inf, -0 vs
+        +0 and differences that flush to zero, so floats are compared as
+        sign-magnitude integers: key = m for x >= 0 and -m for x < 0, where
+        m = bits & 0x7FFFFFFF (+0 and -0 both get key 0), and x is NaN iff
+        m > 0x7F800000."""
+        ca, cb = _float_const(a), _float_const(b)
+        if pred in ("ogt", "oge"):
+            a, b, ca, cb = b, a, cb, ca
+            pred = "olt" if pred == "ogt" else "ole"
+        if (ca is not None and math.isnan(ca)) or (cb is not None and math.isnan(cb)):
+            return "always" if pred == "une" else "never"
+        # ==/!= against a normal constant: x - c is exact (or NaN / inf) there
+        if pred in ("oeq", "une") and (ca is None) != (cb is None):
+            c = ca if cb is None else cb
+            if math.isfinite(c) and abs(c) >= 2.0 ** -100:
+                x = self.pred_elem_operands(a if ca is None else b, j)
+                self.op("fsub", isa.NOP, x, self.operand(C(c, True)), setf=True, unit="add")
+                return "ifz" if pred == "oeq" else "ifnz"
+        mags, keys = [], []
+        for v, c in ((a, ca), (b, cb)):
+            if c is not None:
+                bits = int(np.float32(c).view(np.uint32))
+                m = bits & 0x7FFFFFFF
+                keys.append(C(-m if bits >> 31 else m))
+                continue
+            x = self.pred_elem_operands(v, j)
+            m = self.new("fm")
+            self.op("and", m, x, self.const_reg(0x7FFFFFFF))
+            sg = self.new("fs")
+            self.op("asr", sg, x, Imm(_shift_imm(31)))
+            t = self.new("fk")
+            self.op("xor", t, m, sg)
+            k = self.new("fk")
+            self.op("sub", k, t, sg)
+            mags.append(m)
+            keys.append(S(reg=k))
+        if len(mags) == 2:
+            mm = self.new("fm")
+            self.op("max", mm, mags[0], mags[1])
+        else:
+            mm = mags[0]
+        kx, ky = (self.operand(k) for k in keys)
+        if pred == "olt":
+            # min(kx, ky) != ky  <=>  kx < ky; masked with "ordered" (-1 / 0)
+            o = self.new("fo")
+            self.op("sub", o, mm, self.const_reg(0x7F800001))
+            self.op("asr", o, o, Imm(_shift_imm(31)))
+            t = self.new("fc")
+            self.op("min", t, kx, ky)
+            self.op("sub", t, t, ky)
+            self.op("and", isa.NOP, t, o, setf=True, unit="add")
+            return "ifnz"
+        # unordered: 1 / 0
+        u = self.new("fu")
+        self.op("sub", u, self.const_reg(0x7F800000), mm)
+        self.op("shr", u, u, Imm(_shift_imm(31)))
+        t = self.new("fc")
+        if pred == "ole":
+            self.op("max", t, kx, ky)          # max(kx, ky) == ky  <=>  kx <= ky
+            self.op("sub", t, t, ky)
+        else:
+            self.op("sub", t, kx, ky)
+        self.op("or", isa.NOP, t, u, setf=True, unit="add")
+        return "ifnz" if pred == "une" else "ifz"
 
     def flip_sign(self, x):
         v = self.new("u")
@@ -1030,8 +1296,11 @@ class Lowering:
         if self.pid_late.get(axis):
             # re-read instead of keeping the id live across loops
             idx = self.uniforms.index(("pid", f"pid{axis}"))
+            reg = self.reload_arg(ArgReload(idx)).reg
+            if self.region_depth > 0:
+                return S(reg=reg)
             self.pid_late[axis] = False
-            self.pid_regs[axis] = self.reload_arg(ArgReload(idx)).reg
+            self.pid_regs[axis] = reg
         return S(reg=self.pid_regs[axis])
 
     def _uses_pid(self, op) -> bool:
@@ -1171,7 +1440,7 @@ class Lowering:
                 return Pred("const", shape, x.value)
             if x.kind == "cmp":
                 pred, a, b, f = x.value
-                return Pred("cmp", shape, (pred, self.reshape_val(a, shape, insert_axis) or self.materialize(a),
+                return Pred("cmp", shape, wide=x.wide, value=(pred, self.reshape_val(a, shape, insert_axis) or self.materialize(a),
                                            self.reshape_val(b, shape, insert_axis) or self.materialize(b), f))
             if x.kind in ("and", "or", "not"):
                 return Pred(x.kind, shape, None, [self.reshape_val(a, shape, insert_axis) for a in x.args])
@@ -1218,7 +1487,8 @@ class Lowering:
                 return Pred("const", shape, x.value)
             if x.kind == "cmp":
                 pred, a, b, f = x.value
-                return Pred("cmp", shape, (pred, self.broadcast(a, src, shape), self.broadcast(b, src, shape), f))
+                return Pred("cmp", shape, (pred, self.broadcast(a, src, shape), self.broadcast(b, src, shape), f),
+                            wide=x.wide)
             if x.kind in ("and", "or", "not"):
                 return Pred(x.kind, shape, None, [self.broadcast(a, src, shape) for a in x.args])
             return Pred("dense", shape, self.broadcast(x.value, src, shape))
@@ -1233,9 +1503,14 @@ class Lowering:
                 fs = sum((i if s_ != 1 else 0) * st for i, s_, st in zip(idx, src, st_src))
                 regs.append(x.regs[fs // LANES])
             return Dense(shape, x.dtype, regs)
-        # data broadcast: go through per-element scalars
-        s = self.to_scal(x)
         st_src = strides(src)
+        if not isinstance(x, (Scal, Splat, S)) and numel(src) > LANES:
+            d = self.materialize(x)
+            src_of = [sum((i if s_ != 1 else 0) * st for i, s_, st in zip(idx, src, st_src))
+                      for idx in np.ndindex(*shape)]
+            return self.permute_dense(d, shape, src_of)
+        # data broadcast of a few elements: go through per-element scalars
+        s = self.to_scal(x)
         elems = []
         for idx in np.ndindex(*shape):
             f = sum((i if s_ != 1 else 0) * st for i, s_, st in zip(idx, src, st_src))
@@ -1250,6 +1525,9 @@ class Lowering:
             return Affine(shape, x.dtype, x.base, [x.coeffs[1], x.coeffs[0]])
         if isinstance(x, (Splat, S)):
             return Splat(shape, op.result.dtype, x if isinstance(x, S) else x.s)
+        if not isinstance(x, Scal):
+            d = self.materialize(x)
+            return self.permute_dense(d, shape, [i * n + j for j in range(n) for i in range(m)])
         s = self.to_scal(x)
         elems = [s.elems[i * n + j] for j in range(n) for i in range(m)]
         return Scal(shape, s.dtype, elems)
@@ -1260,7 +1538,7 @@ class Lowering:
                 "arith.ori": "or", "arith.xori": "xor", "arith.shli": "shl", "arith.shrsi": "shrs",
                 "arith.shrui": "shru", "arith.minsi": "min", "arith.maxsi": "max",
                 "arith.divsi": "divs", "arith.remsi": "rems", "arith.divui": "divu",
-                "arith.remui": "remu"}
+                "arith.remui": "remu", "arith.maxui": "maxu", "arith.minui": "minu"}
     _FLT_BIN = {"arith.addf": "add", "arith.subf": "sub", "arith.mulf": "mul", "arith.divf": "div",
                 "arith.minimumf": "min", "arith.maximumf": "max"}
 
@@ -1337,6 +1615,7 @@ class Lowering:
         if kind == "mul":
             if isinstance(a, Splat) or (all(c.is_const and c.const == 0 for c in A.coeffs) and A.dense is None):
                 A, B = B, A
+                ra, rb = rb, ra
             if all(c.is_const and c.const == 0 for c in B.coeffs) and B.dense is None:
                 s = B.base
                 dense = None
@@ -1346,7 +1625,10 @@ class Lowering:
                     dense = Dense(res.shape, res.dtype, regs)
                 return Affine(res.shape, res.dtype, self.s_mul(A.base, s, ra, rb),
                               [self.s_mul(c, s) for c in A.coeffs], dense)
-        if kind == "shl" and all(c.is_const and c.const == 0 for c in B.coeffs) and B.base.is_const:
+        if A.dense is not None or B.dense is not None:
+            return None             # only + - and * by a uniform keep a dense term
+        if kind == "shl" and all(c.is_const and c.const == 0 for c in B.coeffs) and B.base.is_const \
+                and 0 <= B.base.const < 31:
             k = 1 << B.base.const
             return Affine(res.shape, res.dtype, self.s_mul(A.base, C(k)), [self.s_mul(c, C(k)) for c in A.coeffs])
         if all(c.is_const and c.const == 0 for c in A.coeffs + B.coeffs):
@@ -1414,7 +1696,33 @@ class Lowering:
             if sa.is_const and sb.is_const:
                 return Pred("const", (), _cmp_const(pred, sa.const, sb.const))
             a, b = sa, sb
-        return Pred("cmp", shape, (pred, a, b, is_float))
+        ra, rb = self.rng(op.operands[0]), self.rng(op.operands[1])
+        wide = not is_float and pred not in ("eq", "ne") and not _sub_cannot_overflow(ra, rb, pred[0] == "u")
+        if wide and pred[0] == "s":
+            # x in [lo, hi] against a uniform y: x < y <=> x < clamp(y, lo - 1, hi + 1)
+            # (same for <=, >, >=), and then x - y cannot overflow
+            for known, other, i in ((ra, b, 1), (rb, a, 0)):
+                u = _uniform_scalar(other)
+                if known is not None and u is not None and u.reg is not None and \
+                        known[1] - known[0] < 2 ** 30:
+                    c = self.clamp_scalar(u, known[0] - 1, known[1] + 1)
+                    if isinstance(other, Splat):
+                        c = Splat(other.shape, other.dtype, c)
+                    elif isinstance(other, Affine):
+                        c = Affine(other.shape, other.dtype, c, other.coeffs)
+                    a, b = (a, c) if i == 1 else (c, b)
+                    wide = False
+                    break
+        return Pred("cmp", shape, (pred, a, b, is_float), wide=wide)
+
+    def clamp_scalar(self, x: S, lo: int, hi: int) -> S:
+        key = ("clamp", id(x.reg), lo, hi, self.cur.label)
+        if key not in self.consts:
+            t = self.new("cl")
+            self.op("max", t, x.reg, self.operand(C(lo)))
+            self.op("min", t, t, self.operand(C(hi)))
+            self.consts[key] = t
+        return S(reg=self.consts[key])
 
     def op_arith_select(self, op):
         c = self.as_pred(self.get(op.operands[0]))
@@ -1430,9 +1738,12 @@ class Lowering:
         regs = []
         for j in range(n):
             dst = self.new("sel", is_float)
-            self.op("mov", dst, self.reg_of(dy, j if len(dy.regs) > 1 else 0))
+            # resolve both operands first: a pending masked load sets flags itself
+            xj = self.reg_of(dx, j if len(dx.regs) > 1 else 0)
+            yj = self.reg_of(dy, j if len(dy.regs) > 1 else 0)
+            self.op("mov", dst, yj)
             cond = self.set_flags(c, j)
-            self.op("mov", dst, self.reg_of(dx, j if len(dx.regs) > 1 else 0), cond=cond)
+            self.op("mov", dst, xj, cond=cond)
             regs.append(dst)
         if not res.shape:
             return S(reg=regs[0], is_float=is_float)
@@ -1440,9 +1751,17 @@ class Lowering:
             return Pred("dense", res.shape, Dense(res.shape, ir.int1, regs))
         return Dense(res.shape, res.dtype, regs)
 
-    def unary_regs(self, op, fn, is_float):
+    def unary_regs(self, op, fn, is_float, const_fn=None):
         x = self.get(op.operands[0])
         res = op.result
+        cs = x if isinstance(x, S) else (x.s if isinstance(x, Splat) else None)
+        if const_fn is not None and cs is not None and cs.is_const:
+            v = const_fn(cs.const)
+            if v is not None:
+                c = C(v, is_float)
+                return c if not res.shape else Splat(res.shape, res.dtype, c)
+        if isinstance(x, Scal) and numel(x.shape) > LANES:
+            x = self.pack(x)
         if not res.shape:
             s = self.scalar(op.operands[0])
             dst = self.new("u", is_float)
@@ -1472,57 +1791,219 @@ class Lowering:
         return Dense(res.shape, res.dtype, regs)
 
     def op_arith_sitofp(self, op):
-        return self.unary_regs(op, lambda d, x: self.op("itof", d, x), True)
+        return self.unary_regs(op, lambda d, x: self.op("itof", d, x), True,
+                               lambda c: float(np.float32(_wrap(c))))
 
     def op_arith_uitofp(self, op):
-        return self.unary_regs(op, lambda d, x: self.op("itof", d, x), True)
+        def f(d, x):
+            # itof is signed: for values >= 2**31 convert (x >> 1 | x & 1) and double
+            h, l, f2 = self.new("u"), self.new("u"), self.new("u", True)
+            self.op("shr", h, x, Imm(1))
+            self.op("and", l, x, Imm(1))
+            self.op("or", h, h, l)
+            self.op("itof", f2, h)
+            self.op("fadd", f2, f2, f2)
+            self.op("itof", d, x)
+            self.op("mov", isa.NOP, x, setf=True, unit="add")
+            self.op("mov", d, f2, cond="ifn")
+        return self.unary_regs(op, f, True, lambda c: float(np.float32(int(c) & 0xFFFFFFFF)))
 
     def op_arith_fptosi(self, op):
-        return self.unary_regs(op, lambda d, x: self.op("ftoi", d, x), False)
+        return self.unary_regs(op, lambda d, x: self.op("ftoi", d, x), False,
+                               lambda c: int(np.trunc(np.clip(c, -2**31, 2**31 - 1))) if np.isfinite(c) else None)
 
-    op_arith_fptoui = op_arith_fptosi
+    def op_arith_fptoui(self, op):
+        def f(d, x):
+            # ftoi is signed and saturates: values >= 2**31 go through x - 2**31
+            two31 = self.const_reg(0x4F000000)
+            g, gi = self.new("u", True), self.new("u")
+            self.op("fsub", g, x, two31)
+            self.op("ftoi", gi, g)
+            self.op("xor", gi, gi, self.const_reg(0x80000000))
+            self.op("ftoi", d, x)
+            self.op("fsub", isa.NOP, x, two31, setf=True, unit="add")
+            self.op("mov", d, gi, cond="ifnn")
+        return self.unary_regs(op, f, False,
+                               lambda c: int(np.trunc(c)) & 0xFFFFFFFF if np.isfinite(c) and c >= 0 else None)
 
     def op_arith_negf(self, op):
-        return self.unary_regs(op, lambda d, x: self.op("fsub", d, Imm(0), x), True)
+        return self.unary_regs(op, lambda d, x: self.op("fsub", d, Imm(0), x), True, lambda c: -float(c))
 
     def op_math_absf(self, op):
-        return self.unary_regs(op, lambda d, x: self.op("fmaxabs", d, x, x), True)
+        return self.unary_regs(op, lambda d, x: self.op("fmaxabs", d, x, x), True, lambda c: abs(float(c)))
 
     def op_math_absi(self, op):
+        if op.result.dtype == ir.uint32:
+            return self.get(op.operands[0])
         def f(d, x):
             n = self.new("n")
             self.op("sub", n, Imm(0), x)
             self.op("max", d, x, n)
-        return self.unary_regs(op, f, False)
+        return self.unary_regs(op, f, False, lambda c: abs(_wrap(c)))
 
-    def _sfu_unary(self, op, reg, pre=None, post=None):
-        def f(d, x):
-            if pre is not None:
-                t = self.new("p", True)
-                self.op("fmul", t, x, self.operand(C(pre, True)))
-                x = t
-            if isinstance(x, Imm):
+    # exp / log run on the ALUs: the SFU gives ~13 bits (tools/probes.py) and
+    # its exact results are unknown, while these sequences are ~22 bits and
+    # deterministic, so the emulator reproduces the hardware bit for bit.
+
+    def fk(self, v: float):
+        """Operand for a float constant (small immediate or constant register)."""
+        return self.operand(C(float(np.float32(v)), True))
+
+    def _exp_core(self, d, x, base2: bool):
+        """d = 2**x (base2) or e**x: x = n*ln2 + r with |r| <= ln2/2, then a
+        degree-6 polynomial for e**r scaled by 2**n built in the exponent bits."""
+        f = lambda: self.new("ex", True)
+        i = lambda: self.new("ex")
+        xc = f()
+        self.op("fmin", xc, x, self.fk(128.0 if base2 else 89.0))
+        self.op("fmax", xc, xc, self.fk(-150.0 if base2 else -104.0))
+        y = xc
+        if not base2:
+            y = f()
+            self.op("fmul", y, xc, self.fk(1.4426950408889634))
+        half = i()                                    # +-0.5 with the sign of y
+        self.op("and", half, y, self.const_reg(0x80000000))
+        self.op("or", half, half, self.const_reg(0x3F000000))
+        t = f()
+        self.op("fadd", t, y, half)
+        n = i()
+        self.op("ftoi", n, t)                         # round to nearest
+        nf = f()
+        self.op("itof", nf, n)
+        r = f()
+        if base2:
+            self.op("fsub", r, xc, nf)                # exact
+            self.op("fmul", r, r, self.fk(0.6931471805599453))
+        else:
+            t1, t2 = f(), f()
+            self.op("fmul", t1, nf, self.fk(0.693145751953125))   # ln2 high part: exact product
+            self.op("fsub", t2, xc, t1)
+            self.op("fmul", t1, nf, self.fk(1.428606765330187e-06))
+            self.op("fsub", r, t2, t1)
+        p = f()
+        self.op("fmul", p, r, self.fk(1.0 / 720))
+        for c in (1.0 / 120, 1.0 / 24, 1.0 / 6, 0.5, 1.0):
+            q = f()
+            self.op("fadd", q, p, self.fk(c))
+            p = f()
+            self.op("fmul", p, q, r)
+        q = f()
+        self.op("fadd", q, p, self.fk(1.0))
+        # q * 2**n with n clamped to [-127, 127] (2**-127 is built as 0.0); n = 128
+        # (results near FLT_MAX) moves one factor 2 into q's exponent
+        nc = i()
+        self.op("max", nc, n, self.operand(C(-127)))
+        self.op("min", nc, nc, self.operand(C(127)))
+        c = i()
+        self.op("sub", c, n, nc)
+        self.op("shl", c, c, Imm(_shift_imm(23)))
+        q2 = f()
+        self.op("add", q2, q, c)
+        self.op("add", nc, nc, self.operand(C(127)))
+        self.op("shl", nc, nc, Imm(_shift_imm(23)))
+        self.op("fmul", d, q2, nc)
+        # overflow: round-toward-zero multiplies saturate at FLT_MAX, so set inf
+        # explicitly (from 2**128, or e**x above the largest finite float32 result)
+        if base2:
+            self.op("fsub", isa.NOP, x, self.fk(128.0), setf=True, unit="add")
+            self.op("mov", d, self.const_reg(0x7F800000), cond="ifnn")
+        else:
+            self.op("fsub", isa.NOP, self.const_reg(0x42B17217), x, setf=True, unit="add")
+            self.op("mov", d, self.const_reg(0x7F800000), cond="ifn")
+        self.keep_nan(d, x)
+
+    def keep_nan(self, d, x):
+        """d = x where x is NaN."""
+        m = self.new("nan")
+        self.op("and", m, x, self.const_reg(0x7FFFFFFF))
+        self.op("sub", isa.NOP, m, self.const_reg(0x7F800001), setf=True, unit="add")
+        self.op("mov", d, x, cond="ifnn")
+
+    def _log_core(self, d, x, base2: bool):
+        """x = 2**e * m with m in [sqrt(1/2), sqrt(2)); ln m = 2 atanh(s),
+        s = (m - 1) / (m + 1), as an odd polynomial in s."""
+        f = lambda: self.new("lg", True)
+        i = lambda: self.new("lg")
+        e = i()
+        self.op("shr", e, x, Imm(_shift_imm(23)))
+        self.op("and", e, e, self.const_reg(0xFF))
+        mb = i()
+        self.op("and", mb, x, self.const_reg(0x007FFFFF))
+        self.op("or", mb, mb, self.const_reg(0x3F800000))  # m in [1, 2)
+        self.op("sub", isa.NOP, mb, self.const_reg(0x3FB504F3), setf=True, unit="add")
+        m = f()
+        self.op("mov", m, mb)
+        self.op("fmul", m, mb, Imm(_f2u(0.5)), cond="ifnn")
+        self.op("sub", e, e, self.operand(C(126)), cond="ifnn")
+        self.op("sub", e, e, self.operand(C(127)), cond="ifn")
+        num, den = f(), f()
+        self.op("fsub", num, m, self.fk(1.0))
+        self.op("fadd", den, m, self.fk(1.0))
+        # 1/den, den in [1.707, 2.415): linear minimax guess (1.5% error), two Newton steps
+        t = f()
+        self.op("fmul", t, den, self.fk(0.2390158))
+        rd = f()
+        self.op("fsub", rd, self.fk(0.9850641), t)
+        for _ in range(2):
+            u, v, w = f(), f(), f()
+            self.op("fmul", u, den, rd)
+            self.op("fsub", v, self.fk(2.0), u)
+            self.op("fmul", w, rd, v)
+            rd = w
+        sv = f()
+        self.op("fmul", sv, num, rd)
+        s2 = f()
+        self.op("fmul", s2, sv, sv)
+        p = f()
+        self.op("fmul", p, s2, self.fk(1.0 / 9))
+        for c in (1.0 / 7, 1.0 / 5, 1.0 / 3):
+            q = f()
+            self.op("fadd", q, p, self.fk(c))
+            p = f()
+            self.op("fmul", p, q, s2)
+        q = f()
+        self.op("fadd", q, p, self.fk(1.0))
+        lm = f()
+        self.op("fmul", lm, q, sv)
+        ef = f()
+        self.op("itof", ef, e)
+        if base2:
+            self.op("fmul", lm, lm, self.fk(2.0 * 1.4426950408889634))
+            self.op("fadd", d, lm, ef)
+        else:
+            self.op("fmul", lm, lm, Imm(_f2u(2.0)))
+            self.op("fmul", ef, ef, self.fk(0.6931471805599453))
+            self.op("fadd", d, lm, ef)
+        # specials: inf / NaN -> x; x < 0 -> NaN; +-0 (and denormals, flushed) -> -inf
+        eb = i()
+        self.op("and", eb, x, self.const_reg(0x7F800000))
+        self.op("sub", isa.NOP, eb, self.const_reg(0x7F800000), setf=True, unit="add")
+        self.op("mov", d, x, cond="ifz")
+        self.op("mov", isa.NOP, x, setf=True, unit="add")
+        self.op("mov", d, self.const_reg(0x7FC00000), cond="ifn")
+        self.op("mov", isa.NOP, eb, setf=True, unit="add")
+        self.op("mov", d, self.const_reg(0xFF800000), cond="ifz")
+
+    def _alu_unary(self, op, core, base2):
+        def fn(d, x):
+            if isinstance(x, Imm) or (isinstance(x, VReg) and x.cls == "r4"):
                 t = self.new("p", True)
                 self.op("mov", t, x)
                 x = t
-            r = self.sfu(reg, x)
-            if post is not None:
-                self.op("fmul", d, r, self.operand(C(post, True)))
-            else:
-                self.op("mov", d, r)
-        return self.unary_regs(op, f, True)
+            core(d, x, base2)
+        return self.unary_regs(op, fn, True, const_fn=lambda c: _math_const(op.name, c))
 
     def op_math_exp2(self, op):
-        return self._sfu_unary(op, isa.SFU_EXP)
+        return self._alu_unary(op, self._exp_core, True)
 
     def op_math_exp(self, op):
-        return self._sfu_unary(op, isa.SFU_EXP, pre=1.4426950408889634)
+        return self._alu_unary(op, self._exp_core, False)
 
     def op_math_log2(self, op):
-        return self._sfu_unary(op, isa.SFU_LOG)
+        return self._alu_unary(op, self._log_core, True)
 
     def op_math_log(self, op):
-        return self._sfu_unary(op, isa.SFU_LOG, post=0.6931471805599453)
+        return self._alu_unary(op, self._log_core, False)
 
     def op_math_rsqrt(self, op):
         def f(d, x):
@@ -1530,14 +2011,20 @@ class Lowering:
                 t = self.new("p", True)
                 self.op("mov", t, x)
                 x = t
-            r = self.sfu(isa.SFU_RECIPSQRT, x)
-            # one Newton step: r * (1.5 - 0.5 * x * r * r)
-            t1, t2, t3, t4 = (self.new("rs", True) for _ in range(4))
-            self.op("fmul", t1, r, r)
-            self.op("fmul", t2, t1, x)
-            self.op("fmul", t3, t2, Imm(_f2u(0.5)))
-            self.op("fsub", t4, self.operand(C(1.5, True)), t3)
-            self.op("fmul", d, r, t4)
+            self.op("mov", d, self.rsqrt_core(x))
+            eb = self.new("ex")
+            self.op("and", eb, x, self.const_reg(0x7F800000))
+            # +inf -> 0; x < 0 -> NaN; +-0 (and denormals, flushed) -> +-inf; NaN -> NaN
+            self.op("sub", isa.NOP, eb, self.const_reg(0x7F800000), setf=True, unit="add")
+            self.op("mov", d, Imm(0), cond="ifz")
+            self.op("mov", isa.NOP, x, setf=True, unit="add")
+            self.op("mov", d, self.const_reg(0x7FC00000), cond="ifn")
+            si = self.new("ex")
+            self.op("and", si, x, self.const_reg(0x80000000))
+            self.op("or", si, si, self.const_reg(0x7F800000))
+            self.op("mov", isa.NOP, eb, setf=True, unit="add")
+            self.op("mov", d, si, cond="ifz")
+            self.keep_nan(d, x)
         return self.unary_regs(op, f, True)
 
     def op_math_sqrt(self, op):
@@ -1546,17 +2033,18 @@ class Lowering:
                 t = self.new("p", True)
                 self.op("mov", t, x)
                 x = t
-            r = self.sfu(isa.SFU_RECIPSQRT, x)
-            t1, t2, t3, t4, rr = (self.new("sq", True) for _ in range(5))
-            self.op("fmul", t1, r, r)
-            self.op("fmul", t2, t1, x)
-            self.op("fmul", t3, t2, Imm(_f2u(0.5)))
-            self.op("fsub", t4, self.operand(C(1.5, True)), t3)
-            self.op("fmul", rr, r, t4)
-            self.op("fmul", d, x, rr)
-            # sqrt(0) = 0 (rsqrt(0) is inf)
+            self.op("fmul", d, x, self.rsqrt_core(x))
+            eb = self.new("ex")
+            self.op("and", eb, x, self.const_reg(0x7F800000))
+            # inf / NaN -> x; x < 0 -> NaN; +-0 (and denormals, flushed) -> +-0
+            self.op("sub", isa.NOP, eb, self.const_reg(0x7F800000), setf=True, unit="add")
+            self.op("mov", d, x, cond="ifz")
             self.op("mov", isa.NOP, x, setf=True, unit="add")
-            self.op("mov", d, Imm(0), cond="ifz")
+            self.op("mov", d, self.const_reg(0x7FC00000), cond="ifn")
+            sz = self.new("ex")
+            self.op("and", sz, x, self.const_reg(0x80000000))
+            self.op("mov", isa.NOP, eb, setf=True, unit="add")
+            self.op("mov", d, sz, cond="ifz")
         return self.unary_regs(op, f, True)
 
     def op_arith_bitcast(self, op):
@@ -1567,7 +2055,7 @@ class Lowering:
         if isinstance(x, S):
             return S(const=x.const, reg=x.reg, is_float=res.dtype.is_float)
         if isinstance(x, Affine):
-            return Affine(x.shape, res.dtype, x.base, x.coeffs)
+            return Affine(x.shape, res.dtype, x.base, x.coeffs, x.dense)
         if isinstance(x, Splat):
             return Splat(x.shape, res.dtype, x.s)
         if isinstance(x, Dense):
@@ -1701,10 +2189,10 @@ class Lowering:
 
     def make_other_fixup(self, mask, other_d, j):
         def post(v):
+            o = self.reg_of(other_d, j if len(other_d.regs) > 1 else 0)
             cond = self.set_flags(mask, j)
             if cond != "always":
-                self.op("mov", v, self.reg_of(other_d, j if len(other_d.regs) > 1 else 0),
-                        cond=isa.COND_INVERT[cond])
+                self.op("mov", v, o, cond=isa.COND_INVERT[cond])
             return v
         return post
 
@@ -1713,6 +2201,9 @@ class Lowering:
         mask = self.as_pred(self.get(op.operands[1])) if op.attrs.get("has_mask") else None
         other = self.get(op.operands[2]) if op.attrs.get("has_other") else None
         res = op.result
+        if not res.shape and mask is not None and mask.kind == "const" and not mask.value:
+            return self.scalar(op.operands[2]) if other is not None else C(0.0 if res.dtype.is_float else 0,
+                                                                          res.dtype.is_float)
         if not res.shape:
             emit = self.addr_emitter(ptr, None if mask is None or mask.kind == "const" else mask, 0)
             tok = self.tmu.issue(emit)
@@ -1800,6 +2291,36 @@ class Lowering:
         dv = self.materialize(val)
         for j in range(len(dv.regs)):
             self.reg_of(dv, j)
+        if layout["kind"] == "2d" and layout["R"] > 1 and not layout["row"].is_const:
+            # one check of the run-time row stride against the VDW stride field,
+            # then a fast version and a rare one-DMA-per-row version
+            self.row_gaps_fit_flags(layout["row"])
+            slow_label = f"store_rows{self.blocks}"
+            done_label = f"store_rows_done{self.blocks + 1}"
+            self.blocks += 2
+            pending = self.vdw_pending
+            self.emit(MInst(kind="branch", bcond="alln", target=slow_label))
+            self.cur = self.new_block("store_fast")
+            self.row_gap_fits = True
+            self._store_versions(layout, dv, bounds, shape)
+            self.dma_wait()
+            self.emit(MInst(kind="branch", bcond="always", target=done_label))
+            slow = mir.Block(slow_label, loop_depth=self.loop_depth)
+            self.mf.blocks.append(slow)
+            self.cur = slow
+            self.vdw_pending = pending
+            self.row_gap_fits = False
+            self.store_chunks(layout, dv, bounds if bounds is not None else {})
+            self.row_gap_fits = None
+            done = mir.Block(done_label, loop_depth=self.loop_depth)
+            self.mf.blocks.append(done)
+            self.cur = done
+            self.vdw_pending = True
+            return None
+        self._store_versions(layout, dv, bounds, shape)
+        return None
+
+    def _store_versions(self, layout, dv, bounds, shape):
         if bounds is None:
             self.store_chunks(layout, dv, None)
             return None
@@ -1870,7 +2391,7 @@ class Lowering:
         Returns None if the pointer tensor is not affine with unit stride on
         the last dimension (then a scatter store is used).
         """
-        if not isinstance(ptr, Affine):
+        if not isinstance(ptr, Affine) or ptr.dense is not None:
             return None
         L = shape[-1]
         c_last = ptr.coeffs[-1]
@@ -1925,10 +2446,8 @@ class Lowering:
                 self.op("add", a, lr, self.operand(off))
             units = len(regs)
             if bounds is None:
-                stride = self.s_sub(row_stride_bytes, C(64)) if layout["kind"] == "2d" else C(0)
-                setup = self.new("vd")
-                self.op("add", setup, vdw, self.const_reg((units << 23) | (16 << 16)))
-                self.dma_kick(setup, stride, a)
+                self.dma_rows_any(vdw, units, C(16), a, row_stride_bytes if layout["kind"] == "2d"
+                                  else C(64), units)
                 continue
             self.store_masked_chunk(layout, bounds, regs, a, vdw, row_stride_bytes)
 
@@ -1966,7 +2485,7 @@ class Lowering:
                 return True
             return False
 
-        if not collect(mask):
+        if len(shape) > 2 or not collect(mask):
             return None
         bounds = {}
         for t in terms:
@@ -1981,8 +2500,10 @@ class Lowering:
                     return None
             if not isinstance(a, Affine) or not isinstance(b, (Splat, S, Affine)):
                 return None
+            if a.dense is not None:
+                return None
             if isinstance(b, Affine):
-                if any(not (c.is_const and c.const == 0) for c in b.coeffs):
+                if b.dense is not None or any(not (c.is_const and c.const == 0) for c in b.coeffs):
                     return None
                 bs = b.base
             else:
@@ -2047,7 +2568,7 @@ class Lowering:
         R = layout["R"]
         r0, cb = divmod(regs[0], nb)
         rows = len(regs)
-        row_lim = bounds.get(0) if 0 in bounds and layout["R"] > 1 else None
+        row_lim = bounds.get(0)
         col_lim = bounds.get(1)
         vr = self.new("vr")
         if row_lim is not None:
@@ -2068,18 +2589,20 @@ class Lowering:
         self.op("min", ok, vr, vc)
 
         def body():
-            stride = self.new("st")
-            vc4 = self.new("t")
-            self.op("shl", vc4, vc, Imm(2))
-            self.op("sub", stride, self.operand(row_stride_bytes), vc4)
-            self._dma_rows(vdw, vr, S(reg=vc), addr, S(reg=stride))
+            self.dma_rows_any(vdw, vr if rows > 1 else 1, S(reg=vc), addr, row_stride_bytes, rows)
         self.guarded_dma(ok, body)
 
     def _dma_rows(self, vdw, units, depth: S, addr, stride: S):
         self.dma_wait()
         setup = self.new("vd")
+        if isinstance(units, int) and depth.is_const:
+            self.op("add", setup, vdw, self.const_reg((units << 23) | (int(depth.const) << 16)))
+            return self.dma_kick(setup, stride, addr)
         u = self.new("t")
-        self.op("shl", u, units if isinstance(units, VReg) else self.sreg(units), Imm(_shift_imm(23)))
+        if isinstance(units, int):
+            self.op("mov", u, self.const_reg(units << 23))
+        else:
+            self.op("shl", u, units if isinstance(units, VReg) else self.sreg(units), Imm(_shift_imm(23)))
         self.op("add", setup, vdw, u)
         if depth.is_const:
             self.op("add", setup, setup, self.const_reg(int(depth.const) << 16))
@@ -2088,6 +2611,93 @@ class Lowering:
             self.op("shl", d, depth.reg, Imm(_shift_imm(16)))
             self.op("add", setup, setup, d)
         self.dma_kick(setup, stride, addr)
+
+    def dma_rows_any(self, vdw, units, depth: S, addr, row_bytes: S, max_units: int):
+        """DMA `units` (int or register, <= max_units) VPM rows of `depth` words to
+        memory rows `row_bytes` apart.  The VDW stride field holds the gap between
+        rows in 16 unsigned bits; when the gap does not fit (huge or negative row
+        strides, e.g. rows stored in reverse order) every row gets its own DMA."""
+        if isinstance(units, int) and units == 1:
+            return self._dma_rows(vdw, 1, depth, addr, C(0))
+        if row_bytes.is_const:
+            row = int(row_bytes.const)
+            dmin, dmax = (int(depth.const),) * 2 if depth.is_const else (1, LANES)
+            if 0 <= row - 4 * dmax and row - 4 * dmin <= 0xFFFF:
+                return self._dma_rows(vdw, units, depth, addr, self.row_gap(row_bytes, depth))
+            return self._dma_each_row(vdw, units, depth, addr, row_bytes, max_units)
+        if self.row_gap_fits is None:
+            raise self.error("internal: runtime row stride outside a checked store")
+        if self.row_gap_fits:
+            return self._dma_rows(vdw, units, depth, addr, self.row_gap(row_bytes, depth))
+        return self._dma_row_loop(vdw, units, depth, addr, row_bytes)
+
+    def row_gap(self, row_bytes: S, depth: S) -> S:
+        """VDW stride: bytes between the end of one row and the start of the next."""
+        if depth.is_const:
+            return self.s_sub(row_bytes, C(4 * int(depth.const)))
+        d4 = self.new("t")
+        self.op("shl", d4, depth.reg, Imm(2))
+        g = self.new("gap")
+        self.op("sub", g, self.operand(row_bytes), d4)
+        return S(reg=g)
+
+    def row_gaps_fit_flags(self, row_bytes: S):
+        """N flag set (all lanes) when some row gap of a store with this runtime
+        row stride (gaps row - 64 .. row - 4) does not fit 16 unsigned bits."""
+        x = self.new("t")
+        self.op("sub", x, row_bytes.reg, self.const_reg(64))
+        y = self.new("t")
+        self.op("sub", y, self.const_reg(0x10000 - 64), x)
+        self.op("or", isa.NOP, x, y, setf=True, unit="add")
+
+    def _dma_each_row(self, vdw, units, depth: S, addr, row_bytes: S, max_units: int):
+        """One single-row DMA per VPM row, unrolled (any constant row stride)."""
+        a = addr
+        for r in range(max_units):
+            if r:
+                a2 = self.new("ra")
+                self.op("add", a2, a, self.operand(row_bytes))
+                a = a2
+            row_vdw = vdw
+            if r:
+                row_vdw = self.new("vd")
+                self.op("add", row_vdw, vdw, self.const_reg(r << 7))
+            if isinstance(units, int):
+                if r < units:
+                    self._dma_rows(row_vdw, 1, depth, a, C(0))
+                continue
+            cnt = self.new("cnt")
+            self.op("sub", cnt, units, self.operand(C(r)))
+            self.op("max", cnt, cnt, Imm(0))
+            self.guarded_dma(cnt, lambda rv=row_vdw, aa=a: self._dma_rows(rv, 1, depth, aa, C(0)))
+
+    def _dma_row_loop(self, vdw, units, depth: S, addr, row_bytes: S):
+        """One single-row DMA per VPM row in a run-time loop (units >= 1)."""
+        cnt = self.new("rc")
+        self.op("mov", cnt, units if isinstance(units, VReg) else self.operand(C(units)))
+        setup = self.new("vd")
+        if depth.is_const:
+            self.op("add", setup, vdw, self.const_reg((1 << 23) | (int(depth.const) << 16)))
+        else:
+            d = self.new("t")
+            self.op("shl", d, depth.reg, Imm(_shift_imm(16)))
+            self.op("add", d, d, self.const_reg(1 << 23))
+            self.op("add", setup, vdw, d)
+        a = self.new("ra")
+        self.op("mov", a, addr)
+        self.loop_depth += 1
+        loop = self.new_block("rowdma")
+        self.cur = loop
+        self.vdw_pending = True
+        self.dma_wait()
+        self.dma_kick(setup, C(0), a)
+        self.op("add", setup, setup, self.const_reg(1 << 7))
+        self.op("add", a, a, self.operand(row_bytes))
+        self.op("sub", cnt, cnt, Imm(1), setf=True, unit="add")
+        self.emit(MInst(kind="branch", bcond="anynz", target=loop.label))
+        self.loop_depth -= 1
+        self.cur = self.new_block("rowdma_end")
+        self.vdw_pending = True
 
     def guarded_dma(self, count: VReg, body):
         """Run `body` only if count > 0 (uniform branch)."""
@@ -2147,8 +2757,9 @@ class Lowering:
         K2, N = b_v.shape
         a, b, c = self.get(a_v), self.get(b_v), self.get(c_v)
         if N % LANES:
-            # small N: generic broadcast + elementwise path
-            return self.dot_generic(a, b, c, M, N, K, op.result)
+            if LANES % N:
+                raise self.error(f"tl.dot: N = {N} must divide 16 or be a multiple of 16")
+            return self.dot_small(a, b, c, M, N, K, op.result)
         NV = N // LANES
         da = self.materialize(a)
         db = self.materialize(b)
@@ -2170,6 +2781,14 @@ class Lowering:
                     acc.append(v)
             else:
                 acc = [self.reg_of(dc, j) for j in range(M * NV)]
+                if len({id(r) for r in acc}) != len(acc):
+                    # e.g. a broadcast accumulator: rows share registers
+                    acc2 = []
+                    for r in acc:
+                        v = self.new("acc", True)
+                        self.op("mov", v, r)
+                        acc2.append(v)
+                    acc = acc2
         n_a = nregs((M, K))
         a_acc_all = n_a <= 2
         a_regs = {}
@@ -2229,23 +2848,34 @@ class Lowering:
             self.op("fadd", pending[0], pending[0], pending[1])
         return Dense(op.result.shape, ir.float32, acc)
 
-    def dot_generic(self, a, b, c, M, N, K, res):
-        sa, sb = self.to_scal(a), self.to_scal(b)
-        sc = self.to_scal(c) if not isinstance(c, (Splat, S)) else Scal((M, N), ir.float32,
-                                                                       [c.s if isinstance(c, Splat) else c] * (M * N))
-        elems = []
+    def dot_small(self, a, b, c, M, N, K, res):
+        """tl.dot with N < 16: one register per output row (lanes 0..N-1),
+        acc_m += a[m, k] (lane broadcast) * row k of b."""
+        da, db = self.materialize(a), self.materialize(b)
+        dc = None if isinstance(c, (Splat, S)) else self.materialize(c)
+        init = c.s if isinstance(c, Splat) else c
+        brows = [self.row_reg(db, k, N) for k in range(K)] if K <= 8 else None
+        rows = []
         for m in range(M):
-            for n in range(N):
-                acc = sc.elems[m * N + n]
-                cur = self.sreg(acc)
-                out = self.new("dg", True)
-                self.op("mov", out, cur)
-                for k in range(K):
-                    t = self.new("dg", True)
-                    self.op("fmul", t, self.operand(sa.elems[m * K + k]), self.operand(sb.elems[k * N + n]))
-                    self.op("fadd", out, out, t)
-                elems.append(S(reg=out, is_float=True))
-        return Scal(res.shape, ir.float32, elems)
+            acc = self.new("dacc", True)
+            self.op("mov", acc, self.operand(init) if dc is None else self.row_reg(dc, m, N))
+            a_acc = {}
+            for k in range(K):
+                j, lane = divmod(m * K + k, LANES)
+                if j not in a_acc:
+                    r = self.reg_of(da, j)
+                    if r.cls != "acc":
+                        t = self.new("da", True, cls="acc")
+                        self.op("mov", t, r)
+                        r = t
+                    a_acc = {j: r}
+                s = self.lane_broadcast(a_acc[j], lane)
+                br = brows[k] if brows is not None else self.row_reg(db, k, N)
+                t = self.new("dm", True)
+                self.op("fmul", t, s, br)
+                self.op("fadd", acc, acc, t)
+            rows.append(acc)
+        return self.permute([(rows[f // N], f % N) for f in range(M * N)], (M, N), ir.float32)
 
     # -- reductions ---------------------------------------------------------------------
 
@@ -2278,7 +2908,7 @@ class Lowering:
             if not res.shape:
                 return elems[0]
             return Scal(res.shape, res.dtype, elems)
-        if axis < rank - 1 and L >= LANES:
+        if axis < rank - 1 and numel(src[axis + 1:]) % LANES == 0:
             # combine whole registers
             outer = numel(src[:axis])
             red = src[axis]
@@ -2308,7 +2938,55 @@ class Lowering:
                 self.op("mov", t, self.operand(ident), cond="ifnn")
                 cur = t
             return S(reg=self.lane_reduce(cur, opname, is_float), is_float=is_float)
+        inner, red, outer = numel(src[axis + 1:]), src[axis], numel(src[:axis])
+        span = red * inner
+        if LANES % inner == 0 and (span % LANES == 0 or LANES % span == 0) and red & (red - 1) == 0:
+            return self.reduce_small(d, src, axis, opname, is_float, res)
         return self.reduce_scal(self.to_scal(d), axis, opname, is_float, res)
+
+    def lane_fold(self, v: VReg, s_hi: int, s_lo: int, opname, is_float) -> VReg:
+        """v[i] = op(v[i], v[i + s]) for s = s_hi, s_hi/2, ..., s_lo: lane i ends
+        up combining lanes i + k * s_lo (within a segment of 2 * s_hi lanes)."""
+        cur = v
+        s = s_hi
+        while s >= s_lo:
+            src = cur
+            if src.cls != "acc":
+                t = self.new("lf", is_float, cls="acc")
+                self.op("mov", t, src)
+                src = t
+            rot = self.new("lf", is_float)
+            self.op("mov", rot, src, rot=LANES - s, unit="mul")
+            n = self.new("lf", is_float)
+            self.elementwise(opname, n, src, rot, is_float)
+            cur = n
+            s //= 2
+        return cur
+
+    def reduce_small(self, d: Dense, src, axis, opname, is_float, res):
+        """Reduce a tile whose reduced group (red elements `inner` apart) fits in
+        a register: combine whole registers, fold lanes, then gather the results."""
+        inner, red, outer = numel(src[axis + 1:]), src[axis], numel(src[:axis])
+        span = red * inner
+        at = []                                   # (register, lane) of result (o, 0)
+        if span >= LANES:
+            per = span // LANES
+            for o in range(outer):
+                cur = self.reg_of(d, o * per)
+                for r in range(1, per):
+                    n = self.new("rd", is_float)
+                    self.elementwise(opname, n, cur, self.reg_of(d, o * per + r), is_float)
+                    cur = n
+                at.append((self.lane_fold(cur, LANES // 2, inner, opname, is_float), 0))
+        else:
+            per_reg = LANES // span
+            for j in range(len(d.regs)):
+                cur = self.lane_fold(self.reg_of(d, j), span // 2, inner, opname, is_float)
+                for b in range(per_reg):
+                    if j * per_reg + b < outer:
+                        at.append((cur, b * span))
+        srcs = [(at[f // inner][0], at[f // inner][1] + f % inner) for f in range(outer * inner)]
+        return self.permute(srcs, res.shape, res.dtype)
 
     def identity(self, kind, is_float) -> S:
         if kind == "sum":
@@ -2400,52 +3078,82 @@ class Lowering:
             return
         self.op("mov", dst, self.operand(src))
 
-    def assign_carried(self, form, kind, newval, shape, dtype):
-        """Emit copies so that the carried registers hold `newval`."""
+    def carried_moves(self, form, kind, newval):
+        """(carried register, source) pairs that make `form` hold `newval`."""
         if kind == "affine":
-            if isinstance(newval, Affine) and _same_coeffs(newval.coeffs, form.coeffs) and \
-                    _same_dense(newval.dense, form.dense):
-                self.copy_into(form.base.reg, newval.base)
-                return True
-            return False
+            if not (isinstance(newval, Affine) and _same_coeffs(newval.coeffs, form.coeffs)
+                    and _same_dense(newval.dense, form.dense)):
+                raise self.error("internal: loop-carried affine value changed its lane structure")
+            return [(form.base.reg, newval.base)]
         if kind == "scalar":
-            s = newval if isinstance(newval, S) else self.scalar_of(newval)
-            self.copy_into(form.reg, s)
-            return True
+            return [(form.reg, newval if isinstance(newval, S) else self.scalar_of(newval))]
         if kind == "pred":
             d = self.pred_dense(self.as_pred(newval))
-            for j, r in enumerate(form.value.regs):
-                self.copy_into(r, S(reg=self.reg_of(d, j)))
-            return True
+            return [(r, S(reg=self.reg_of(d, j))) for j, r in enumerate(form.value.regs)]
         d = self.materialize(newval)
-        for j, r in enumerate(form.regs):
-            src = self.reg_of(d, j if len(d.regs) > 1 else 0)
-            if src is not r:
-                self.op("mov", r, src)
-        return True
+        return [(r, S(reg=self.reg_of(d, j if len(d.regs) > 1 else 0))) for j, r in enumerate(form.regs)]
+
+    def parallel_copy(self, moves):
+        """Emit dst <- src for all moves as if simultaneous: loop-carried values
+        may be permuted (`a, b = b, a`), so sources that are themselves
+        overwritten are staged in temporaries first."""
+        moves = [(d, src) for d, src in moves if src.reg is not d]
+        dsts = {d for d, _ in moves}
+        staged = []
+        for d, src in moves:
+            if src.reg is not None and src.reg in dsts:
+                t = self.new("pc", src.reg.is_float)
+                self.op("mov", t, src.reg)
+                src = S(reg=t, is_float=src.is_float)
+            staged.append((d, src))
+        for d, src in staged:
+            self.op("mov", d, self.operand(src))
+
+    def _uniform_value(self, v) -> bool:
+        """True if every element of v is the same value."""
+        if not v.shape:
+            return True
+        op = v.op
+        if op is None:
+            return False
+        if op.name in ("tt.splat", "arith.constant"):
+            return True
+        if op.name in ("tt.broadcast", "tt.expand_dims", "tt.reshape", "arith.bitcast"):
+            return self._uniform_value(op.operands[0])
+        if op.name.startswith("arith.") and op.name not in ("arith.select",):
+            return all(o is not None and self._uniform_value(o) for o in op.operands)
+        return False
+
+    def _affine_carry_ok(self, arg, v) -> bool:
+        """The yielded value is `arg` plus/minus uniform increments, so an affine
+        loop-carried value only needs its scalar base carried."""
+        if v is arg:
+            return True
+        op = v.op
+        if op is None or op.name not in ("tt.addptr", "arith.addi", "arith.subi"):
+            return False
+        a, b = op.operands
+        if self._affine_carry_ok(arg, a) and self._uniform_value(b):
+            return True
+        return op.name != "arith.subi" and self._affine_carry_ok(arg, b) and self._uniform_value(a)
 
     def op_scf_for(self, op):
         lb, ub, step = (self.scalar(o) for o in op.operands[:3])
         inits = [self.get(v) for v in op.operands[3:]]
         body = op.regions[0]
+        yield_op = body.ops[-1]
         forms = []
-        for init, arg in zip(inits, body.args[1:]):
+        for i, (init, arg) in enumerate(zip(inits, body.args[1:])):
+            if isinstance(init, Affine) and not self._affine_carry_ok(arg, yield_op.operands[i]):
+                init = self.materialize(init)
+                inits[i] = init
             forms.append(self.carried_form(init, arg.shape, arg.dtype))
         res = self._lower_loop(op, lb, ub, step, inits, forms)
-        if res is None:
-            # the affine guess for a carried value did not hold: materialise it
-            forms = []
-            for init, arg in zip(inits, body.args[1:]):
-                f = self.carried_form(self.materialize(init) if isinstance(init, Affine) else init,
-                                      arg.shape, arg.dtype)
-                forms.append(f)
-            res = self._lower_loop(op, lb, ub, step, inits, forms, force=True)
         return tuple(res) if len(op.results) != 1 else res[0]
 
-    def _lower_loop(self, op, lb, ub, step, inits, forms, force=False):
+    def _lower_loop(self, op, lb, ub, step, inits, forms):
         body = op.regions[0]
-        snapshot = (len(self.mf.blocks), len(self.cur.insts), dict(self.env), self.cur,
-                    [deque(q) for q in self.tmu.q], self.vdw_pending, self.vdw_stride, self.blocks)
+        has_store = any(o.name == "tt.store" for o in _walk_ops(body))
         self.tmu.drain()
         self.dma_wait()
         for (form, copies, kind) in forms:
@@ -2458,7 +3166,6 @@ class Lowering:
         ub_r = self.rng(op.operands[1])
         known_nonempty = lb_r is not None and ub_r is not None and lb_r[1] < ub_r[0]
         exit_label = f"loop_exit{self.blocks}"
-        guard = None
         # software pipelining of loads
         self.lazy_ok = set(o for o in body.ops if o.name not in ("tt.load", "tt.store", "tt.dot",
                                                                     "scf.for", "scf.if"))
@@ -2468,10 +3175,13 @@ class Lowering:
             stream.prologue(lb, inits)
         if not known_nonempty:
             self.op("sub", isa.NOP, iv, self.operand(ub), setf=True, unit="add")
-            guard = self.emit(MInst(kind="branch", bcond="allnn", target=exit_label))
+            self.emit(MInst(kind="branch", bcond="allnn", target=exit_label))
         self.loop_depth += 1
+        self.region_depth += 1
         loop = self.new_block("loop")
         self.cur = loop
+        # a store of the previous iteration may still be running
+        self.vdw_pending = has_store
         for arg, (form, copies, kind) in zip(body.args[1:], forms):
             self.env[arg.id] = form
         self.env[body.args[0].id] = S(reg=iv)
@@ -2487,33 +3197,20 @@ class Lowering:
         else:
             self.tmu.drain()
         yield_op = body.ops[-1]
-        ok = True
-        for v, (form, copies, kind), arg in zip(yield_op.operands, forms, body.args[1:]):
-            newval = self.get(v)
-            if not self.assign_carried(form, kind, newval, arg.shape, arg.dtype):
-                ok = False
-                break
-        if not ok:
-            # roll back and retry with dense carried values
-            n_blocks, n_insts, env, blk, tq, vp, vs, nb = snapshot
-            del self.mf.blocks[n_blocks:]
-            del blk.insts[n_insts:]
-            self.cur = blk
-            self.env = env
-            self.tmu.q = tq
-            self.tmu.stream = None
-            self.vdw_pending, self.vdw_stride = vp, vs
-            self.loop_depth -= 1
-            self.pipelined = {}
-            return None
+        moves = []
+        for v, (form, copies, kind) in zip(yield_op.operands, forms):
+            moves += self.carried_moves(form, kind, self.get(v))
+        self.parallel_copy(moves)
         self.op("add", iv, iv, self.operand(step))
         self.op("sub", isa.NOP, iv, self.operand(ub), setf=True, unit="add")
         self.emit(MInst(kind="branch", bcond="anyn", target=loop.label))
         self.loop_depth -= 1
+        self.region_depth -= 1
         exit_blk = mir.Block(exit_label, loop_depth=self.loop_depth)
         self.blocks += 1
         self.mf.blocks.append(exit_blk)
         self.cur = exit_blk
+        self.vdw_pending = self.vdw_pending or has_store
         if stream is not None:
             self.tmu.drain()
         self.pipelined = {}
@@ -2550,8 +3247,9 @@ class Lowering:
         # any other TMU user in the body would break the stream invariant
         if any(o.name == "tt.load" and not o.result.shape for o in body.ops):
             return None
-        if any(o.name.startswith("math.") or o.name == "arith.divf" for o in body.ops):
-            pass
+        # a prefetch must not overtake a store of the same iteration
+        if any(o.name == "tt.store" for o in body.ops):
+            return None
         return LoopStream(self, op, loads)
 
     def op_scf_if(self, op):
@@ -2564,6 +3262,7 @@ class Lowering:
             return tuple(vals) if len(vals) != 1 else (vals[0] if vals else None)
         self.tmu.drain()
         self.dma_wait()
+        self.region_depth += 1
         outs = []
         for r in op.results:
             if r.shape:
@@ -2594,8 +3293,7 @@ class Lowering:
         end = mir.Block(end_lbl, loop_depth=self.loop_depth)
         self.mf.blocks.append(end)
         self.cur = end
-        if outs and isinstance(outs[0], Dense):
-            pass
+        self.region_depth -= 1
         return tuple(outs) if len(outs) != 1 else (outs[0] if outs else None)
 
     def _if_assign(self, outs, yield_op):
@@ -2806,27 +3504,44 @@ class LoopStream:
             self.next_issued = e + 1
 
     def _make_next_env(self):
+        """Values of the loop-carried address inputs in the next iteration.
+        On the last iteration they are clamped to the current ones, so a
+        prefetch never reads past the data."""
         lw = self.lw
         body = self.body
         yield_op = body.ops[-1]
+        nexts = []
+        for arg, yv, (form, copies, kind) in zip(body.args[1:], yield_op.operands, self.forms):
+            if arg.id in self.addr_args:
+                nexts.append((arg, form, kind, lw.get(yv)))
         iv_next = lw.new("ivn")
         lw.op("add", iv_next, self.iv, lw.operand(self.step))
-        bindings = {body.args[0].id: S(reg=iv_next)}
-        flagged = False
-        for arg, yv, (form, copies, kind) in zip(body.args[1:], yield_op.operands, self.forms):
-            if arg.id not in self.addr_args:
-                continue
-            nv = lw.get(yv)
+        # flags: N set <=> iv_next < ub (another iteration follows)
+        lw.op("sub", isa.NOP, iv_next, lw.operand(self.ub), setf=True, unit="add")
+        ivp = lw.new("ivp")
+        lw.op("mov", ivp, self.iv)
+        lw.op("mov", ivp, iv_next, cond="ifn")
+        bindings = {body.args[0].id: S(reg=ivp)}
+        for arg, form, kind, nv in nexts:
             if kind == "affine" and isinstance(nv, Affine):
-                if not flagged:
-                    lw.op("sub", isa.NOP, iv_next, lw.operand(self.ub), setf=True, unit="add")
-                    flagged = True
                 b = lw.new("pfb")
                 lw.op("mov", b, lw.operand(form.base))
                 lw.op("mov", b, lw.operand(nv.base), cond="ifn")
                 bindings[arg.id] = Affine(nv.shape, nv.dtype, S(reg=b), nv.coeffs, nv.dense)
+            elif kind == "scalar":
+                b = lw.new("pfs", form.is_float)
+                lw.op("mov", b, lw.operand(form))
+                lw.op("mov", b, lw.operand(nv if isinstance(nv, S) else lw.scalar_of(nv)), cond="ifn")
+                bindings[arg.id] = S(reg=b, is_float=form.is_float)
             else:
-                bindings[arg.id] = nv
+                d = lw.materialize(nv)
+                regs = []
+                for j, r in enumerate(form.regs):
+                    t = lw.new("pfd")
+                    lw.op("mov", t, r)
+                    lw.op("mov", t, lw.reg_of(d, j if len(d.regs) > 1 else 0), cond="ifn")
+                    regs.append(t)
+                bindings[arg.id] = Dense(form.shape, form.dtype, regs)
         return self.scoped_env(bindings)
 
     def end_body(self):
@@ -2843,6 +3558,13 @@ class LoopStream:
         if self.next_issued != self.n0 or lw.tmu.outstanding() != self.n0:
             raise CompilationError("internal: pipeline invariant broken")
         self.pre_tokens = self.next_tokens
+
+
+def _walk_ops(block):
+    for o in block.ops:
+        yield o
+        for r in o.regions:
+            yield from _walk_ops(r)
 
 
 def _is_zero(x):
@@ -2938,7 +3660,45 @@ def _const_op(opname, a, b, is_float):
     raise ValueError(opname)
 
 
+def _uniform_scalar(x):
+    """The scalar of a uniform integer value (S, Splat), else None."""
+    if isinstance(x, Splat):
+        x = x.s
+    elif isinstance(x, Affine) and x.dense is None and all(c.is_const and c.const == 0 for c in x.coeffs):
+        x = x.base
+    return x if isinstance(x, S) and not x.is_float else None
+
+
+def _sub_cannot_overflow(ra, rb, unsigned) -> bool:
+    """x - y fits 32 signed bits for all x in ra, y in rb (sign-flipped if unsigned)."""
+    if ra is None or rb is None:
+        return False
+    if unsigned and (ra[0] < 0 or rb[0] < 0):
+        return False
+    return ra[1] - rb[0] <= 2 ** 31 - 1 and ra[0] - rb[1] >= -2 ** 31
+
+
+def _math_const(name, c):
+    with np.errstate(all="ignore"):
+        x = np.float32(c)
+        f = {"math.exp": np.exp, "math.exp2": np.exp2, "math.log": np.log, "math.log2": np.log2}[name]
+        return float(f(x))
+
+
+def _float_const(x):
+    """Python value of a uniform float constant operand, else None."""
+    if isinstance(x, Splat):
+        x = x.s
+    if isinstance(x, S) and x.is_const:
+        return float(x.const)
+    return None
+
+
 def _cmp_const(pred, a, b):
-    return {"slt": a < b, "sle": a <= b, "sgt": a > b, "sge": a >= b, "eq": a == b, "ne": a != b,
-            "olt": a < b, "ole": a <= b, "ogt": a > b, "oge": a >= b, "oeq": a == b,
-            "une": a != b}.get(pred, False)
+    if pred in ("olt", "ole", "ogt", "oge", "oeq", "une"):
+        return {"olt": a < b, "ole": a <= b, "ogt": a > b, "oge": a >= b, "oeq": a == b,
+                "une": a != b}[pred]
+    sa, sb = _wrap(int(a)), _wrap(int(b))
+    ua, ub = int(a) & 0xFFFFFFFF, int(b) & 0xFFFFFFFF
+    return {"slt": sa < sb, "sle": sa <= sb, "sgt": sa > sb, "sge": sa >= sb, "eq": ua == ub,
+            "ne": ua != ub, "ult": ua < ub, "ule": ua <= ub, "ugt": ua > ub, "uge": ua >= ub}[pred]

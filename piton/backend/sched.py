@@ -532,13 +532,25 @@ def fix_block_boundaries(blocks_instrs: list, preds: dict, order: list) -> None:
 
     blocks_instrs: label -> list[Instr] (including branches and delay slots)
     """
+    def tails(lbl, k, depth=0):
+        """The possible last-k instruction sequences executed up to the end of
+        block lbl: short (or empty) blocks continue into their predecessors."""
+        ins = blocks_instrs[lbl]
+        ps = preds.get(lbl, [])
+        if len(ins) >= k or not ps or depth > 8:
+            return [ins[-k:]]
+        out = []
+        for p in ps:
+            for t in tails(p, k - len(ins), depth + 1):
+                out.append(t + ins)
+        return out
+
     changed = True
     while changed:
         changed = False
         for label in order:
             head = blocks_instrs[label]
-            for p in preds.get(label, []):
-                tail = blocks_instrs[p][-4:]
+            for tail in [t for p in preds.get(label, []) for t in tails(p, 4)]:
                 need = 0
                 for i, t in enumerate(tail):
                     tr = instr_res(t)

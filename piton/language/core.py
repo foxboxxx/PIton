@@ -344,7 +344,7 @@ def _binary_dtype(a: DType, b: DType, op: str) -> DType:
         return a if a.is_ptr else b
     if a.is_float or b.is_float:
         return float32
-    if op in ("and", "or", "xor") and a.is_bool and b.is_bool:
+    if op in ("and", "or", "xor", "select", "minmax") and a.is_bool and b.is_bool:
         return int1
     if a == uint32 or b == uint32:
         return uint32
@@ -763,6 +763,8 @@ sqrt_rn = sqrt
 @builtin
 def abs(x, _builder=None):
     x = to_tensor(x, _builder)
+    if x.dtype == uint32 or x.dtype.is_bool:
+        return x
     if x.dtype.is_float:
         return _emit(_builder, "math.absf", [x], x.dtype, x.handle.shape)
     return _emit(_builder, "math.absi", [x], x.dtype, x.handle.shape)

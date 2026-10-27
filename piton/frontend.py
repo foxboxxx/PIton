@@ -95,6 +95,38 @@ def _assigned_names(stmts) -> set:
     return names
 
 
+_RET = "__piton_return__"
+
+
+def _contains_return(stmts) -> bool:
+    class V(ast.NodeVisitor):
+        found = False
+
+        def visit_Return(self, node):
+            self.found = True
+
+        def visit_FunctionDef(self, node):
+            pass
+
+        def visit_Lambda(self, node):
+            pass
+    v = V()
+    for st in stmts:
+        v.visit(st)
+    return v.found
+
+
+def _ends_with_return(stmts) -> bool:
+    if not stmts:
+        return False
+    last = stmts[-1]
+    if isinstance(last, ast.Return):
+        return True
+    if isinstance(last, ast.If):
+        return _ends_with_return(last.body) and _ends_with_return(last.orelse)
+    return False
+
+
 def get_source(fn):
     src = textwrap.dedent(inspect.getsource(fn))
     tree = ast.parse(src)
@@ -148,8 +180,22 @@ class CodeGenerator:
     # -- statements -------------------------------------------------------------
 
     def run_body(self, stmts):
-        for s in stmts:
-            self.visit_stmt(s)
+        for i, st in enumerate(stmts):
+            if isinstance(st, ast.If) and _contains_return(st.body + st.orelse):
+                # `if c: ... return` (Triton's early exit): the statements after the
+                # if belong to whichever branches do not return
+                cond = _unwrap(self.eval(st.test))
+                rest = list(stmts[i + 1:])
+                if not isinstance(cond, tensor):
+                    self.run_body((st.body if cond else st.orelse) + rest)
+                    return
+                if cond.handle.shape:
+                    raise self.error(st, "if-condition must be a scalar")
+                then = st.body if _ends_with_return(st.body) else st.body + rest
+                orelse = st.orelse if _ends_with_return(st.orelse) else st.orelse + rest
+                self.runtime_if(st, cond, then, orelse)
+                raise _Return(self.scope.get(_RET))
+            self.visit_stmt(st)
 
     def visit_stmt(self, node):
         method = getattr(self, "stmt_" + type(node).__name__, None)
@@ -227,24 +273,36 @@ class CodeGenerator:
             raise self.error(node, "if-condition must be a scalar")
         self.runtime_if(node, cond)
 
-    def runtime_if(self, node, cond: tensor):
+    def runtime_if(self, node, cond: tensor, then_stmts=None, else_stmts=None):
+        then_stmts = node.body if then_stmts is None else then_stmts
+        else_stmts = node.orelse if else_stmts is None else else_stmts
         cond = tl.cast(cond, tl.int1, _builder=self.builder)
         before = dict(self.scope)
-        assigned = _assigned_names(node.body) | _assigned_names(node.orelse)
+        assigned = _assigned_names(then_stmts) | _assigned_names(else_stmts)
+        returns = _contains_return(then_stmts + else_stmts)
 
         def run(stmts):
             blk = ir.Block()
             saved = self.builder.block
             self.builder.block = blk
             self.scope = dict(before)
-            self.run_body(stmts)
-            out = dict(self.scope)
-            self.builder.block = saved
-            return blk, out
+            try:
+                self.run_body(stmts)
+            except _Return as r:
+                self.scope[_RET] = r.value
+            finally:
+                self.builder.block = saved
+            return blk, dict(self.scope)
 
-        then_blk, then_scope = run(node.body)
-        else_blk, else_scope = run(node.orelse)
+        then_blk, then_scope = run(then_stmts)
+        else_blk, else_scope = run(else_stmts)
         self.scope = before
+        if returns:
+            ra, rb = then_scope.get(_RET), else_scope.get(_RET)
+            if (ra is None) != (rb is None):
+                raise self.error(node, "function returns a value on some paths only")
+            if ra is not None:
+                assigned.add(_RET)
         names = []
         for name in sorted(assigned):
             a, b = then_scope.get(name), else_scope.get(name)
@@ -309,6 +367,8 @@ class CodeGenerator:
     def runtime_for(self, node, r):
         if not isinstance(node.target, ast.Name):
             raise self.error(node, "loop variable must be a name")
+        if _contains_return(node.body):
+            raise self.error(node, "return inside a runtime for loop is not supported (as in Triton)")
         b = self.builder
         lb = tl.cast(to_tensor(_unwrap(r.start), b, tl.int32), tl.int32, _builder=b)
         ub = tl.cast(to_tensor(_unwrap(r.end), b, tl.int32), tl.int32, _builder=b)
@@ -316,17 +376,7 @@ class CodeGenerator:
         if isinstance(step_val, int) and step_val <= 0:
             raise self.error(node, "loop step must be positive")
         step = tl.cast(to_tensor(step_val, b, tl.int32), tl.int32, _builder=b)
-        assigned = _assigned_names(node.body) - {node.target.id}
-        carried = []
-        for name in sorted(assigned):
-            if name in self.scope:
-                v = self.scope[name]
-                if isinstance(v, (int, float, bool)) and not isinstance(v, tensor):
-                    v = to_tensor(v, b)
-                    self.scope[name] = v
-                if isinstance(v, tensor):
-                    carried.append(name)
-        inits = [self.scope[n] for n in carried]
+        carried, inits = self.loop_carried(node, b)
         body = ir.Block()
         iv = ir.Value(tl.int32, (), name=None)
         body.args.append(iv)
@@ -339,17 +389,21 @@ class CodeGenerator:
         self.scope[node.target.id] = tensor(iv, b)
         for name, arg in zip(carried, body.args[1:]):
             self.scope[name] = tensor(arg, b)
-        self.run_body(node.body)
+        try:
+            self.run_body(node.body)
+        except _Return:
+            b.block = saved_block
+            self.scope = before
+            raise self.error(node, "return inside a runtime for loop is not supported")
         yields = []
         for name, init in zip(carried, inits):
             v = self.scope[name]
-            v = to_tensor(v, b) if not isinstance(v, tensor) else v
+            v = to_tensor(v, b, init.dtype) if not isinstance(v, tensor) else v
             if v.dtype != init.dtype or v.handle.shape != init.handle.shape:
-                if init.handle.shape == () and v.handle.shape == () and v.dtype != init.dtype:
-                    v = tl.cast(v, init.dtype, _builder=b)
-                else:
-                    raise self.error(node, f"loop-carried '{name}' changes type from "
-                                           f"{init.handle.type_str()} to {v.handle.type_str()}")
+                b.block = saved_block
+                self.scope = before
+                raise self.error(node, f"loop-carried '{name}' changes type from "
+                                       f"{init.handle.type_str()} to {v.handle.type_str()}")
             yields.append(v)
         b.create("scf.yield", [v.handle for v in yields])
         b.block = saved_block
@@ -359,6 +413,57 @@ class CodeGenerator:
                       attrs={"num_stages": r.num_stages} if r.num_stages else {})
         for name, res in zip(carried, op.results):
             self.scope[name] = tensor(res, b)
+
+    def loop_carried(self, node, b):
+        """Find the loop-carried variables by running the body once in a
+        throwaway block (Triton does the same dry run)."""
+        before = dict(self.scope)
+        saved_block = b.block
+        b.block = ir.Block()
+        self.scope = dict(before)
+        self.scope[node.target.id] = tensor(ir.Value(tl.int32, ()), b)
+        try:
+            self.run_body(node.body)
+        except _Return:
+            raise self.error(node, "return inside a runtime for loop is not supported")
+        finally:
+            b.block = saved_block
+            after = self.scope
+            self.scope = before
+        carried, inits = [], []
+        for name in sorted(before):
+            if name == node.target.id or name not in after:
+                continue
+            old, new = before[name], after[name]
+            if old is new:
+                continue
+            scalar_types = (int, float, bool)
+            if not isinstance(old, tensor) and not isinstance(new, tensor):
+                try:
+                    same = type(old) == type(new) and bool(old == new)
+                except CompilationError:
+                    same = False
+                if same:
+                    continue
+                if not (isinstance(old, scalar_types) and isinstance(new, scalar_types)):
+                    raise self.error(node, f"variable '{name}' ({type(old).__name__}) is re-assigned "
+                                           f"inside a runtime loop; only tensors and numbers can be "
+                                           f"loop-carried")
+            if isinstance(old, tensor):
+                init = old
+            elif isinstance(old, scalar_types):
+                dt = new.dtype if isinstance(new, tensor) else None
+                init = to_tensor(old, b, dt)
+                if dt is not None:
+                    init = tl.cast(init, dt, _builder=b)
+                    if new.handle.shape:
+                        init = tl.broadcast_to(init, new.handle.shape, _builder=b)
+            else:
+                raise self.error(node, f"variable '{name}' ({type(old).__name__}) cannot be loop-carried")
+            carried.append(name)
+            inits.append(init)
+            self.scope[name] = init
+        return carried, inits
 
     def stmt_While(self, node):
         raise self.error(node, "while loops are not supported (use for ... in range)")
@@ -446,17 +551,17 @@ class CodeGenerator:
         raise self.error(node, "unsupported unary op")
 
     def expr_BoolOp(self, node):
-        vals = [_unwrap(self.eval(v)) for v in node.values]
+        is_and = isinstance(node.op, ast.And)
+        vals = []
+        for v in node.values:
+            x = _unwrap(self.eval(v))
+            if not isinstance(x, tensor) and not any(isinstance(y, tensor) for y in vals):
+                # python short-circuit while everything so far is a constexpr
+                if (is_and and not x) or (not is_and and x):
+                    return x
+            vals.append(x)
         if not any(isinstance(v, tensor) for v in vals):
-            if isinstance(node.op, ast.And):
-                out = True
-                for v in vals:
-                    out = out and v
-                return out
-            out = False
-            for v in vals:
-                out = out or v
-            return out
+            return vals[-1]
         acc = tl.cast(to_tensor(vals[0], self.builder), tl.int1, _builder=self.builder)
         for v in vals[1:]:
             v = tl.cast(to_tensor(v, self.builder), tl.int1, _builder=self.builder)

@@ -115,17 +115,33 @@ def _v8(a, b, fn):
     return out
 
 
-def _rtz(exact: np.ndarray) -> np.ndarray:
-    """float64 -> float32 rounding toward zero, denormals flushed.
+# Float ALU semantics measured on a Pi Zero (tools/float_specials_probe.py,
+# tools/probes.py): results are the exact value truncated toward zero; a
+# result of 2**128 or more is inf, one below 2**-126 is +0, and zero results
+# are always +0; denormal operands read as +0 and NaN operands as infinities
+# of their sign; 0 * inf is +0 and inf + -inf is the second operand; fmin /
+# fmax order operands by their sign-magnitude bits (so +NaN is the largest
+# value, -0 equals +0, denormals count as positive) and return the operand
+# itself.  Not modelled: ftoi of values >= 2**31 in magnitude (undefined in
+# Triton; the hardware mostly wraps modulo 2**32, but not always).
 
-    Measured on a Pi Zero: fadd/fsub/fmul truncate (tools/probes.py and
-    tests/test_hw.py), unlike IEEE round-to-nearest.
-    """
+_FLT_MIN = 2.0 ** -126
+_TWO128 = 2.0 ** 128
+
+
+def _rtz(exact: np.ndarray, err: Optional[np.ndarray] = None) -> np.ndarray:
+    """float64 -> float32 as the QPU rounds.  `err` is the part of the exact
+    value lost in `exact` (from TwoSum), so sums are truncated exactly."""
     with np.errstate(all="ignore"):
         rn = exact.astype(np.float32)
         bigger = np.abs(rn.astype(np.float64)) > np.abs(exact)
         out = np.where(bigger & np.isfinite(exact), np.nextafter(rn, np.float32(0)), rn)
-        out = np.where(np.abs(out) < np.float32(1.1754944e-38), np.float32(0) * np.sign(out), out)
+        if err is not None:
+            # exact == out but the true value is a little closer to zero
+            below = (out.astype(np.float64) == exact) & (err != 0) & (np.sign(err) != np.sign(exact))
+            out = np.where(below, np.nextafter(out, np.float32(0)), out)
+        out = np.where(np.abs(exact) >= _TWO128, np.copysign(np.float32(np.inf), exact), out)
+        out = np.where(np.abs(out) < np.float32(_FLT_MIN), np.float32(0), out)   # also -0 -> +0
     return out.astype(np.float32)
 
 
@@ -133,28 +149,69 @@ def _fp(x):
     return _f(x).astype(np.float64)
 
 
+def _qpu_in(x: np.ndarray) -> np.ndarray:
+    """Operand value as the float ALUs read it (float64)."""
+    e = (x >> 23) & 0xFF
+    f = _fp(x)
+    f = np.where((e == 0) & ((x & 0x7FFFFF) != 0), 0.0, f)
+    return np.where(e == 255, np.where(x >> 31 != 0, -np.inf, np.inf), f)
+
+
+def _qpu_fadd(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    fa, fb = _qpu_in(a), _qpu_in(b)
+    with np.errstate(all="ignore"):
+        s = fa + fb
+        bb = s - fa
+        err = (fa - (s - bb)) + (fb - bb)
+        out = _rtz(s, err)
+        out = np.where(np.isinf(fb), fb.astype(np.float32), out)
+        out = np.where(np.isinf(fa) & ~np.isinf(fb), fa.astype(np.float32), out)
+    return out
+
+
+def _qpu_fmul(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    fa, fb = _qpu_in(a), _qpu_in(b)
+    with np.errstate(all="ignore"):
+        out = _rtz(fa * fb)
+        zero_inf = ((fa == 0) & np.isinf(fb)) | (np.isinf(fa) & (fb == 0))
+        return np.where(zero_inf, np.float32(0), out)
+
+
+def _fkey(x: np.ndarray) -> np.ndarray:
+    """fmin / fmax ordering key: sign-magnitude bits; denormals (and -0) count
+    as positive."""
+    m = (x & 0x7FFFFFFF).astype(np.int64)
+    return np.where((x >> 31 != 0) & ((x >> 23) & 0xFF != 0), -m, m)
+
+
+def _qpu_ftoi(a: np.ndarray) -> np.ndarray:
+    """Truncate, then keep the low 32 bits (so inf, NaN and huge values give 0)."""
+    e = (a >> 23) & 0xFF
+    f = np.where((e == 0) | (e >= 127 + 55), 0.0, _fp(a))
+    return (np.trunc(f).astype(np.int64) & MASK32).astype(np.uint32)
+
+
 def alu_add(op: str, a: np.ndarray, b: np.ndarray):
     """Returns (result uint32[16], is_float, carry bool[16] or None)."""
     with np.errstate(all="ignore"):
         if op == "fadd":
-            return _u(_rtz(_fp(a) + _fp(b))), True, None
+            return _u(_qpu_fadd(a, b)), True, None
         if op == "fsub":
-            return _u(_rtz(_fp(a) - _fp(b))), True, None
+            return _u(_qpu_fadd(a, b ^ np.uint32(0x80000000))), True, None
         if op == "fmin":
-            return _u(np.minimum(_f(a), _f(b))), True, None
+            return np.where(_fkey(a) <= _fkey(b), a, b).astype(np.uint32), True, None
         if op == "fmax":
-            return _u(np.maximum(_f(a), _f(b))), True, None
+            return np.where(_fkey(a) > _fkey(b), a, b).astype(np.uint32), True, None
         if op == "fminabs":
-            return _u(np.minimum(np.abs(_f(a)), np.abs(_f(b)))), True, None
+            ma, mb = a & np.uint32(0x7FFFFFFF), b & np.uint32(0x7FFFFFFF)
+            return np.where(ma <= mb, ma, mb).astype(np.uint32), True, None
         if op == "fmaxabs":
-            return _u(np.maximum(np.abs(_f(a)), np.abs(_f(b)))), True, None
+            ma, mb = a & np.uint32(0x7FFFFFFF), b & np.uint32(0x7FFFFFFF)
+            return np.where(ma > mb, ma, mb).astype(np.uint32), True, None
         if op == "ftoi":
-            fa = _f(a).astype(np.float64)
-            fa = np.where(np.isnan(fa), 0, fa)
-            v = np.trunc(np.clip(fa, -2147483648.0, 2147483647.0)).astype(np.int64)
-            return (v & MASK32).astype(np.uint32), False, None
+            return _qpu_ftoi(a), False, None
         if op == "itof":
-            return _u(a.view(np.int32).astype(np.float32)), True, None
+            return _u(_rtz(a.view(np.int32).astype(np.float64))), True, None
         ai, bi = a.astype(np.int64), b.astype(np.int64)
         sa, sb = a.view(np.int32).astype(np.int64), b.view(np.int32).astype(np.int64)
         sh = (b & 31).astype(np.uint32)
@@ -197,7 +254,7 @@ def alu_add(op: str, a: np.ndarray, b: np.ndarray):
 def alu_mul(op: str, a: np.ndarray, b: np.ndarray):
     with np.errstate(all="ignore"):
         if op == "fmul":
-            return _u(_rtz(_fp(a) * _fp(b))), True
+            return _u(_qpu_fmul(a, b)), True
         if op == "mul24":
             prod = (a & 0xFFFFFF).astype(np.uint64) * (b & 0xFFFFFF).astype(np.uint64)
             return (prod & MASK32).astype(np.uint32), False

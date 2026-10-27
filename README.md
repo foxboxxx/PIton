@@ -24,11 +24,16 @@ Status:
 
 * The Triton tutorial **vector add**, **fused softmax** and **grouped matmul** (`tl.dot`, masks,
   `%`-wraparound, runtime strides, runtime or constexpr K) compile and pass against numpy in the
-  emulator; the `.qasm` we emit assembles with `vc4asm` to exactly the bits our encoder produces.
-* On a Pi Zero W, vector add and the tutorial matmul (tile-aligned sizes, and ragged sizes with
-  up to two programs) produce results **bit-identical to the emulator**.
-* Ragged matmuls with many concurrent programs (up to 32 tested) are bit-identical too, after
-  finding that the VDW stride register is shared by all QPUs (see the findings table).
+  emulator (118 tests, including small-tile reductions/transposes/dots, IEEE comparisons with
+  NaN/inf/±0, and exp/log/div/sqrt accuracy); the `.qasm` we emit assembles with `vc4asm` to
+  exactly the bits our encoder produces.
+* On a Pi Zero W every hardware test is **bit-identical to the emulator**: vector add, softmax,
+  ragged matmuls with up to 32 concurrent programs, exp/log/division/sqrt, float comparisons on
+  special values, lane permutations, and stores with negative row strides
+  (`PITON_HW=1 pytest tests/test_hw.py`, 9 tests). The emulator models the QPU's float quirks
+  measured with `tools/float_specials_probe.py` (see the findings table).
+* No QPU op whose result we cannot reproduce is used: exp, log, reciprocal and rsqrt run on the
+  ALUs (≈22-23 bits, within ~2 ulp) instead of the special function unit.
 
 ## Performance (Pi Zero W, 12 QPUs @ 250 MHz, fp32)
 
@@ -37,11 +42,15 @@ Triton tutorial matmul (`examples/kernels.py`), square N×N×N, inputs generated
 
 | N | config (BM, BN, BK) | time | GFLOPS |
 |---|---|---|---|
-| 128 | 8, 64, 4 | 0.49 ms | 8.5 |
-| 256 | 8, 64, 4 | 4.33 ms | 7.8 |
-| 512 | 8, 64, 4 | 34.5 ms | 7.8 |
-| 512 | **8, 64, 8** | **30.9 ms** | **8.7** |
-| 1024 | 8, 64, 4 | 352 ms | 6.1 |
+| 128 | 8, 64, 4 | 0.50 ms | 8.5 |
+| 256 | 8, 64, 4 | 4.34 ms | 7.7 |
+| 512 | 8, 64, 4 | 34.9 ms | 7.7 |
+| 512 | **8, 64, 8** | **30.6 ms** | **8.8** |
+| 1024 | 8, 64, 4 | 347 ms | 6.2 |
+
+(Measured 2026-10-27 after the correctness fixes; with a constant K the loop is unchanged at 198
+instructions. With a runtime K, clamping the prefetch index and the overflow-safe K-mask compare
+add 4.)
 
 For scale: the CS240LX GPU lab's hand-written 1-QPU kernel does 128³ in 116 ms (≈0.036 GFLOPS) and
 the ARM1176 ≈0.009 GFLOPS — PIton is ~235× faster than the lab kernel on 128³.
@@ -93,7 +102,7 @@ Python AST ──frontend.py──▶ tile IR (TTIR-like)  ──passes.py──
 | `piton/runtime/pi.py` | builds a bare-metal test program, boots it with the course bootloader, reads results back |
 | `piton/tools/compile.py` | AOT compiler → `.qasm` + `.c/.h` with a `*_launch()` function |
 | `pi/runtime/piton_rt.c` | mailbox GPU memory + V3D user-program queue launcher |
-| `tools/probes.py` | hand-written hardware probes that pinned down undocumented behaviour |
+| `tools/probes.py`, `tools/float_specials_probe.py` | hardware probes that pinned down undocumented behaviour |
 
 ## Quick start
 
@@ -133,10 +142,14 @@ block is powered off (`V3D_IDENT0` reads `0xdeadbeef`).
 `tl.program_id`, `tl.num_programs`, `tl.arange`, `tl.zeros/full`, `tl.load/store` (masks, `other`),
 `tl.dot`, `tl.where`, `tl.sum/max/min`, `tl.exp/exp2/log/log2/sqrt/rsqrt/abs/sigmoid`,
 `tl.maximum/minimum`, `tl.cdiv`, `tl.static_range`, `tl.multiple_of` (no-op), `.to()`, `[:, None]`
-indexing, `tl.reshape/trans` (slow path), runtime `for` loops with loop-carried values, scalar
-runtime `if`, inlined `@jit` helpers, Python `min/max` on tensors. Integer `//` and `%` follow C
-semantics like Triton. Types: `float32`, `int32`, `uint32`, `int1` (the QPU has no fp16/fp64).
-Block shapes must be powers of two; `tl.dot` is fastest when `BLOCK_N` is a multiple of 16.
+indexing, `tl.reshape/trans`, runtime `for` loops with loop-carried values (including swaps),
+runtime `if` (also the `if pid >= n: return` early exit), inlined `@jit` helpers, Python
+`min/max` on tensors. Integer `//` and `%` follow C semantics like Triton; integer and float
+comparisons are exact (no overflow, IEEE NaN/inf/±0). Types: `float32`, `int32`, `uint32`, `int1`
+(the QPU has no fp16/fp64). Block shapes must be powers of two; `tl.dot` needs `BLOCK_N` dividing
+16 or a multiple of 16 (fastest). As in Triton, `return` inside a runtime `for` is rejected, and
+re-binding a tuple inside a runtime loop is a compile error. Floats round toward zero and
+denormals flush to zero, as on the hardware.
 
 ## How it maps to the QPU
 
@@ -150,7 +163,12 @@ Block shapes must be powers of two; `tl.dot` is fastest when `BLOCK_N` is a mult
   FIFO with the next request, including the first ones of the next iteration (clamped on the last).
 * **Stores** go through this QPU's 4 VPM rows and the VDW DMA, as 16-word rows with a stride.
   `(row < M) & (col < N)` masks are turned into runtime row/column counts; a versioned fast path
-  skips them when the whole tile is in bounds. Store sequences run under the hardware mutex.
+  skips them when the whole tile is in bounds. The VDW stride field holds 16 unsigned bits, so a
+  runtime row stride is checked once per store and huge or negative strides fall back to one DMA
+  per row. Each DMA kick runs under the hardware mutex.
+* **Small tiles** (rows shorter than 16 lanes, transposes, broadcasts, `tl.dot` with N < 16) are
+  built with lane rotations and masked moves (`shl.setf -, mask, elem_num` selects lanes), so
+  only the source and result registers are live.
 * **`tl.dot`** is a register-blocked outer product: for each `k` and row `m`,
   `mov r5rep, a << lane` broadcasts `A[m,k]` (one mul-ALU op), then one *paired* instruction per
   16 columns does `fmul prod, r5, B[k, cb]` + `fadd acc, acc, prev_prod`. With `BLOCK_N = 64` that
@@ -171,7 +189,9 @@ All verified with `tools/probes.py` on a Pi Zero W; the emulator models them:
 
 | finding | consequence |
 |---|---|
-| `fadd`/`fsub`/`fmul` round **toward zero** (not IEEE nearest) | emulator reproduces results bit for bit |
+| `fadd`/`fsub`/`fmul`/`itof` round **toward zero** (not IEEE nearest), on the exact result | emulator reproduces results bit for bit (sums are truncated exactly, using TwoSum) |
+| float specials (`tools/float_specials_probe.py`): results ≥ 2¹²⁸ are ±inf, results below 2⁻¹²⁶ and all zero results are +0, denormal operands read as +0, NaN operands act as ±inf, `0 × inf = +0`, `inf + −inf` is the second operand; `fmin`/`fmax` order by sign-magnitude bits (+NaN largest, −NaN smallest, −0 = +0, denormals positive) | emulated exactly; float compares use integer keys so `<`, `==`, … follow IEEE (NaN, ±inf, ±0); division sets NaN for NaN operands, 0/0 and inf/inf; plain `+`/`*` keep the hardware's NaN-as-inf behaviour |
+| `ftoi` truncates and keeps the low 32 bits (`1e10` → `0x540be400`, inf/NaN → 0), with exceptions for some huge values | float → int of values ≥ 2³¹ is undefined in Triton; the emulator models the wrap |
 | only **4** direct TMU lookups may be outstanding per TMU (the guide implies 8; the 5th overwrites the oldest result) | pipeliner keeps ≤4 per TMU, 8 total using TMU0+TMU1 |
 | `r5` written by `mov r5rep, rX << n` can be read by the very next instruction | broadcast + fmul back to back |
 | vc4asm `r0 << n` rotates element n into element 0 | used for lane broadcasts |
@@ -180,7 +200,7 @@ All verified with `tools/probes.py` on a Pi Zero W; the emulator models them:
 | QPU instruction rate 62.5 M/s per QPU, 12 QPUs scale linearly; TMU ≈ 12 cycles latency | timing model |
 | the VDW **stride** register is one register for all 12 QPUs: written once, it is overwritten by other QPUs before the next DMA (probe `vdw_stride`: 592/1536 rows wrong) | each DMA kick (setup + stride + address) runs under the hardware mutex, released as soon as the DMA starts (safe per probe); the emulator models the shared register |
 | `qpu_num` is unique 0-11; the scheduler hands programs to QPU 11, 10, …, 0 | per-QPU VPM rows `4*qpu_num` never collide |
-| SFU accuracy: `exp2` ≈ 13.8 bits, `log2` ≈ 12.8 bits; `recip`/`recipsqrt` + one Newton step ≈ 22 bits | exp/log are computed on the ALUs (range reduction + polynomial) instead of the SFU |
+| SFU accuracy: `exp2` ≈ 13.8 bits, `log2` ≈ 12.8 bits; `recip`/`recipsqrt` + one Newton step ≈ 22 bits, and the exact bits are not reproducible (softmax differed from the emulator in the last bit) | exp/log use range reduction + polynomials, recip/rsqrt an integer seed + 3 Newton steps, all on the ALUs: deterministic and ≈ 2 ulp |
 | GPU reads through the uncached `0xC` bus alias are >100× slower; `0x0` hung the TMU | buffers use the mailbox's default `0x4` alias |
 
 ## Layout of the repository

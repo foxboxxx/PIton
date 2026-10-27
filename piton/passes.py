@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+import numpy as np
+
 from . import ir
 from .ir import Block, Builder, Op, Value
 
@@ -76,66 +78,116 @@ def _wrap32(x: int, signed=True) -> int:
     return x - (1 << 32) if signed and x >= 1 << 31 else x
 
 
+def _f32(x) -> float:
+    return float(np.float32(x))
+
+
+def _f32_bits(x) -> int:
+    return int(np.array(x, np.float32).view(np.uint32))
+
+
+def norm_const(value, dtype: ir.DType):
+    """Canonical python value of a constant of `dtype`: int32 values are wrapped
+    to [-2**31, 2**31), uint32 values to [0, 2**32), floats rounded to float32."""
+    if dtype.is_bool:
+        return bool(value)
+    if dtype.is_float:
+        return _f32(value)
+    if dtype.kind in ("int", "uint") and isinstance(value, (int, bool, np.integer)):
+        return _wrap32(int(value), dtype.kind == "int")
+    return value
+
+
 def _fold(op: Op):
     """Return a python constant for `op` if all operands are constants."""
     vals = [_const_value(o) for o in op.operands]
     if any(v is None for v in vals) or not op.results:
         return None
+    r = _fold_raw(op, vals)
+    return None if r is None else norm_const(r, op.result.dtype)
+
+
+def _fold_raw(op: Op, vals):
     n = op.name
+    s = [_wrap32(int(v)) if isinstance(v, (int, bool)) else v for v in vals]     # signed view
+    u = [int(v) & 0xFFFFFFFF if isinstance(v, (int, bool)) else v for v in vals]  # unsigned view
+    is_bool = bool(op.operands) and op.operands[0].dtype.is_bool
     try:
         if n == "arith.addi":
-            return _wrap32(vals[0] + vals[1])
+            return u[0] + u[1]
         if n == "arith.subi":
-            return _wrap32(vals[0] - vals[1])
+            return u[0] - u[1]
         if n == "arith.muli":
-            return _wrap32(vals[0] * vals[1])
-        if n == "arith.divsi" and vals[1] != 0:
-            q = abs(vals[0]) // abs(vals[1])
-            return q if (vals[0] >= 0) == (vals[1] >= 0) else -q
-        if n == "arith.remsi" and vals[1] != 0:
-            r = abs(vals[0]) % abs(vals[1])
-            return r if vals[0] >= 0 else -r
+            return u[0] * u[1]
+        if n == "arith.divsi" and s[1] != 0:
+            q = abs(s[0]) // abs(s[1])
+            return q if (s[0] >= 0) == (s[1] >= 0) else -q
+        if n == "arith.remsi" and s[1] != 0:
+            r = abs(s[0]) % abs(s[1])
+            return r if s[0] >= 0 else -r
+        if n == "arith.divui" and u[1] != 0:
+            return u[0] // u[1]
+        if n == "arith.remui" and u[1] != 0:
+            return u[0] % u[1]
         if n == "arith.minsi":
-            return min(vals)
+            return min(s)
         if n == "arith.maxsi":
-            return max(vals)
+            return max(s)
+        if n == "arith.minui":
+            return min(u)
+        if n == "arith.maxui":
+            return max(u)
         if n == "arith.andi":
-            return vals[0] & vals[1] if not isinstance(vals[0], bool) else (vals[0] and vals[1])
+            return (vals[0] and vals[1]) if is_bool else u[0] & u[1]
         if n == "arith.ori":
-            return vals[0] | vals[1] if not isinstance(vals[0], bool) else (vals[0] or vals[1])
+            return (vals[0] or vals[1]) if is_bool else u[0] | u[1]
         if n == "arith.xori":
-            if isinstance(vals[0], bool):
-                return vals[0] != bool(vals[1])
-            return _wrap32(vals[0] ^ vals[1])
-        if n == "arith.shli":
-            return _wrap32(vals[0] << vals[1])
-        if n == "arith.shrsi":
-            return vals[0] >> vals[1]
+            return (bool(vals[0]) != bool(vals[1])) if is_bool else u[0] ^ u[1]
+        if n == "arith.shli" and 0 <= s[1] < 32:
+            return u[0] << s[1]
+        if n == "arith.shrsi" and 0 <= s[1] < 32:
+            return s[0] >> s[1]
+        if n == "arith.shrui" and 0 <= s[1] < 32:
+            return u[0] >> s[1]
         if n in ("arith.addf", "arith.subf", "arith.mulf", "arith.divf"):
-            import numpy as np
             a, b = np.float32(vals[0]), np.float32(vals[1])
             with np.errstate(all="ignore"):
                 r = {"arith.addf": a + b, "arith.subf": a - b, "arith.mulf": a * b,
                      "arith.divf": a / b if b != 0 else None}[n]
             return None if r is None else float(r)
         if n == "arith.sitofp":
-            return float(vals[0])
+            return _f32(s[0])
+        if n == "arith.uitofp":
+            return _f32(u[0])
         if n == "arith.cmpi":
-            a, b = vals
             p = op.attrs["predicate"]
-            return {"slt": a < b, "sle": a <= b, "sgt": a > b, "sge": a >= b, "eq": a == b,
-                    "ne": a != b, "ult": a % 2**32 < b % 2**32, "ule": a % 2**32 <= b % 2**32,
-                    "ugt": a % 2**32 > b % 2**32, "uge": a % 2**32 >= b % 2**32}[p]
+            if is_bool:
+                a, b = bool(vals[0]), bool(vals[1])
+                return {"eq": a == b, "ne": a != b}.get(p)
+            return {"slt": s[0] < s[1], "sle": s[0] <= s[1], "sgt": s[0] > s[1], "sge": s[0] >= s[1],
+                    "eq": u[0] == u[1], "ne": u[0] != u[1], "ult": u[0] < u[1], "ule": u[0] <= u[1],
+                    "ugt": u[0] > u[1], "uge": u[0] >= u[1]}[p]
         if n == "arith.extui":
             return int(vals[0])
-        if n == "arith.bitcast" and isinstance(vals[0], int):
-            return vals[0]
+        if n in ("arith.bitcast", "tt.bitcast"):
+            src, dst = op.operands[0].dtype, op.result.dtype
+            if src.is_float and dst.kind in ("int", "uint"):
+                return _f32_bits(vals[0])
+            if src.kind in ("int", "uint") and dst.is_float:
+                return float(np.array(u[0], np.uint32).view(np.float32))
+            if src.kind in ("int", "uint") and dst.kind in ("int", "uint"):
+                return u[0]
+            return None
     except Exception:
         return None
     return None
 
 
 def canonicalize(fn: ir.Function, ranges: Optional["RangeAnalysis"] = None) -> None:
+    for block in _walk_blocks(fn.body):
+        for op in block.ops:
+            if op.name == "arith.constant" and op.results:
+                op.attrs["value"] = norm_const(op.attrs["value"], op.result.dtype)
     changed = True
     while changed:
         changed = False
@@ -197,7 +249,7 @@ def _key(op: Op):
         if isinstance(v, (list, tuple)):
             return tuple(norm(x) for x in v)
         if isinstance(v, float):
-            return ("f", v)
+            return ("f", _f32_bits(v))          # keeps -0.0 apart from +0.0
         if isinstance(v, bool):
             return ("b", v)
         return v

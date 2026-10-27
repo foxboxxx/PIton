@@ -43,3 +43,23 @@ def test_matmul_runtime_k_qasm():
     for k in cons:
         sig.pop(k, None)
     check(pc.compile(matmul_kernel, sig, cons))
+
+
+def test_new_patterns_qasm():
+    """Lane permutations, ALU exp/log/div/sqrt, IEEE compares, per-row DMA stores."""
+    sys.path.insert(0, os.path.dirname(__file__))
+    import test_tiles as T
+    import test_hw as H
+    f32 = {"x_ptr": "*fp32", "o_ptr": "*fp32"}
+    check(pc.compile(T.reduce2d, f32, dict(R=16, L=4, AXIS=1, KIND=0)))
+    check(pc.compile(T.trans_k, f32, dict(M=8, N=8)))
+    check(pc.compile(T.dot_k, {"a_ptr": "*fp32", "b_ptr": "*fp32", "c_ptr": "*fp32", "o_ptr": "*fp32"},
+                     dict(M=4, N=8, K=8, ACC=True)))
+    for F in range(4):
+        check(pc.compile(T.explog_k, {**f32, "n": "i32"}, dict(F=F, BLOCK=128)))
+    for F in range(3):
+        check(pc.compile(T.divsqrt_k, {"x_ptr": "*fp32", "y_ptr": "*fp32", "o_ptr": "*fp32", "n": "i32"},
+                         dict(F=F, BLOCK=128)))
+    check(pc.compile(T.fcmp_k, {"x_ptr": "*fp32", "y_ptr": "*fp32", "o": "*i32"}, dict(C=0.0, MODE=0, BLOCK=16)))
+    check(pc.compile(H._strided_store, {"x_ptr": "*fp32", "out_ptr": "*fp32", "base": "i32", "stride": "i32"},
+                     dict(R=4, L=16)))

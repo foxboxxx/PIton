@@ -363,8 +363,13 @@ NULL_B = Reg("-", rfile="B", raddr=39)
 
 
 def _zero_moves(ins: Instr) -> Instr:
-    """Encode `mov x, 0` like vc4asm: xor/v8subs of the null register through a
-    free read port, which keeps the small-immediate / signal field free."""
+    """Spell `mov x, 0` as `xor x, s, s` / `v8subs x, s, s` (always 0).
+
+    This keeps the small-immediate and signal fields free.  `s` is the
+    register the other op already reads through regfile port A, or else the
+    A-file null register (printed `-`): both print as text that vc4asm
+    assembles back to exactly these bits (the B-file null cannot be spelled).
+    """
     def is_zero_mov(op):
         return op is not None and op.op == "mov" and isinstance(op.a, Imm) and op.a.value == 0 \
             and op.rot is None
@@ -373,18 +378,16 @@ def _zero_moves(ins: Instr) -> Instr:
     others = [op for op in (ins.add, ins.mul) if op is not None and not is_zero_mov(op)]
     if any(op.rot for op in others):
         return ins
-    b_src = None
+    src = NULL_A
     for op in others:
         for x in op.srcs():
-            if isinstance(x, Imm) or (isinstance(x, Reg) and x.acc is None and x.rfile == "B"):
-                b_src = x
-    # x ^ x == v8subs(x, x) == 0 whatever x is, so reuse what the B port reads
-    null = NULL_B if b_src is None else b_src
+            if isinstance(x, Reg) and x.acc is None and x.rfile == "A":
+                src = x
     out = replace(ins)
     if is_zero_mov(ins.add):
-        out.add = replace(ins.add, op="xor", a=null, b=null)
+        out.add = replace(ins.add, op="xor", a=src, b=src)
     if is_zero_mov(ins.mul):
-        out.mul = replace(ins.mul, op="v8subs", a=null, b=null)
+        out.mul = replace(ins.mul, op="v8subs", a=src, b=src)
     return out
 
 
@@ -453,7 +456,12 @@ def _encode_alu(ins: Instr) -> int:
     ws, waddr_add, waddr_mul = _waddr_fields(ins)
     op_add = ADD_OPS["or" if add is not None and add.op == "mov" else (add.op if add else "nop")]
     op_mul = MUL_OPS["v8min" if mul is not None and mul.op == "mov" else (mul.op if mul else "nop")]
-    hi = (sig_code << 28) | (CONDS_FIELD(_alu_cond(add, ins.setf), _alu_cond(mul, ins.setf))) \
+    cond_mul = _alu_cond(mul, ins.setf)
+    if mul is None and add is not None and add.op == "xor" and add.a == add.b:
+        # vc4asm reads `xor x, s, s` as its zero-move idiom and sets the (unused)
+        # mul condition to always; match it so the .qasm assembles to these bits
+        cond_mul = CONDS["always"]
+    hi = (sig_code << 28) | (CONDS_FIELD(_alu_cond(add, ins.setf), cond_mul)) \
         | (int(ins.setf) << 13) | (ws << 12) | (waddr_add << 6) | waddr_mul
     lo = (op_mul << 29) | (op_add << 24) | (raddr_a << 18) | (raddr_b << 12) \
         | (muxes[0] << 9) | (muxes[1] << 6) | (muxes[2] << 3) | muxes[3]
@@ -638,6 +646,8 @@ def canonicalize(ins: Instr) -> Instr:
         return Instr(kind="ldi", imm=ins.add.a.value, setf=ins.setf,
                      add=AluOp("mov", ins.add.dst, NOP, cond=ins.add.cond),
                      comment=ins.comment)
+    if ins.kind == "alu":
+        return _zero_moves(ins)
     return ins
 
 
