@@ -180,6 +180,8 @@ All verified with `tools/probes.py` on a Pi Zero W; the emulator models them:
 | QPU instruction rate 62.5 M/s per QPU, 12 QPUs scale linearly; TMU ≈ 12 cycles latency | timing model |
 | the VDW **stride** register is one register for all 12 QPUs: written once, it is overwritten by other QPUs before the next DMA (probe `vdw_stride`: 592/1536 rows wrong) | each DMA kick (setup + stride + address) runs under the hardware mutex, released as soon as the DMA starts (safe per probe); the emulator models the shared register |
 | `qpu_num` is unique 0-11; the scheduler hands programs to QPU 11, 10, …, 0 | per-QPU VPM rows `4*qpu_num` never collide |
+| SFU accuracy: `exp2` ≈ 13.8 bits, `log2` ≈ 12.8 bits; `recip`/`recipsqrt` + one Newton step ≈ 22 bits | exp/log are computed on the ALUs (range reduction + polynomial) instead of the SFU |
+| GPU reads through the uncached `0xC` bus alias are >100× slower; `0x0` hung the TMU | buffers use the mailbox's default `0x4` alias |
 
 ## Layout of the repository
 
