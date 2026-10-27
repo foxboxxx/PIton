@@ -343,7 +343,143 @@ def unif_reset_paired():
     expect = np.repeat(np.array([0x1234, 0x5678, 0x1234, 0x5678, 0x1234], dtype=np.uint32), 16)
     return src, [Buffer("out", 512)], [[("buf", "out", 0), ("self",), 0x1234, 0x5678]], ["out"], expect
 
+
+
+def vdw_concurrency(use_mutex: bool, nprog: int = 48, chunks: int = 8):
+    """Many QPUs storing 4-row chunks at once, with or without the mutex.
+    Returns the number of corrupted 64-byte rows."""
+    lock = "    mov -, mutex" if use_mutex else "    nop"
+    unlock = "    mov mutex, 0" if use_mutex else "    nop"
+    body = []
+    for c in range(chunks):
+        body.append(f"""
+{lock}
+    mov r0, qpu_num
+    nop
+    shl r1, r0, 2
+    ldi r2, vpm_setup_h32(4, 1, 0)
+    add vw_setup, r1, r2
+    add r3, ra1, {c}
+    mov vpm, r3
+    add r3, r3, 1
+    mov vpm, r3
+    add r3, r3, 1
+    mov vpm, r3
+    add r3, r3, 1
+    mov vpm, r3
+    shl r1, r1, 7
+    ldi r2, vdw_h32(4, 16, 0, 0)
+    add vw_setup, r1, r2
+    ldi r2, {c * 256}
+    add vw_addr, ra2, r2
+    mov -, vw_wait
+{unlock}""")
+    src = PROLOGUE + """
+    mov ra0, unif            # out base
+    mov ra1, unif            # pattern base = pid * 1000
+    mov ra2, unif            # this program's output address
+    nop
+""" + "".join(body) + EPILOGUE
+    words, _ = vc4asm_assemble(src, verify=False)
+    row_bytes = 64
+    per_prog = chunks * 4 * row_bytes
+    progs = [[("buf", "out", 0), p * 1000, ("buf", "out", p * per_prog)] for p in range(nprog)]
+    res = PiRunner(timeout=60).run(words, [Buffer("out", per_prog * nprog)], progs, ["out"])
+    got = res.outputs["out"].reshape(nprog, chunks, 4, 16)
+    exp = np.zeros_like(got)
+    for p in range(nprog):
+        for c in range(chunks):
+            for r in range(4):
+                exp[p, c, r, :] = p * 1000 + c + r
+    bad = int(np.sum(np.any(got != exp, axis=-1)))
+    return bad, nprog * chunks * 4
+
+
+def vdw_concurrency_probe():
+    for m in (False, True):
+        bad, total = vdw_concurrency(m)
+        print(f"[vdw_concurrency] mutex={m}: {bad}/{total} rows corrupted")
+
+
+
+def vdw_stride_concurrency(use_mutex: bool, nprog: int = 48, chunks: int = 8, stride_once: bool = False,
+                           early_unlock: bool = False):
+    """Like vdw_concurrency, but every program uses its own VDW row stride
+    (0, 64 or 128 bytes): tests whether the stride setup is per QPU."""
+    lock = "    mov -, mutex" if use_mutex else "    nop"
+    unlock = "    mov mutex, 0" if use_mutex else "    nop"
+    body = []
+    for c in range(chunks):
+        body.append(f"""
+{lock}
+    mov r0, qpu_num
+    nop
+    shl r1, r0, 2
+    ldi r2, vpm_setup_h32(4, 1, 0)
+    add vw_setup, r1, r2
+    add r3, ra1, {c}
+    mov vpm, r3
+    add r3, r3, 1
+    mov vpm, r3
+    add r3, r3, 1
+    mov vpm, r3
+    add r3, r3, 1
+    mov vpm, r3
+    shl r1, r1, 7
+    ldi r2, vdw_h32(4, 16, 0, 0)
+    add vw_setup, r1, r2
+{"    nop" if (stride_once and c > 0) else "    mov vw_setup, ra3        # stride setup (per program)"}
+    mov r2, ra4              # chunk pitch = 4 * (64 + stride)
+    nop
+    mul24 r2, r2, {c}
+    add vw_addr, ra2, r2
+{unlock if early_unlock else "    nop"}
+    mov -, vw_wait
+{"    nop" if early_unlock else unlock}""")
+    src = PROLOGUE + """
+    mov ra0, unif            # out base
+    mov ra1, unif            # pattern base = pid * 1000
+    mov ra2, unif            # this program's output address
+    mov ra3, unif            # vdw stride setup word
+    mov ra4, unif            # bytes per chunk
+    nop
+""" + "".join(body) + EPILOGUE
+    words, _ = vc4asm_assemble(src, verify=False)
+    strides = [((p % 3) * 64) for p in range(nprog)]
+    per_prog = chunks * 4 * (64 + 128)
+    progs = [[("buf", "out", 0), p * 1000, ("buf", "out", p * per_prog), 0xC0000000 | strides[p],
+              4 * (64 + strides[p])] for p in range(nprog)]
+    res = PiRunner(timeout=60).run(words, [Buffer("out", per_prog * nprog)], progs, ["out"])
+    words_out = res.outputs["out"]
+    bad = 0
+    total = 0
+    for p in range(nprog):
+        base = p * per_prog // 4
+        pitch = (64 + strides[p]) // 4
+        for c in range(chunks):
+            for r in range(4):
+                off = base + (c * 4 + r) * pitch
+                total += 1
+                if not np.all(words_out[off:off + 16] == p * 1000 + c + r):
+                    bad += 1
+    return bad, total
+
+
+def vdw_stride_probe():
+    for once in (False, True):
+        for m in (False, True):
+            bad, total = vdw_stride_concurrency(m, stride_once=once)
+            print(f"[vdw_stride_concurrency] stride written {'once' if once else 'every chunk'}, "
+                  f"mutex={m}: {bad}/{total} rows wrong")
+
 if __name__ == "__main__":
     names = sys.argv[1:] or [n for n in PROBES if n != "multi_qpu"]
     for n in names:
-        run(n)
+        if n == "vdw_concurrency":
+            vdw_concurrency_probe()
+        elif n == "vdw_stride":
+            vdw_stride_probe()
+        elif n == "timings":
+            timings()
+        else:
+            run(n)

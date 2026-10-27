@@ -1753,20 +1753,37 @@ class Lowering:
             mask = None
         shape = op.operands[0].shape
         self.stats["dma_stores"] += 1
-        # The VPM write path and the VDW DMA engine are shared by all QPUs:
-        # a store sequence runs under the hardware mutex.
-        self.mutex_acquire()
-        try:
-            return self._store(op, ptr, val, mask, shape)
-        finally:
-            self.dma_wait()
-            self.mutex_release()
+        return self._store(op, ptr, val, mask, shape)
 
-    def mutex_acquire(self):
-        self.op("mov", isa.NOP, isa.MUTEX)
+    def stride_word(self, stride: S):
+        """VDW stride-setup word (computed outside the critical section)."""
+        if stride.is_const:
+            return self.operand(C(0xC0000000 | (int(stride.const) & 0xFFFF)))
+        v = self.new("vs")
+        self.op("and", v, stride.reg, self.const_reg(0xFFFF))
+        v2 = self.new("vs")
+        self.op("or", v2, v, self.const_reg(0xC0000000))
+        return v2
 
-    def mutex_release(self):
-        self.op("mov", isa.MUTEX, Imm(0))
+    def dma_kick(self, setup, stride: S, addr):
+        """Start a VDW DMA store.
+
+        The VDW stride register is one register shared by all 12 QPUs
+        (tools/probes.py vdw_stride: written once, it gets overwritten by
+        other QPUs), so basic setup + stride + start address are written
+        under the hardware mutex.  The DMA latches them when it starts, so
+        the mutex is released right away (probe: early release is safe) and
+        this QPU waits for its own DMA later, outside the lock.
+        """
+        word = self.stride_word(stride)
+        if self.opts.get("store_mutex", True):
+            self.op("mov", isa.NOP, isa.MUTEX)
+        self.op("mov", isa.VW_SETUP, setup)
+        self.op("mov", isa.VW_SETUP, word)
+        self.op("mov", isa.VW_ADDR, addr)
+        if self.opts.get("store_mutex", True):
+            self.op("mov", isa.MUTEX, Imm(0))
+        self.vdw_pending = True
 
     def _store(self, op, ptr, val, mask, shape):
         if not shape:
@@ -1817,18 +1834,15 @@ class Lowering:
         self.op("mov", isa.VPM, self.operand(v))
         setup = self.new("vd")
         self.op("add", setup, vdw, self.const_reg((1 << 23) | (1 << 16)))
-        self.op("mov", isa.VW_SETUP, setup)
-        self.set_vdw_stride(C(0))
         if mask is not None:
             cond = self.set_flags(mask, 0)
             a = self.new("a")
             self.op("mov", a, self.operand(s))
             if cond != "always":
                 self.op("mov", a, self.get_scratch_ptr(), cond=isa.COND_INVERT[cond])
-            self.op("mov", isa.VW_ADDR, a)
         else:
-            self.op("mov", isa.VW_ADDR, self.operand(s))
-        self.vdw_pending = True
+            a = self.operand(s)
+        self.dma_kick(setup, C(0), a)
 
     def scalar_of(self, x) -> S:
         if isinstance(x, S):
@@ -1849,20 +1863,6 @@ class Lowering:
         if self.vdw_pending:
             self.op("mov", isa.NOP, isa.VW_WAIT)
             self.vdw_pending = False
-
-    def set_vdw_stride(self, stride: S):
-        key = repr(stride)
-        if self.vdw_stride == key:
-            return
-        if stride.is_const:
-            self.op("mov", isa.VW_SETUP, self.operand(C(0xC0000000 | (int(stride.const) & 0xFFFF))))
-        else:
-            v = self.new("vs")
-            self.op("and", v, stride.reg, self.const_reg(0xFFFF))
-            v2 = self.new("vs")
-            self.op("or", v2, v, self.const_reg(0xC0000000))
-            self.op("mov", isa.VW_SETUP, v2)
-        self.vdw_stride = key
 
     def store_layout(self, ptr, shape):
         """Describe a contiguous-rows store: list of (rows, row_stride S, chunks).
@@ -1928,10 +1928,7 @@ class Lowering:
                 stride = self.s_sub(row_stride_bytes, C(64)) if layout["kind"] == "2d" else C(0)
                 setup = self.new("vd")
                 self.op("add", setup, vdw, self.const_reg((units << 23) | (16 << 16)))
-                self.op("mov", isa.VW_SETUP, setup)
-                self.set_vdw_stride(stride)
-                self.op("mov", isa.VW_ADDR, a)
-                self.vdw_pending = True
+                self.dma_kick(setup, stride, a)
                 continue
             self.store_masked_chunk(layout, bounds, regs, a, vdw, row_stride_bytes)
 
@@ -2039,15 +2036,11 @@ class Lowering:
                 self.op("shl", d16, rem, Imm(_shift_imm(16)))
                 self.op("add", setup, setup, d16)
                 self.op("add", setup, setup, self.const_reg(1 << 23))
-                self.op("mov", isa.VW_SETUP, setup)
-                self.vdw_stride = None
-                self.set_vdw_stride(C(0))
                 a2 = self.new("t")
                 o = self.new("t")
                 self.op("shl", o, full, Imm(6))
                 self.op("add", a2, addr, o)
-                self.op("mov", isa.VW_ADDR, a2)
-                self.vdw_pending = True
+                self.dma_kick(setup, C(0), a2)
             self.guarded_dma(rem, tail)
             return
         nb = layout["L"] // LANES
@@ -2094,17 +2087,7 @@ class Lowering:
             d = self.new("t")
             self.op("shl", d, depth.reg, Imm(_shift_imm(16)))
             self.op("add", setup, setup, d)
-        self.vdw_stride = None
-        self.op("mov", isa.VW_SETUP, setup)
-        if stride.is_const:
-            self.op("mov", isa.VW_SETUP, self.operand(C(0xC0000000 | (int(stride.const) & 0xFFFF))))
-        else:
-            v = self.new("vs")
-            self.op("and", v, stride.reg, self.const_reg(0xFFFF))
-            self.op("or", v, v, self.const_reg(0xC0000000))
-            self.op("mov", isa.VW_SETUP, v)
-        self.op("mov", isa.VW_ADDR, addr)
-        self.vdw_pending = True
+        self.dma_kick(setup, stride, addr)
 
     def guarded_dma(self, count: VReg, body):
         """Run `body` only if count > 0 (uniform branch)."""
@@ -2149,16 +2132,12 @@ class Lowering:
                 self.dma_wait()
                 setup = self.new("vd")
                 self.op("add", setup, vdw, self.const_reg((1 << 23) | (1 << 16) | (lane << 3)))
-                self.op("mov", isa.VW_SETUP, setup)
-                self.vdw_stride = None
-                self.set_vdw_stride(C(0))
                 if lane == 0:
-                    self.op("mov", isa.VW_ADDR, acc_addr)
+                    a = acc_addr
                 else:
-                    t = self.new("al")
-                    self.op("mov", t, acc_addr, rot=(LANES - lane) % LANES, unit="mul")
-                    self.op("mov", isa.VW_ADDR, t)
-                self.vdw_pending = True
+                    a = self.new("al")
+                    self.op("mov", a, acc_addr, rot=(LANES - lane) % LANES, unit="mul")
+                self.dma_kick(setup, C(0), a)
 
     # -- dot --------------------------------------------------------------------------
 

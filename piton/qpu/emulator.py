@@ -398,9 +398,9 @@ class QPU:
         return vec
 
     def check_shared_vpm(self, what):
-        """The VPM write path / VDW engine is shared by all QPUs (hardware:
-        concurrent unsynchronised stores corrupted each other), so with more
-        than one QPU running a store sequence must hold the mutex."""
+        """The VDW stride register is shared by all QPUs (tools/probes.py
+        vdw_stride), so with more than one QPU running, writing it and
+        starting a DMA must happen under the mutex."""
         if self.v3d.require_vpm_mutex and self.v3d.active_qpus() > 1 and self.v3d.mutex_owner != self.num:
             self.hazard(f"{what} without holding the mutex while other QPUs run")
 
@@ -456,8 +456,8 @@ class QPU:
                 raise EmulatorError("only 32-bit VDW DMA is modelled")
             self.vdw.update(units=((v >> 23) & 127) or 128, depth=((v >> 16) & 127) or 128,
                             horiz=bool((v >> 14) & 1), vpmbase=(v >> 3) & 0x7FF)
-        elif top == 3:                       # VDW stride setup
-            self.vdw.update(stride=v & 0xFFFF, blockmode=(v >> 16) & 1)
+        elif top == 3:                       # VDW stride setup: one register for all QPUs
+            self.v3d.vdw_stride = {"stride": v & 0xFFFF, "blockmode": (v >> 16) & 1}
         else:
             raise EmulatorError(f"unsupported vw_setup value 0x{v:08x}")
 
@@ -469,7 +469,7 @@ class QPU:
     def start_vdw(self, addr: int):
         if self.vdw_busy_until is not None:
             self.hazard("VDW started while the previous DMA store is still running")
-        d = self.vdw
+        d = dict(self.vdw, **self.v3d.vdw_stride)
         y, x = (d["vpmbase"] >> 4) & 127, d["vpmbase"] & 15
         vpm = self.v3d.vpm.mem
         for u in range(d["units"]):
@@ -556,12 +556,11 @@ class QPU:
             self.unif_block_until = self.cycle + 3
             return
         if w == 48:
-            self.check_shared_vpm("VPM write")
             self.write_vpm(value)
             return
         if w == 49:
-            if file == "B":
-                self.check_shared_vpm("vw_setup")
+            if file == "B" and (int(value[0]) >> 30) == 3:
+                self.check_shared_vpm("VDW stride setup")
             (self.write_vr_setup if file == "A" else self.write_vw_setup)(int(value[0]))
             return
         if w == 50:
@@ -844,6 +843,7 @@ class V3D:
         self.timing = timing or TimingModel()
         self.qpus = [QPU(i, self) for i in range(num_qpus)]
         self.require_vpm_mutex = True
+        self.vdw_stride = {"stride": 0, "blockmode": 0}     # shared by all QPUs (measured)
         self.sems = [0] * 16
         self.mutex_owner = None
         self.host_interrupts = 0

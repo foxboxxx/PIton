@@ -42,12 +42,13 @@ def _pyfn(kernel):
 
 
 def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stages: int = 2,
-            name: Optional[str] = None, verify: bool = True) -> CompiledKernel:
+            name: Optional[str] = None, verify: bool = True, store_mutex: bool = True) -> CompiledKernel:
     """Compile a Triton kernel for the VideoCore IV QPU.
 
     signature  -- {arg: "*fp32" | "*i32" | "i32" | "fp32"} for runtime arguments
     constants  -- {arg: value} for tl.constexpr arguments and specialised scalars
     num_stages -- 1 disables software pipelining of loop loads
+    store_mutex -- serialise store sequences across QPUs with the hardware mutex
     """
     fn = _pyfn(kernel)
     constants = dict(constants or {})
@@ -55,7 +56,7 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
     asm = {"ttir": tile.dump()}
     ranges = passes.optimize(tile)
     asm["ttir_opt"] = tile.dump()
-    lw = Lowering(tile, ranges, {"num_stages": num_stages})
+    lw = Lowering(tile, ranges, {"num_stages": num_stages, "store_mutex": store_mutex})
     mf = lw.run()
     stats = dict(lw.stats)
     stats.update(opt.run(mf))
