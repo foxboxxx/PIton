@@ -11,17 +11,17 @@
   tile-aligned sizes (64³, 128×64×16) and ragged sizes with ≤2 programs.
 
 ## Open items (in order)
-1. **Power-cycle the Pi.** A hung probe wedged it (the runner now has a host-side timeout and the
-   Pi runtime a 20 s launch watchdog that reboots, so this should not recur).
-2. **Push access.** `git push` fails: both HTTPS and SSH authenticate as `AdamAlhousiki`, which has
+1. ~~Power-cycle the Pi~~ (done).
+2. **Push access** (deferred by the user). `git push` fails: both HTTPS and SSH authenticate as `AdamAlhousiki`, which has
    no write access to `foxboxxx/PIton`. Add that account as a collaborator, then `git push -u origin main`.
-3. **Re-verify concurrency fix on hardware.** Ragged matmuls with 4+ concurrent programs were wrong
+3. ~~Re-verify concurrency fix on hardware~~ — done: root cause is the global VDW stride
+   register; per-DMA mutex kicks; verified up to 32 concurrent programs. Old notes: Ragged matmuls with 4+ concurrent programs were wrong
    on the Pi (e.g. 16×100×16, 72×100×64, 40×70×36). Hypothesis: VPM-write/VDW DMA path is shared by
    all QPUs. Stores now run under the hardware mutex (emulator enforces it). Re-run:
    `PITON_HW=1 .venv/bin/python -m pytest tests/test_hw.py` plus the ragged cases; also probe
    qpu_num values and unsynchronised-vs-mutex VDW to confirm/refute (fixed probe code is in the
    session log: add a `nop` after `ldi ra2` before the spin loop).
-4. **Benchmarks.** `piton.runtime.pi.bench_matmul_on_pi` (LCG inputs on the board, sampled check)
+4. ~~Benchmarks~~ — done (README table: 8.7 GFLOPS at 512³ with BK=8). Old notes: `piton.runtime.pi.bench_matmul_on_pi` (LCG inputs on the board, sampled check)
    and `pi/examples/matmul` (`make MM=256`). Baseline: CS240LX lab 1-QPU matmul, 128³ in 116 ms
    (≈36 MFLOPS); ARM ≈ 8.8 MFLOPS. Pre-mutex PIton run: 64³ in 127 µs on 12 QPUs.
 5. **Inner-loop tuning.** Matmul loop body is 198 instructions for 128 16-lane MACs (65% of the

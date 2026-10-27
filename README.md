@@ -27,9 +27,28 @@ Status:
   emulator; the `.qasm` we emit assembles with `vc4asm` to exactly the bits our encoder produces.
 * On a Pi Zero W, vector add and the tutorial matmul (tile-aligned sizes, and ragged sizes with
   up to two programs) produce results **bit-identical to the emulator**.
-* Open item: ragged matmuls with 4+ concurrent programs were wrong on hardware; stores now run
-  under the hardware mutex (see the last row of the findings table) — awaiting re-verification on
-  the board.
+* Ragged matmuls with many concurrent programs (up to 32 tested) are bit-identical too, after
+  finding that the VDW stride register is shared by all QPUs (see the findings table).
+
+## Performance (Pi Zero W, 12 QPUs @ 250 MHz, fp32)
+
+Triton tutorial matmul (`examples/kernels.py`), square N×N×N, inputs generated on the board,
+`benchmarks/matmul_pi.py`; best of 2-3 runs, sampled results checked against float64:
+
+| N | config (BM, BN, BK) | time | GFLOPS |
+|---|---|---|---|
+| 128 | 8, 64, 4 | 0.49 ms | 8.5 |
+| 256 | 8, 64, 4 | 4.33 ms | 7.8 |
+| 512 | 8, 64, 4 | 34.5 ms | 7.8 |
+| 512 | **8, 64, 8** | **30.9 ms** | **8.7** |
+| 1024 | 8, 64, 4 | 352 ms | 6.1 |
+
+For scale: the CS240LX GPU lab's hand-written 1-QPU kernel does 128³ in 116 ms (≈0.036 GFLOPS) and
+the ARM1176 ≈0.009 GFLOPS — PIton is ~235× faster than the lab kernel on 128³. Theoretical peak is
+24 GFLOPS (12 QPUs × 16 lanes × fmul+fadd × 62.5 M instr/s); the inner loop is at 65% of the ALU
+peak, so the remaining gap is TMU/memory bandwidth (1024³ no longer fits the 128 KB L2).
+Software pipelining of the K-loop loads is worth ~8% (7.2 → 7.8 GFLOPS at 512³ with `num_stages=1`).
+Accumulation uses the QPU's round-toward-zero adds: at K=1024 the sampled error is ~1e-4 relative.
 
 ## Pipeline
 
@@ -145,7 +164,8 @@ All verified with `tools/probes.py` on a Pi Zero W; the emulator models them:
 | a horizontal VDW row longer than 16 words wraps inside the same VPM row | stores are 16-word rows + stride |
 | write address 40 is `unif_addr` only in regfile-**A** space (B space is `unif_addr_rel`) | a mul-ALU write needs the write-swap bit — found when argument reloads returned garbage |
 | QPU instruction rate 62.5 M/s per QPU, 12 QPUs scale linearly; TMU ≈ 12 cycles latency | timing model |
-| *suspected:* the VPM write / VDW DMA path is shared by all QPUs, so concurrent store sequences can clobber each other (1–2 programs are fine, 4+ were not) | stores take the hardware mutex; the emulator rejects unsynchronised stores |
+| the VDW **stride** register is one register for all 12 QPUs: written once, it is overwritten by other QPUs before the next DMA (probe `vdw_stride`: 592/1536 rows wrong) | each DMA kick (setup + stride + address) runs under the hardware mutex, released as soon as the DMA starts (safe per probe); the emulator models the shared register |
+| `qpu_num` is unique 0-11; the scheduler hands programs to QPU 11, 10, …, 0 | per-QPU VPM rows `4*qpu_num` never collide |
 
 ## Layout of the repository
 
