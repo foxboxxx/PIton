@@ -48,6 +48,7 @@ Triton tutorial matmul (`examples/kernels.py`), square N×N×N, inputs generated
 | 512 | 8, 64, 4 | 34.8 ms | 7.7 |
 | 512 | **8, 64, 8** | **30.7 ms** | **8.8** |
 | 1024 | 8, 64, 4 | 352 ms | 6.1 |
+| 1024 | 8, 64, 8 | 270 ms | 8.0 |
 
 (Measured 2026-10-27 after the correctness fixes; with a constant K the loop is unchanged at 198
 instructions. With a runtime K, clamping the prefetch index and the overflow-safe K-mask compare
@@ -55,8 +56,46 @@ add 4. Exact 32-bit `//` and `%` in the tutorial's program-id arithmetic and `% 
 cost ~3% at 128³, where per-program setup is a larger share; the full-range division path is
 placed out of line, after the program's end.)
 
-For scale: the CS240LX GPU lab's hand-written 1-QPU kernel does 128³ in 116 ms (≈0.036 GFLOPS) and
-the ARM1176 ≈0.009 GFLOPS — PIton is ~235× faster than the lab kernel on 128³.
+### Speedup over the ARM CPU
+
+The same board's ARM1176JZF-S on the same inputs, bare metal (`pi/examples/matmul`,
+`make MM=512 BK=8`). GPU time is the whole `matmul_launch()` call (writing every program's
+uniforms, clearing the GPU caches, queueing, waiting); GFLOPS = 2N³ / time:
+
+| N | PIton, 12 QPUs | ARM blocked, VFP vector asm | ARM blocked C | ARM naive i-k-j | vs best ARM | vs ARM peak |
+|---|---|---|---|---|---|---|
+| 128 | 0.55 ms (7.6) | 6.1 ms (0.69) | 9.2 ms (0.45) | 71 ms (0.059) | **11.0×** | 5.4× |
+| 256 | 4.29 ms (7.8) | 46 ms (0.73) | 71 ms (0.48) | 0.75 s (0.045) | **10.7×** | 5.6× |
+| 512 | 31.7 ms (8.5) | 352 ms (0.76) | 547 ms (0.49) | 6.1 s (0.044) | **11.1×** | 6.0× |
+| 1024 | 272 ms (7.9) | 2.86 s (0.75) | 4.41 s (0.49) | 50 s (0.043) | **10.5×** | 5.6× |
+
+* **The ARM baselines** run with the MMU on so the 16 KB L1 data cache is used (ARM RAM
+  write-back cached, GPU memory and peripherals uncached), branch prediction and the I-cache on,
+  VFP RunFast mode, `-O3`. *Blocked C*: packed A/B panels, a 4×4 register-blocked micro-kernel,
+  K blocks of 64 and column blocks of 32 (best of six (KC, NC) pairs swept at 512³). *Vector
+  asm*: the same blocking with an assembly micro-kernel in VFP11 short-vector mode (one `vmla`
+  = 4 multiply-accumulates) plus `pld` prefetch; it runs at 1.1–1.2 GFLOPS when its data is in
+  L1 (78–84% of peak) and at 0.69–0.76 on the real matrices (49–54%), where the ARM (no L2, no
+  hardware prefetch) waits on DRAM. *Naive* is the plain i-k-j loop, unoptimised, for reference
+  only (the GPU is 128–191× faster than it).
+* **ARM peak** is 2 FLOP/cycle (one single-precision `vmla` per cycle) × 700 MHz = 1.4 GFLOPS:
+  the "vs ARM peak" column bounds what any ARM code could do at this clock.
+* **Clocks** are what the course firmware sets (read through the mailbox, ARM cross-checked with
+  the cycle counter): ARM 700 MHz, core 250 MHz, V3D 250 MHz (firmware max 300), SDRAM 400 MHz;
+  128 MB ARM / 128 MB GPU. A stock Pi Zero W clocks the ARM at 1 GHz, which would make the
+  ARM up to 1.43× faster (peak 2.0 GFLOPS); that configuration is not measured here.
+* **Like for like**: the GPU column uses the faster tile config per size (BK = 8 except BK = 4
+  at 128³); with BK = 4 everywhere the speedups over the best ARM are 11.0, 10.1, 9.9 and 8.0×.
+  The GPU kernel is compiled for the constant K; the ARM code takes runtime sizes.
+* **Method**: inputs are generated once and copied to both sides; best of 3 runs for the GPU and
+  the blocked ARM versions (naive: best of 3 up to 256³, one run above); the GPU's C is
+  pre-filled with NaN, and every result is compared with blocked C over all N² entries
+  (max |error| / max |C| ≤ 3·10⁻⁵, NaN-aware).
+
+An earlier README line put the ARM at ~0.009 GFLOPS: that was a naive dot product through
+`volatile` pointers with the data cache off, 80× slower than the blocked baseline above. For
+scale the other way, the CS240LX GPU lab's hand-written 1-QPU kernel does 128³ in 116 ms
+(≈0.036 GFLOPS).
 
 Where the time goes (512³, measured on the board):
 
@@ -72,7 +111,9 @@ Where the time goes (512³, measured on the board):
 
 So the compute side is within 10% of what the instruction schedule allows, and the rest is the
 B-matrix stream through the TMU and L2 (each 8×64 tile reads a 128 KB B panel; GROUP_SIZE_M from
-4 to 64 does not change it). At 1024³ the panels no longer fit at all and throughput drops to 6.1.
+4 to 64 does not change it). At 1024³ the panels no longer fit at all and throughput drops to 6.1
+with BK=4; BK=8 (fewer, larger loads per iteration) keeps it at 8.0 (that row was measured with
+the bare-metal benchmark in `pi/examples/matmul`, same kernel timer).
 Software pipelining of the K-loop loads is worth ~8% (7.2 → 7.8 GFLOPS at 512³ with `num_stages=1`).
 Accumulation uses the QPU's round-toward-zero adds: at K=1024 the sampled error is ~1e-4 relative.
 

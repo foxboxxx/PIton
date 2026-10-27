@@ -28,7 +28,7 @@ static uint32_t mbox_read(uint32_t ch) {
     }
 }
 
-static uint32_t mbox_call1(uint32_t tag, uint32_t nwords, uint32_t a0, uint32_t a1, uint32_t a2) {
+static volatile uint32_t *mbox_call(uint32_t tag, uint32_t nwords, uint32_t a0, uint32_t a1, uint32_t a2) {
     static volatile uint32_t p[16] __attribute__((aligned(16)));
     p[0] = (6 + nwords) * 4;
     p[1] = 0;
@@ -46,7 +46,22 @@ static uint32_t mbox_call1(uint32_t tag, uint32_t nwords, uint32_t a0, uint32_t 
     dev_barrier();
     if (p[1] != 0x80000000)
         panic("mailbox tag %x failed: %x\n", tag, p[1]);
-    return p[5];
+    return p;
+}
+
+static uint32_t mbox_call1(uint32_t tag, uint32_t nwords, uint32_t a0, uint32_t a1, uint32_t a2) {
+    return mbox_call(tag, nwords, a0, a1, a2)[5];
+}
+
+uint32_t piton_clock_hz(uint32_t clock_id, int max) {
+    return mbox_call(max ? 0x30004 : 0x30002, 2, clock_id, 0, 0)[6];
+}
+
+void piton_memory_split(uint32_t *arm_size, uint32_t *vc_base, uint32_t *vc_size) {
+    *arm_size = mbox_call(0x10005, 2, 0, 0, 0)[6];
+    volatile uint32_t *p = mbox_call(0x10006, 2, 0, 0, 0);
+    *vc_base = p[5];
+    *vc_size = p[6];
 }
 
 // ---------------------------------------------------------------------------

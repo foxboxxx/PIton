@@ -53,4 +53,13 @@ static inline float piton_lcg_float(uint32_t *s) {   // [-1, 1) with 24-bit mant
 
 uint32_t piton_qpu_count(void);
 
+// Clock rates from the firmware (mailbox): current, or the maximum the
+// firmware allows (config.txt).  Ids: PITON_CLOCK_ARM, _CORE, _V3D, _SDRAM.
+#define PITON_CLOCK_ARM   3
+#define PITON_CLOCK_CORE  4
+#define PITON_CLOCK_V3D   5
+#define PITON_CLOCK_SDRAM 8
+uint32_t piton_clock_hz(uint32_t clock_id, int max);
+void piton_memory_split(uint32_t *arm_size, uint32_t *vc_base, uint32_t *vc_size);
+
 #endif

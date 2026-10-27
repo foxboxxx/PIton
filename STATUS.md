@@ -16,7 +16,10 @@
 - Code review: five review rounds (~30 + 10 + 17 + 13 + 10 confirmed bugs) fixed with regression
   tests; deliberate compile errors as in Triton: `return` inside any `for`, re-binding a tuple
   in a runtime loop, using a name assigned only inside a runtime loop / one branch of an if.
-- Benchmarks re-measured (README table): 8.1 GFLOPS at 128³, 8.8 at 512³ with BK=8, 6.1 at 1024³.
+- Benchmarks re-measured (README table): 8.1 GFLOPS at 128³, 8.8 at 512³ with BK=8, 8.0 at 1024³ with BK=8.
+- CPU baseline (README "Speedup over the ARM CPU", `pi/examples/matmul`): 10.5–11.1× over a blocked
+  VFP short-vector SGEMM on the same Pi's ARM1176 (caches on, 0.69–0.76 GFLOPS), 5.4–6.0× over
+  the ARM's 1.4 GFLOPS peak at the course's 700 MHz.
 
 ## Open items
 1. **Push access** (deferred by the user). `git push` fails: this machine authenticates as
