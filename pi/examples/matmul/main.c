@@ -12,8 +12,12 @@
 #ifndef MM
 #define MM 256
 #endif
+#ifndef BM
 #define BM 8
+#endif
+#ifndef BN
 #define BN 64
+#endif
 
 // ARM-side copies of the inputs (ordinary cached RAM) and results
 static float armA[MM * MM_K], armB[MM_K * MM], armC[MM * MM], armCv[MM * MM], armCn[MM * MM];
@@ -139,8 +143,8 @@ void notmain(void) {
            "%f x over naive ARM\n", (float)best_arm / (float)qpu_call,
            flop / (float)qpu_call / 1000.0f / peak, (float)naive / (float)qpu_call);
     printk("max |C - C_arm| / max |C_arm|: QPU %f, vector %f, naive %f\n", e_qpu, e_vec, e_naive);
-    printk("RESULT mm=%d bk=%d qpu_call_us=%d qpu_kernel_us=%d arm_blocked_us=%d arm_vector_us=%d "
+    printk("RESULT mm=%d bm=%d bn=%d bk=%d qpu_call_us=%d qpu_kernel_us=%d arm_blocked_us=%d arm_vector_us=%d "
            "arm_naive_us=%d arm_mhz=%d core_mhz=%d v3d_mhz=%d sdram_mhz=%d\n",
-           MM, BK, qpu_call, qpu, blocked, vector, naive, mhz, mhz_fw[1], mhz_fw[2], mhz_fw[3]);
+           MM, BM, BN, BK, qpu_call, qpu, blocked, vector, naive, mhz, mhz_fw[1], mhz_fw[2], mhz_fw[3]);
     printk(e_qpu < 1e-4f && e_vec < 1e-4f && e_naive < 1e-4f ? "CHECK OK\n" : "CHECK FAILED\n");
 }
