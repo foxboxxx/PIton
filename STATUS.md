@@ -22,9 +22,7 @@
   the ARM's 1.4 GFLOPS peak at the course's 700 MHz.
 
 ## Open items
-1. **Push access** (deferred by the user). `git push` fails: this machine authenticates as
-   `AdamAlhousiki`, which has no write access to `foxboxxx/PIton`. Add that account as a
-   collaborator, then `git push -u origin main`.
+1. ~~Push access~~ — done 2026-10-27: everything is on https://github.com/foxboxxx/PIton (`main`).
 2. **Known limits** (README "Supported Triton"): masked stores whose tile index wraps past INT_MAX,
    a nested-loop int-then-float carry, no register spilling. Not fixed on purpose: an int argument
    equal to 1 is specialised and then follows Python `//`/`%` rules (as in Triton).
