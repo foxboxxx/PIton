@@ -9,7 +9,7 @@ from typing import Optional
 from . import frontend, ir, passes
 from .backend import opt
 from .backend.lower import Lowering
-from .backend.regalloc import allocate
+from .backend.regalloc import RegAllocError, allocate
 from .backend.sched import schedule_function
 from .qpu.asm import Program
 
@@ -63,12 +63,24 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
         pid_max = tuple(max(1, int(x)) - 1 for x in g) + (0,) * (3 - len(g))
     ranges = passes.optimize(tile, pid_max)
     asm["ttir_opt"] = tile.dump()
-    lw = Lowering(tile, ranges, {"num_stages": num_stages, "store_mutex": store_mutex})
-    mf = lw.run()
-    stats = dict(lw.stats)
-    stats.update(opt.run(mf))
-    asm["mir"] = mf.dump()
-    alloc = allocate(mf)
+    for cache_dot_a in (True, False):
+        lw = Lowering(tile, ranges, {"num_stages": num_stages, "store_mutex": store_mutex,
+                                     "cache_dot_a": cache_dot_a})
+        mf = lw.run()
+        stats = dict(lw.stats)
+        stats.update(opt.run(mf))
+        asm["mir"] = mf.dump()
+        try:
+            alloc = allocate(mf)
+        except RegAllocError:
+            # Values outside the dot may already occupy rotation accumulators.
+            # Rebuild fresh MIR without the optional cache before rejecting a
+            # tile that the original allocation strategy could support.
+            if not cache_dot_a or not stats.get("dot_a_cache_registers", 0):
+                raise
+            continue
+        stats["dot_a_cache_fallback"] = int(not cache_dot_a)
+        break
     stats["copies_inserted"] = alloc.copies_inserted
     stats["self_moves_dropped"] = opt.drop_self_moves(mf)
     asm["mir_alloc"] = mf.dump()

@@ -66,6 +66,18 @@ class Buffer:
     nbytes: int
     init: Optional[np.ndarray] = None      # uint32 view of initial contents
     lcg_seed: Optional[int] = None         # generate floats on the Pi instead
+    column_block: Optional[tuple[int, int]] = None  # (logical columns, packed panel width)
+
+    def __post_init__(self):
+        if self.column_block is not None:
+            columns, width = self.column_block
+            if not isinstance(columns, int) or not isinstance(width, int) or \
+                    columns <= 0 or width <= 0 or columns % width:
+                raise ValueError("column_block needs positive columns divisible by the panel width")
+            if self.nbytes <= 0 or self.nbytes % (4 * columns):
+                raise ValueError("column_block buffer size must contain complete float32 rows")
+            if self.lcg_seed is None or self.init is not None:
+                raise ValueError("column_block is supported only for LCG-generated buffers")
 
 
 @dataclass
@@ -159,6 +171,41 @@ class PiRunner:
         offset += 4 * nunif * len(programs)
         total = offset
         out.append(f"static uint32_t unif_ptrs[{len(programs)}];")
+        uniform_writes = []
+
+        def column_expr(values, name):
+            """Compact constants/progressions, using a data array for other columns."""
+            values = [int(v) & 0xFFFFFFFF for v in values]
+            if not values:
+                return "0u"
+            first = values[0]
+            step = (values[1] - first) & 0xFFFFFFFF if len(values) > 1 else 0
+            if all(v == (first + i * step) & 0xFFFFFFFF for i, v in enumerate(values)):
+                return f"(0x{first:08x}u + i * 0x{step:08x}u)" if step else f"0x{first:08x}u"
+            out.append(_c_words(name, values))
+            return f"{name}[i]"
+
+        for j in range(nunif):
+            values, relocations = [], []
+            for i, prog in enumerate(programs):
+                u = prog[j] if j < len(prog) else 0
+                if isinstance(u, tuple) and u[0] == "self":
+                    values.append(unif_off + 4 * i * nunif)
+                    relocations.append(1)
+                elif isinstance(u, tuple):
+                    _, name, off = u
+                    values.append(layout[name] + off)
+                    relocations.append(1)
+                else:
+                    values.append(u)
+                    relocations.append(0)
+            expr = column_expr(values, f"unif_col_{j}")
+            if relocations and all(relocations):
+                expr = f"m.bus + {expr}"
+            elif any(relocations):
+                reloc = column_expr(relocations, f"unif_reloc_{j}")
+                expr = f"{expr} + m.bus * {reloc}"
+            uniform_writes.append(f"        w[base + {j}] = {expr};")
         out.append("void notmain(void) {")
         out.append("    piton_init();")
         out.append(f"    piton_buf_t m = piton_alloc({total});")
@@ -171,20 +218,26 @@ class PiRunner:
                 out.append(f"    for (unsigned i = 0; i < {n}; i++) w[{base} + i] = init_{b.name}[i];")
             elif b.lcg_seed is not None:
                 out.append(f"    {{ uint32_t s = {b.lcg_seed}u; volatile float *f = (volatile float *)&w[{base}];")
-                out.append(f"      for (unsigned i = 0; i < {n}; i++) f[i] = piton_lcg_float(&s); }}")
+                if b.column_block is None:
+                    out.append(f"      for (unsigned i = 0; i < {n}; i++) f[i] = piton_lcg_float(&s); }}")
+                else:
+                    columns, width = b.column_block
+                    rows = n // columns
+                    out.append("      uint32_t prep_start = timer_get_usec();")
+                    out.append(f"      for (unsigned i = 0; i < {n}; i++) {{")
+                    out.append(f"          unsigned row = i / {columns}u, col = i % {columns}u;")
+                    out.append(f"          unsigned packed = (col / {width}u) * {rows * width}u + "
+                               f"row * {width}u + col % {width}u;")
+                    out.append("          f[packed] = piton_lcg_float(&s);")
+                    out.append("      }")
+                    out.append(f'      printk("PITON_PREP {b.name} %d\\n", timer_get_usec() - prep_start); }}')
             else:
                 out.append(f"    for (unsigned i = 0; i < {n}; i++) w[{base} + i] = 0;")
-        for i, prog in enumerate(programs):
-            base = unif_off // 4 + i * nunif
-            for j, u in enumerate(prog):
-                if isinstance(u, tuple) and u[0] == "self":
-                    out.append(f"    w[{base + j}] = m.bus + {4 * base}u;")
-                elif isinstance(u, tuple):
-                    _, name, off = u
-                    out.append(f"    w[{base + j}] = m.bus + {layout[name] + off}u;")
-                else:
-                    out.append(f"    w[{base + j}] = 0x{int(u) & 0xFFFFFFFF:08x}u;")
-            out.append(f"    unif_ptrs[{i}] = m.bus + {4 * base}u;")
+        out.append(f"    for (unsigned i = 0; i < {len(programs)}; i++) {{")
+        out.append(f"        unsigned base = {unif_off // 4}u + i * {nunif}u;")
+        out.extend(uniform_writes)
+        out.append("        unif_ptrs[i] = m.bus + 4u * base;")
+        out.append("    }")
         out.append(f"    printk(\"PITON_START {label} qpus=%d\\n\", piton_qpu_count());")
         out.append(f"    for (unsigned r = 0; r < {repeats}; r++) {{")
         out.append(f"        uint32_t t = piton_launch(m.bus, unif_ptrs, {len(programs)});")
@@ -211,41 +264,67 @@ class PiRunner:
     def _boot(self, binary: str) -> str:
         import select
         proc = subprocess.Popen([self.bootloader, self.tty, binary], stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, text=True, errors="replace", bufsize=1)
-        lines = []
-        start = time.time()
+                                stderr=subprocess.STDOUT, bufsize=0)
+        chunks = []
+        tail = b""
+        failed = False
+        start = time.monotonic()
         try:
             while True:
-                ready, _, _ = select.select([proc.stdout], [], [], 1.0)
-                if time.time() - start > self.timeout:
+                remaining = self.timeout - (time.monotonic() - start)
+                if remaining <= 0:
+                    log = b"".join(chunks).decode("utf-8", errors="replace")
                     raise PiError(f"timeout after {self.timeout:.0f}s waiting for the Pi "
-                                  "(kernel hung?):\n" + "".join(lines[-40:]))
+                                  "(kernel hung?):\n" + "\n".join(log.splitlines()[-40:]))
+                ready, _, _ = select.select([proc.stdout], [], [], min(1.0, remaining))
                 if not ready:
                     if proc.poll() is not None:
                         break
                     continue
-                line = proc.stdout.readline()
-                if not line:
-                    if proc.poll() is not None:
-                        break
-                    continue
-                lines.append(line)
+                # Buffered readline can consume several lines from the pipe at once.
+                # select then sees an empty FD while PITON_DONE remains in Python's
+                # text buffer. Read ready bytes directly, including partial lines.
+                chunk = os.read(proc.stdout.fileno(), 65536)
+                if not chunk:
+                    break
+                chunks.append(chunk)
                 if self.verbose:
-                    print(line, end="")
-                if "PITON_DONE" in line or "PANIC" in line or "pi exited" in line:
-                    if "PITON_DONE" in line:
+                    print(chunk.decode("utf-8", errors="replace"), end="", flush=True)
+                markers = tail + chunk
+                found = [(markers.index(marker), marker)
+                         for marker in (b"PITON_DONE", b"PANIC", b"pi exited") if marker in markers]
+                if found:
+                    _, first_marker = min(found)
+                    failed = first_marker != b"PITON_DONE"
+                    if not failed:
                         time.sleep(0.2)
                     break
-                if time.time() - start > self.timeout:
-                    raise PiError("timeout waiting for the Pi:\n" + "".join(lines[-40:]))
+                tail = markers[-32:]
         finally:
             try:
-                proc.terminate()
-                proc.wait(timeout=5)
-            except Exception:
-                proc.kill()
-        log = "".join(lines)
-        if "PITON_DONE" not in log:
+                try:
+                    proc.terminate()
+                except OSError:
+                    pass  # The child may have exited between reading and cleanup.
+                try:
+                    proc.wait(timeout=5)
+                except (OSError, subprocess.TimeoutExpired):
+                    try:
+                        proc.kill()
+                    except OSError:
+                        pass
+                    try:
+                        proc.wait(timeout=1)
+                    except (OSError, subprocess.TimeoutExpired):
+                        # A stuck USB driver can prevent even a killed bootloader
+                        # from being reaped. Keep its wait bounded and preserve
+                        # the firmware's success/failure result. Reconnecting the
+                        # adapter may still be needed before another hardware run.
+                        pass
+            finally:
+                proc.stdout.close()
+        log = b"".join(chunks).decode("utf-8", errors="replace")
+        if failed or "PITON_DONE" not in log:
             raise PiError("Pi run failed:\n" + "\n".join(log.splitlines()[-40:]))
         return log
 
@@ -320,9 +399,13 @@ def bench_matmul_on_pi(ck, M: int, N: int, K: int, grid, args_after_ptrs: list, 
     """Time a compiled matmul on the Pi with inputs generated on the board.
 
     args_after_ptrs: runtime scalar arguments in uniform order (M, N, strides, ...)
-    by name -> value. Returns timing and the max error on sampled outputs.
+    by name -> value. Returns timing and error on sampled final outputs. The
+    normalized error is max absolute error / max absolute sampled reference;
+    it is not the largest elementwise relative error (which blows up near 0).
     """
     from .launcher import program_ids
+    if min(M, N, K, repeats, sample_stride) <= 0:
+        raise ValueError("matmul dimensions, repeats and sample_stride must be positive")
     runner = PiRunner(verbose=verbose)
     bufs = [Buffer("a", 4 * M * K, lcg_seed=seeds[0]), Buffer("b", 4 * K * N, lcg_seed=seeds[1]),
             Buffer("c", 4 * M * N), Buffer("__zero", 64), Buffer("__scratch", 64)]
@@ -349,12 +432,21 @@ def bench_matmul_on_pi(ck, M: int, N: int, K: int, grid, args_after_ptrs: list, 
         programs.append(u)
     res = runner.run(ck.words, bufs, programs, ["c"], repeats=repeats, label=ck.name,
                      sample={"c": sample_stride})
+    if len(res.times_us) != repeats or any(t <= 0 or not np.isfinite(t) for t in res.times_us):
+        raise PiError(f"expected {repeats} positive finite timings, got {res.times_us}")
+    idx = np.arange(0, M * N, sample_stride)
+    if len(res.outputs["c"]) != len(idx):
+        raise PiError(f"expected {len(idx)} sampled C values, got {len(res.outputs['c'])}")
+    got = res.outputs["c"].view(np.float32)
+    if not np.isfinite(got).all():
+        raise PiError("matmul returned nonfinite sampled output")
     a = lcg_floats(M * K, seeds[0]).reshape(M, K).astype(np.float64)
     b = lcg_floats(K * N, seeds[1]).reshape(K, N).astype(np.float64)
     ref = (a @ b).ravel()
-    idx = np.arange(0, M * N, sample_stride)
-    got = res.outputs["c"][:len(idx)].view(np.float32)
     err = float(np.abs(got - ref[idx]).max())
+    ref_scale = float(np.abs(ref[idx]).max())
+    normalized_error = err / ref_scale if ref_scale else (0.0 if err == 0 else float("inf"))
     t = min(res.times_us)
     return {"times_us": res.times_us, "best_us": t, "gflops": 2.0 * M * N * K / (t * 1e3),
-            "max_err": err, "programs": len(programs)}
+            "max_err": err, "ref_scale": ref_scale, "normalized_error": normalized_error,
+            "sample_count": len(idx), "programs": len(programs)}

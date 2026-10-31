@@ -24,6 +24,7 @@ per-instruction rule.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from itertools import combinations
 from typing import Optional
 
 from ..qpu import isa
@@ -514,6 +515,11 @@ def instr_res(ins: Instr) -> Res:
 
 def fill_delay_slots(body: list, branch: Instr) -> list:
     """Move up to three trailing instructions into the branch delay slots."""
+    # The resource model describes the immediate, non-link branches emitted by
+    # schedule_function. Keep indirect targets and link writes outside it.
+    if branch.breg is not None or any(op is not None and op.dst != isa.NOP
+                                     for op in (branch.add, branch.mul)):
+        return list(body) + [branch] + [Instr.nop() for _ in range(3)]
     k = 0
     while k < 3 and k < len(body):
         cand = body[len(body) - 1 - k]
@@ -524,7 +530,79 @@ def fill_delay_slots(body: list, branch: Instr) -> list:
     moved = body[len(body) - k:] if k else []
     head = body[:len(body) - k]
     slots = moved + [Instr.nop() for _ in range(3 - len(moved))]
-    return head + [branch] + slots
+    current = head + [branch] + slots
+    if k == 3:
+        return current
+
+    # A final compare often prevents the trailing-only path from filling any
+    # slots. Try small groups of independent arithmetic before that compare.
+    # Moving a group together also handles a multiply whose add follows it.
+    resources = [instr_res(ins) for ins in current]
+    branch_pos = len(head)
+    candidates = [i for i in range(max(0, branch_pos - 8), branch_pos)
+                  if _pure_delay_alu(current[i]) and not _is_nop(current[i])]
+    for count in range(3 - k, 0, -1):
+        # At most 92 groups: choose up to three of the last eight instructions.
+        for group in reversed(list(combinations(candidates, count))):
+            selected = set(group)
+            if any(not _commute(resources[i], resources[j])
+                   for i in group for j in range(i + 1, branch_pos + 1) if j not in selected):
+                continue
+            proposed = [ins for i, ins in enumerate(current[:branch_pos + 1]) if i not in selected]
+            proposed += [current[i] for i in group] + moved
+            proposed += [Instr.nop() for _ in range(3 - k - count)]
+            checked = _repair_delay_latencies(proposed)
+            if checked is not None:
+                return checked
+    return current
+
+
+def _pure_delay_alu(ins: Instr) -> bool:
+    """Arithmetic that can move without touching flags or peripheral state."""
+    if ins.kind != "alu" or ins.sig not in (None, "none") or ins.setf:
+        return False
+    r = instr_res(ins)
+    return not (r.reads_flags or r.setf or r.periph) and \
+        all(key[0] in ("A", "B", "acc", "r4", "r5") for key in r.reads | r.writes)
+
+
+def _commute(a: Res, b: Res) -> bool:
+    """Swapping the instructions preserves RAW, WAR and WAW dependencies."""
+    return not (a.writes & (b.reads | b.writes) or a.reads & b.writes)
+
+
+def _repair_delay_latencies(instructions: list) -> Optional[list]:
+    """Validate the whole block, with at most six small producer hoists.
+
+    Removing an instruction may close a required latency gap. In particular,
+    moving the final add into a slot can leave a counter increment immediately
+    before its compare. Hoist a pure producer across independent instructions
+    to restore that gap; abandon the candidate if this cannot be proved safe.
+    """
+    result = list(instructions)
+    for _ in range(6):
+        resources = [instr_res(ins) for ins in result]
+        violation = None
+        for i, r in enumerate(resources):
+            # Four cycles is the largest hard latency in the resource model.
+            for j in range(i + 1, min(i + 5, len(resources))):
+                distance = required_distance(r, resources[j])
+                if distance > j - i:
+                    violation = (i, distance - (j - i))
+                    break
+            if violation is not None:
+                break
+        if violation is None:
+            return result
+        i, shift = violation
+        if not _pure_delay_alu(result[i]) or i < shift:
+            return None
+        if any(result[j].kind == "branch" or not _commute(resources[i], resources[j])
+               for j in range(i - shift, i)):
+            return None
+        producer = result.pop(i)
+        result.insert(i - shift, producer)
+    return None
 
 
 def fix_block_boundaries(blocks_instrs: list, preds: dict, order: list) -> None:

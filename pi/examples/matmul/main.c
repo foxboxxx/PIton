@@ -147,4 +147,5 @@ void notmain(void) {
            "arm_naive_us=%d arm_mhz=%d core_mhz=%d v3d_mhz=%d sdram_mhz=%d\n",
            MM, BM, BN, BK, qpu_call, qpu, blocked, vector, naive, mhz, mhz_fw[1], mhz_fw[2], mhz_fw[3]);
     printk(e_qpu < 1e-4f && e_vec < 1e-4f && e_naive < 1e-4f ? "CHECK OK\n" : "CHECK FAILED\n");
+    printk("PITON_DONE\n");
 }

@@ -3037,6 +3037,19 @@ class Lowering:
         a_acc_all = n_a <= 2
         a_regs = {}
 
+        def unmasked_load(v):
+            ld = v.op
+            if ld is None or ld.name != "tt.load":
+                return False
+            if not ld.attrs.get("has_mask"):
+                return True
+            mask = self.as_pred(self.get(ld.operands[1]))
+            return mask.kind == "const" and mask.value
+
+        # Masked loads may need an extra accumulator for their address/port
+        # fixups.  Leave that space available unless both loads are unmasked.
+        cache_large_a = self.opts.get("cache_dot_a", True) and unmasked_load(a_v) and unmasked_load(b_v)
+
         def a_src(vi):
             if vi in a_regs:
                 return a_regs[vi]
@@ -3052,8 +3065,14 @@ class Lowering:
                 t = self.new("aa", True, cls="acc")
                 self.op("mov", t, r)
                 v = t
-            if a_acc_all:
+            # A large tile cannot keep every source in r0-r3.  Retain its last
+            # two source registers across k instead of reloading all of them:
+            # two cached A values, the current A value and the product fit in
+            # the four accumulators.  Small tiles retain all their A values.
+            if a_acc_all or (cache_large_a and vi >= n_a - 2):
                 a_regs[vi] = v
+                if not a_acc_all:
+                    self.stats["dot_a_cache_registers"] = self.stats.get("dot_a_cache_registers", 0) + 1
             return v
 
         pending = None          # (acc reg, product reg) waiting for its fadd

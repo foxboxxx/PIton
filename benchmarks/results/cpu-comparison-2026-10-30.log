@@ -1,0 +1,24 @@
+DEBUG:done with options: dev name=</dev/cu.usbserial-110>, pi-prog=</Users/adamalhusaiki/Desktop/CS340LX/PIton/pi/examples/matmul/main.bin>, trace=0
+opened tty port </dev/cu.usbserial-110>.
+DEBUG:/Users/adamalhusaiki/bin/my-install: tty-usb=</dev/cu.usbserial-110> program=</Users/adamalhusaiki/Desktop/CS340LX/PIton/pi/examples/matmul/main.bin>: about to boot
+TRACE:simple_boot: sending 32260 bytes, crc32=74d7fcaa
+BOOT:waiting for a start
+BOOT:bootloader: Done.
+redzone checking: init
+PIton matmul: 512x512x512 on 12 QPUs
+clock arm: 700 MHz (firmware max 700 MHz)
+clock core: 250 MHz (firmware max 250 MHz)
+clock v3d: 250 MHz (firmware max 300 MHz)
+clock sdram: 400 MHz (firmware max 450 MHz)
+memory: ARM 128 MB, GPU 128 MB at 0x8000000
+QPU: best call 31731 us (kernel 31226 us) -> 8.459722 GFLOPS
+ARM blocked C:      546947 us -> 0.490788 GFLOPS
+ARM blocked vector: 352343 us -> 0.761858 GFLOPS
+ARM naive:          6060693 us -> 0.044291 GFLOPS
+ARM clock 700 MHz (PMU); ARM VFP peak 1.399999 GFLOPS
+speedup (QPU call time): 11.104062 x over the best ARM version, 6.042659 x over the ARM peak, 191.002273 x over naive ARM
+max |C - C_arm| / max |C_arm|: QPU 0.000014, vector 0.0, naive 0.0
+RESULT mm=512 bm=8 bn=64 bk=8 qpu_call_us=31731 qpu_kernel_us=31226 arm_blocked_us=546947 arm_vector_us=352343 arm_naive_us=6060693 arm_mhz=700 core_mhz=250 v3d_mhz=250 sdram_mhz=400
+CHECK OK
+PITON_DONE
+DO

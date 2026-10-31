@@ -1,0 +1,209 @@
+{
+  "local_date": "2026-10-30",
+  "clocks_mhz": {
+    "arm": "700",
+    "core": "250",
+    "v3d": "250",
+    "sdram": "400"
+  },
+  "software_tests_passed": 288,
+  "arithmetic": {
+    "experiment": "register-resident-affine-recurrences",
+    "iterations": 8192,
+    "unroll": 124,
+    "instructions": 588,
+    "stats": {
+      "tmu_requests": 8,
+      "dma_stores": 4,
+      "licm": 2,
+      "dce": 0,
+      "coalesced": 8,
+      "dce2": 0,
+      "dot_a_cache_fallback": 0,
+      "copies_inserted": 0,
+      "self_moves_dropped": 0,
+      "instructions": 588
+    },
+    "loop_instructions": 500,
+    "vector_adds": 496,
+    "vector_multiplies": 496,
+    "paired_arithmetic_instructions": 495,
+    "issue_ceiling_gflops_at_250mhz": 23.808,
+    "times_us": [
+      65588,
+      65576,
+      65575,
+      65581,
+      65575
+    ],
+    "best_us": 65575,
+    "gflops": 23.79384045749142,
+    "max_abs_error": 18.527405439883296,
+    "correctness": "all 768 outputs checked against FP64 closed form",
+    "status": "ok",
+    "workload": "arithmetic-compute-ceiling",
+    "compiler_identity": {
+      "revision": "e1eb20d54b05610dea7ed65592bd3caf4faf870d",
+      "source_sha256": "1fb7de5ee251a4f64d4f9f6b943b8c4c5b2684d34d78d462d1d6fe848c692e4f"
+    },
+    "benchmark_source_sha256": "c4d120d3e9e1896147f8c719858e3633ce2cdae79689fd0ad194ea6057b8636f",
+    "note": "Separate workload from matrix multiplication"
+  },
+  "matmul": [
+    {
+      "times_us": [
+        30686,
+        30715,
+        30666,
+        30723,
+        30569
+      ],
+      "best_us": 30569,
+      "gflops": 8.781296607674442,
+      "max_err": 0.00036125989785773527,
+      "ref_scale": 29.24782840924712,
+      "normalized_error": 1.235168275753142e-05,
+      "sample_count": 2703,
+      "programs": 512,
+      "n": 512,
+      "cfg": [
+        8,
+        64,
+        8,
+        4,
+        2
+      ],
+      "instructions": 2699,
+      "correct": true,
+      "valid_timings": true,
+      "max_error_allowed": 0.00512,
+      "validation": "sampled final repetition, absolute error vs float64",
+      "sample_stride": 97,
+      "seeds": [
+        12345,
+        67890
+      ],
+      "median_us": 30686,
+      "median_gflops": 8.747815160007821,
+      "specialize_layout": false,
+      "status": "ok",
+      "workload": "matrix-multiplication",
+      "compiler_identity": {
+        "revision": "e1eb20d54b05610dea7ed65592bd3caf4faf870d",
+        "source_sha256": "1fb7de5ee251a4f64d4f9f6b943b8c4c5b2684d34d78d462d1d6fe848c692e4f"
+      }
+    },
+    {
+      "times_us": [
+        273443,
+        273409,
+        273528,
+        273441,
+        273521
+      ],
+      "best_us": 273409,
+      "gflops": 7.854473144629474,
+      "max_err": 0.0011011543534777957,
+      "ref_scale": 45.165467768413464,
+      "normalized_error": 2.4380448335528798e-05,
+      "sample_count": 10811,
+      "programs": 2048,
+      "n": 1024,
+      "cfg": [
+        8,
+        64,
+        8,
+        4,
+        2
+      ],
+      "instructions": 2699,
+      "correct": true,
+      "valid_timings": true,
+      "max_error_allowed": 0.01024,
+      "validation": "sampled final repetition, absolute error vs float64",
+      "sample_stride": 97,
+      "seeds": [
+        12345,
+        67890
+      ],
+      "median_us": 273443,
+      "median_gflops": 7.853496516641494,
+      "specialize_layout": false,
+      "status": "ok",
+      "workload": "matrix-multiplication",
+      "compiler_identity": {
+        "revision": "e1eb20d54b05610dea7ed65592bd3caf4faf870d",
+        "source_sha256": "1fb7de5ee251a4f64d4f9f6b943b8c4c5b2684d34d78d462d1d6fe848c692e4f"
+      }
+    },
+    {
+      "times_us": [
+        29894,
+        29885,
+        29946,
+        29901,
+        29809
+      ],
+      "best_us": 29809,
+      "gflops": 9.005181522359019,
+      "max_err": 0.00036125989785773527,
+      "ref_scale": 29.24782840924712,
+      "normalized_error": 1.235168275753142e-05,
+      "sample_count": 2703,
+      "programs": 512,
+      "n": 512,
+      "cfg": [
+        8,
+        64,
+        8,
+        4,
+        2
+      ],
+      "instructions": 831,
+      "correct": true,
+      "valid_timings": true,
+      "max_error_allowed": 0.00512,
+      "validation": "sampled final repetition, absolute error vs float64",
+      "sample_stride": 97,
+      "seeds": [
+        12345,
+        67890
+      ],
+      "median_us": 29894,
+      "median_gflops": 8.979576369840101,
+      "specialize_layout": true,
+      "status": "ok",
+      "workload": "matrix-multiplication",
+      "compiler_identity": {
+        "revision": "e1eb20d54b05610dea7ed65592bd3caf4faf870d",
+        "source_sha256": "1fb7de5ee251a4f64d4f9f6b943b8c4c5b2684d34d78d462d1d6fe848c692e4f"
+      }
+    }
+  ],
+  "notes": [
+    "Arithmetic and matrix multiplication are different workloads.",
+    "Matrix kernel timings exclude host setup and UART upload; CPU comparison includes matmul_launch wrapper."
+  ],
+  "cpu_comparison": {
+    "size": 512,
+    "gpu_call_us": 31731,
+    "gpu_kernel_us": 31226,
+    "arm_vector_us": 352343,
+    "speedup": 11.104062273486496,
+    "all_outputs_checked": 262144,
+    "check": "OK",
+    "log_sha256": "006214c7a25699576dfb5b8eecd9dbe94d6c04db391fb9d9c137af52f66b1242",
+    "binary_sha256": "8b0c1f382813060f1f1015f026d68265da589f16346e1e031d0d2bf0d67f4db5"
+  },
+  "hardware_tests": {
+    "passed": 10,
+    "duration_seconds": 333.13,
+    "command": "PITON_HW=1 .venv/bin/python -m pytest -q tests/test_hw.py",
+    "result": "all 10 passed on final source; complete outputs match strict emulator"
+  },
+  "software_tests": {
+    "passed": 288,
+    "duration_seconds": 32.69,
+    "command": ".venv/bin/python -m pytest -q --ignore=tests/test_hw.py"
+  }
+}

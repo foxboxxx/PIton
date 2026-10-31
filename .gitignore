@@ -11,4 +11,5 @@ pi/examples/*/*.elf
 pi/examples/*/piton_rt.[ch]
 pi/examples/*/matmul.[ch]
 pi/examples/*/matmul.qasm
+pi/examples/*/.matmul-config*
 .DS_Store

@@ -1,0 +1,34 @@
+{
+  "kind": "compile-only exploratory prototypes",
+  "adopted": false,
+  "notes": "Static inner-loop instruction counts, not measured GFLOPS. In-memory variants were discarded; source is not part of the compiler.",
+  "tile": [
+    8,
+    64,
+    8
+  ],
+  "baseline_instructions": 388,
+  "candidates": [
+    {
+      "approach": "A K-major lane order",
+      "instructions": 394,
+      "copy_instructions_before": 22,
+      "copy_instructions_after": 35,
+      "specialized": "register allocation failed"
+    },
+    {
+      "approach": "static-range A column loads",
+      "instructions": 408,
+      "specialized_instructions": 407
+    },
+    {
+      "approach": "final B operand retained in r4",
+      "instructions": 398
+    },
+    {
+      "approach": "TMU scheduler soft priority reduced to 2",
+      "instructions": 386,
+      "decision": "not adopted; latency overlap unmeasured"
+    }
+  ]
+}

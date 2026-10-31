@@ -24,9 +24,10 @@ Status:
 
 * The Triton tutorial **vector add**, **fused softmax** and **grouped matmul** (`tl.dot`, masks,
   `%`-wraparound, runtime strides, runtime or constexpr K) compile and pass against numpy in the
-  emulator (238 tests, including small-tile reductions/transposes/dots, IEEE comparisons with
+  emulator (355 software tests, including small-tile reductions/transposes/dots, IEEE comparisons with
   NaN/inf/±0, exp/log/div/sqrt accuracy, exact 32-bit integer division, and regression tests
-  for every bug found in review); the `.qasm` we emit assembles with `vc4asm` to
+  for every bug found in review, plus trained NN inference, complete benchmark-log validation,
+  and bounded serial cleanup); the `.qasm` we emit assembles with `vc4asm` to
   exactly the bits our encoder produces.
 * On a Pi Zero W every hardware test is **bit-identical to the emulator**: vector add, softmax,
   ragged matmuls with up to 32 concurrent programs, exp/log/division/sqrt, float comparisons on
@@ -35,8 +36,34 @@ Status:
   quirks measured with `tools/float_specials_probe.py` (see the findings table).
 * No QPU op whose result we cannot reproduce is used: exp, log, reciprocal and rsqrt run on the
   ALUs (≈22-23 bits, within ~2 ulp) instead of the special function unit.
+* A trained **64→128→64→10 handwritten-digit classifier** now runs on the Pi: **96.995%**
+  accuracy on all 1,797 official held-out images, with every QPU prediction matching the
+  independent host reference. Resident inference takes **11.161 ms** for the full test set,
+  **11.986× faster** than the same-board tuned ARM VFP implementation (median of five).
 
 ## Performance (Pi Zero W, 12 QPUs @ 250 MHz, fp32)
+
+**2026-10-30 tuning checkpoint:** the seven unfinished tiles were measured at both 512³ and
+1024³; **8×64×8 remains best**. The final compiler reaches **9.005 GFLOPS at 512³** with fixed
+dimensions (8.781 with runtime dimensions), and **7.854 at 1024³** with runtime dimensions.
+Compared with the session's starting measurements, the fixed 512³ case gains about 3%; the
+generic 1024³ case is about 2% slower. Packed B and GROUP_SIZE_M=16 did not improve throughput.
+
+A separate register-resident arithmetic benchmark reaches **23.794 GFLOPS, 99.14% of the
+24 GFLOPS peak** (UNROLL=124, best of five; median 23.793). Its four FP32 recurrences keep
+arithmetic in registers; this measures a different workload from matmul. All 768 outputs
+are checked against an FP64 closed form with a 0.5% tolerance for accumulated toward-zero
+rounding (observed steady-state bias about 0.185%). Matrix multiplication still pays for
+broadcasts, addresses, loads and stores. Its BK=8 inner loop shrank from 396 to 386 instructions;
+the register-only arithmetic loop fills three formerly empty branch-delay slots.
+
+The same-board CPU comparison was rechecked at 512³: the full GPU call takes 31.731 ms
+(8.460 GFLOPS), versus 352.343 ms for tuned ARM VFP (**11.104×**), with every output checked.
+The firmware confirmed ARM 700 MHz, core/V3D 250 MHz and SDRAM 400 MHz. Exact repeats and
+measurement scopes are in `benchmarks/results/final-summary-2026-10-30.json`, with the CPU log
+and complete sweep records alongside it.
+
+The following tables retain the earlier 2026-10-27 measurements for comparison:
 
 Triton tutorial matmul (`examples/kernels.py`), square N×N×N, inputs generated on the board,
 `benchmarks/matmul_pi.py`; best of 2-3 runs, sampled results checked against float64:
@@ -97,7 +124,7 @@ An earlier README line put the ARM at ~0.009 GFLOPS: that was a naive dot produc
 scale the other way, the CS240LX GPU lab's hand-written 1-QPU kernel does 128³ in 116 ms
 (≈0.036 GFLOPS).
 
-Where the time goes (512³, measured on the board):
+Where the time goes (512³, measured on the board on 2026-10-27, before the later scheduling changes):
 
 | experiment | GFLOPS |
 |---|---|
@@ -116,6 +143,88 @@ with BK=4; BK=8 (fewer, larger loads per iteration) keeps it at 8.0 (that row wa
 the bare-metal benchmark in `pi/examples/matmul`, same kernel timer).
 Software pipelining of the K-loop loads is worth ~8% (7.2 → 7.8 GFLOPS at 512³ with `num_stages=1`).
 Accumulation uses the QPU's round-toward-zero adds: at K=1024 the sampled error is ~1e-4 relative.
+
+### Reproducing the tuning experiments
+
+The sweep saves every repeat, sampled output error, compilation failure, source fingerprint,
+and machine-code fingerprint. Repeating the same command resumes matching cases; a compiler
+or harness change starts a separate set of measurements. `--retry-errors` retries failures.
+
+```bash
+PITON_HW=1 .venv/bin/python benchmarks/sweep_matmul.py 512 1024 \
+  --repeats 5 --jsonl benchmarks/results/tiles.jsonl
+PITON_HW=1 .venv/bin/python benchmarks/sweep_matmul.py 512 1024 \
+  --tiles 8x64x8 --specialize-layout --repeats 5 \
+  --jsonl benchmarks/results/specialized.jsonl
+PITON_HW=1 .venv/bin/python benchmarks/packed_matmul_pi.py 512 1024 --bk 8
+PITON_HW=1 .venv/bin/python benchmarks/compute_peak_pi.py --unroll 124
+```
+
+`--specialize-layout` compiles for fixed dimensions and contiguous strides; the ordinary
+benchmark keeps these as runtime arguments. The packed experiment stores B as contiguous
+`[N / BN, K, BN]` panels and requires N divisible by BN. Its GPU time excludes input
+preparation, which is reported separately as **generation plus packed placement**. A workload
+that reuses weights can amortize preparation; one multiplication must account for it.
+
+The compute experiment measures four register-resident FP32 recurrences, with every output
+checked against an FP64 closed form using a tolerance for accumulated toward-zero rounding.
+It counts the emitted multiply/add instructions and reports the instruction-schedule ceiling
+at 250 MHz. Its arithmetic throughput measures a different workload from matrix multiplication.
+Matrix benchmarks check sampled final outputs; the separate hardware tests compare complete
+outputs against the strict emulator.
+
+## Handwritten-digit neural network
+
+`examples/digits_pi.py` compiles and boots a complete trained MLP: **64 inputs → 128 ReLU →
+64 ReLU → 10 digit logits**. The final layer stores 16 outputs for SIMD alignment; classification
+uses only the first ten. Weights and biases occupy **70,464 bytes** as float32 parameters.
+The hidden layers use 4×64×8 tiles and the final layer uses 8×16×8, with two-stage loading and
+bias/ReLU fused into each dense kernel.
+
+The data are the [UCI Optical Recognition of Handwritten Digits dataset](https://archive.ics.uci.edu/dataset/80/optical+recognition+of+handwritten+digits),
+8×8 images whose pixels range from 0 to 16. NumPy-only training uses the official 3,823-image
+training split, reserving 572 of those images for validation. The checkpoint is selected by
+validation cross-entropy; the official test set is evaluated after the model is frozen.
+It correctly classifies **1,743/1,797 test images (96.995%)** from different writers. The
+compressed dataset, frozen weights, reproducible training code, checksums, training history,
+and CC BY 4.0 attribution are in `examples/data/digits/` and `examples/digits_model.py`.
+
+**Measured on the Pi Zero W on 2026-10-30:** the full batch of 1,797 images (padded to 1,800
+rows) takes **11.161 ms on the QPUs**, versus **133.775 ms on tuned ARM VFP**, a **11.986×
+speedup** and approximately **161,007 classified images/s**. A logical single-image batch
+(both implementations compute four padded rows) takes **199 µs on the QPUs** versus **717 µs
+on ARM VFP**, a **3.603× speedup**. These are medians of five runs at ARM 700 MHz, core/V3D
+250 MHz, and SDRAM 400 MHz. The full-batch QPU repeats are 11,210, 11,161, 11,149, 11,185,
+and 11,153 µs; the ARM VFP repeats are 133,744, 133,707, 133,776, 133,785, and 133,775 µs.
+
+The timer includes all three dense layers, launch/uniform/cache-clear overhead, bias and
+activation. Model/input upload, allocation, normalization, validation, and serial printing
+are outside the timer; data and parameters remain resident during inference. Both sides use
+the same padded dimensions and weights. ARM baselines include blocked C and tuned VFP.
+Results cover batch sizes 1, 16, 64, 256, and 1,797, with five timings per implementation.
+
+All **28,752 logits per full validation** pass comparison with an independent float64
+reference using a propagated bound for QPU float32 rounding toward zero. All 1,797 class
+predictions match exactly. Six full validations check GPU/ARM C/ARM VFP before and after
+timing, and 15 additional checks cover every implementation/batch pair. Maximum full-batch
+absolute error is **0.000102 for the QPUs**, **0.000007 for ARM C**, and **0.000009 for ARM VFP**.
+The raw log and measurements are saved as `benchmarks/results/digits-pi-2026-10-30.log` and
+`benchmarks/results/digits-pi-2026-10-30.json`.
+
+```bash
+.venv/bin/python examples/digits_model.py             # frozen host-model accuracy
+.venv/bin/python examples/digits_pi.py --build-only   # compile firmware without booting
+.venv/bin/python examples/digits_pi.py --repeats 5     # run on the attached Pi
+.venv/bin/python -m pytest tests/test_nn_kernels.py tests/test_digits_model.py tests/test_digits_pi.py -q
+```
+
+The hardware runner requires the course `CS240LX_2025_PATH`/bootloader setup described below.
+It rejects incomplete logs, missing timing or numerical checks, wrong predictions, and
+non-finite results. Cleanup after completed serial output is bounded: the host waits at most
+five seconds after terminating the bootloader and one more second after killing it, preserving
+the completed log. The measured run's results were saved after its serial-driver cleanup
+stall cleared; a USB reconnect was confirmed. The next application is an interactive
+Mandelbrot renderer with UART zoom controls and optional GPIO buttons.
 
 ## Pipeline
 
