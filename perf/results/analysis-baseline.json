@@ -1,0 +1,9080 @@
+[
+ {
+  "name": "copy",
+  "note": "",
+  "instructions": 384,
+  "programs": 16,
+  "cycles": 764,
+  "whole": {
+   "executed": 3152.0,
+   "mix": {
+    "add": 0.6852791878172588,
+    "paired": 0.233502538071066,
+    "ldi": 0.04060913705583756,
+    "branch": 0.01015228426395939,
+    "nop_delay": 0.015228426395939087,
+    "signal": 0.005076142131979695,
+    "nop_end": 0.01015228426395939
+   },
+   "add_ops": 2896.0,
+   "mul_ops": 736.0,
+   "movs": 1920.0,
+   "ldi": 128.0,
+   "branches": 32.0,
+   "bound": 3056.0,
+   "packing": 0.9695431472081218,
+   "blockers": {},
+   "ops": {
+    "add:mov": 1152,
+    "add:add": 992,
+    "mul:mov": 736,
+    "add:sub": 272,
+    "add:sub.setf": 272,
+    "add:shl": 96,
+    "add:min": 48,
+    "add:mov.setf": 32,
+    "add:max": 16,
+    "add:asr": 16
+   }
+  },
+  "regions": [
+   {
+    "executed": 1984.0,
+    "mix": {
+     "add": 0.6048387096774194,
+     "paired": 0.3387096774193548,
+     "ldi": 0.024193548387096774,
+     "branch": 0.008064516129032258,
+     "nop_delay": 0.024193548387096774
+    },
+    "add_ops": 1872.0,
+    "mul_ops": 672.0,
+    "movs": 1088.0,
+    "ldi": 48.0,
+    "branches": 16.0,
+    "bound": 1936.0,
+    "packing": 0.9758064516129032,
+    "blockers": {},
+    "ops": {
+     "add:add": 784,
+     "mul:mov": 672,
+     "add:mov": 384,
+     "add:sub": 272,
+     "add:sub.setf": 272,
+     "add:shl": 48,
+     "add:min": 48,
+     "add:mov.setf": 32,
+     "add:max": 16,
+     "add:asr": 16
+    },
+    "label": "main1",
+    "start": 5,
+    "length": 124,
+    "entries": 16,
+    "share": 0.6294416243654822
+   },
+   {
+    "executed": 1024.0,
+    "mix": {
+     "add": 0.84375,
+     "ldi": 0.078125,
+     "paired": 0.0625,
+     "branch": 0.015625
+    },
+    "add_ops": 928.0,
+    "mul_ops": 64.0,
+    "movs": 736.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 1024.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 672,
+     "add:add": 208,
+     "mul:mov": 64,
+     "add:shl": 48
+    },
+    "label": "store_full4",
+    "start": 129,
+    "length": 64,
+    "entries": 16,
+    "share": 0.3248730964467005
+   },
+   {
+    "executed": 80.0,
+    "mix": {
+     "add": 1.0
+    },
+    "add_ops": 80.0,
+    "mul_ops": 0.0,
+    "movs": 80.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 80.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 80
+    },
+    "label": "entry",
+    "start": 0,
+    "length": 5,
+    "entries": 16,
+    "share": 0.025380710659898477
+   },
+   {
+    "executed": 64.0,
+    "mix": {
+     "add": 0.25,
+     "signal": 0.25,
+     "nop_end": 0.5
+    },
+    "add_ops": 16.0,
+    "mul_ops": 0.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 16.0,
+    "packing": 0.25,
+    "blockers": {},
+    "ops": {
+     "add:mov": 16
+    },
+    "label": "skip19/store_done3",
+    "start": 380,
+    "length": 4,
+    "entries": 16,
+    "share": 0.02030456852791878
+   }
+  ]
+ },
+ {
+  "name": "add",
+  "note": "tutorial 01",
+  "instructions": 472,
+  "programs": 16,
+  "cycles": 956,
+  "whole": {
+   "executed": 4656.0,
+   "mix": {
+    "add": 0.6288659793814433,
+    "paired": 0.32646048109965636,
+    "ldi": 0.027491408934707903,
+    "branch": 0.006872852233676976,
+    "signal": 0.003436426116838488,
+    "nop_end": 0.006872852233676976
+   },
+   "add_ops": 4448.0,
+   "mul_ops": 1520.0,
+   "movs": 2976.0,
+   "ldi": 128.0,
+   "branches": 32.0,
+   "bound": 4608.0,
+   "packing": 0.9896907216494846,
+   "blockers": {},
+   "ops": {
+    "add:add": 1760,
+    "mul:mov": 1520,
+    "add:mov": 1424,
+    "add:sub.setf": 528,
+    "add:sub": 272,
+    "add:fadd": 256,
+    "add:shl": 96,
+    "add:min": 48,
+    "add:mov.setf": 32,
+    "add:max": 16,
+    "add:asr": 16
+   }
+  },
+  "regions": [
+   {
+    "executed": 3472.0,
+    "mix": {
+     "add": 0.5622119815668203,
+     "paired": 0.41935483870967744,
+     "ldi": 0.013824884792626729,
+     "branch": 0.004608294930875576
+    },
+    "add_ops": 3408.0,
+    "mul_ops": 1456.0,
+    "movs": 2128.0,
+    "ldi": 48.0,
+    "branches": 16.0,
+    "bound": 3472.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:add": 1552,
+     "mul:mov": 1456,
+     "add:mov": 640,
+     "add:sub.setf": 528,
+     "add:sub": 272,
+     "add:fadd": 256,
+     "add:shl": 48,
+     "add:min": 48,
+     "add:mov.setf": 32,
+     "add:max": 16,
+     "add:asr": 16
+    },
+    "label": "main1",
+    "start": 6,
+    "length": 217,
+    "entries": 16,
+    "share": 0.7457044673539519
+   },
+   {
+    "executed": 1024.0,
+    "mix": {
+     "add": 0.84375,
+     "ldi": 0.078125,
+     "paired": 0.0625,
+     "branch": 0.015625
+    },
+    "add_ops": 928.0,
+    "mul_ops": 64.0,
+    "movs": 736.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 1024.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 672,
+     "add:add": 208,
+     "mul:mov": 64,
+     "add:shl": 48
+    },
+    "label": "store_full4",
+    "start": 223,
+    "length": 64,
+    "entries": 16,
+    "share": 0.21993127147766323
+   },
+   {
+    "executed": 96.0,
+    "mix": {
+     "add": 1.0
+    },
+    "add_ops": 96.0,
+    "mul_ops": 0.0,
+    "movs": 96.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 96.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 96
+    },
+    "label": "entry",
+    "start": 0,
+    "length": 6,
+    "entries": 16,
+    "share": 0.020618556701030927
+   },
+   {
+    "executed": 64.0,
+    "mix": {
+     "add": 0.25,
+     "signal": 0.25,
+     "nop_end": 0.5
+    },
+    "add_ops": 16.0,
+    "mul_ops": 0.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 16.0,
+    "packing": 0.25,
+    "blockers": {},
+    "ops": {
+     "add:mov": 16
+    },
+    "label": "skip19/store_done3",
+    "start": 468,
+    "length": 4,
+    "entries": 16,
+    "share": 0.013745704467353952
+   }
+  ]
+ },
+ {
+  "name": "mul",
+  "note": "",
+  "instructions": 468,
+  "programs": 16,
+  "cycles": 948,
+  "whole": {
+   "executed": 4592.0,
+   "mix": {
+    "add": 0.5818815331010453,
+    "paired": 0.3519163763066202,
+    "ldi": 0.027874564459930314,
+    "mul": 0.013937282229965157,
+    "branch": 0.006968641114982578,
+    "nop_delay": 0.006968641114982578,
+    "signal": 0.003484320557491289,
+    "nop_end": 0.006968641114982578
+   },
+   "add_ops": 4288.0,
+   "mul_ops": 1680.0,
+   "movs": 2976.0,
+   "ldi": 128.0,
+   "branches": 32.0,
+   "bound": 4448.0,
+   "packing": 0.9686411149825784,
+   "blockers": {
+    "port_A": 32
+   },
+   "ops": {
+    "add:add": 1760,
+    "add:mov": 1520,
+    "mul:mov": 1424,
+    "add:sub.setf": 528,
+    "add:sub": 272,
+    "mul:fmul": 256,
+    "add:shl": 96,
+    "add:min": 48,
+    "add:mov.setf": 32,
+    "add:max": 16,
+    "add:asr": 16
+   }
+  },
+  "regions": [
+   {
+    "executed": 3408.0,
+    "mix": {
+     "add": 0.49765258215962443,
+     "paired": 0.45539906103286387,
+     "ldi": 0.014084507042253521,
+     "mul": 0.018779342723004695,
+     "branch": 0.004694835680751174,
+     "nop_delay": 0.009389671361502348
+    },
+    "add_ops": 3248.0,
+    "mul_ops": 1616.0,
+    "movs": 2128.0,
+    "ldi": 48.0,
+    "branches": 16.0,
+    "bound": 3312.0,
+    "packing": 0.971830985915493,
+    "blockers": {
+     "port_A": 32
+    },
+    "ops": {
+     "add:add": 1552,
+     "mul:mov": 1360,
+     "add:mov": 736,
+     "add:sub.setf": 528,
+     "add:sub": 272,
+     "mul:fmul": 256,
+     "add:shl": 48,
+     "add:min": 48,
+     "add:mov.setf": 32,
+     "add:max": 16,
+     "add:asr": 16
+    },
+    "label": "main1",
+    "start": 6,
+    "length": 213,
+    "entries": 16,
+    "share": 0.7421602787456446
+   },
+   {
+    "executed": 1024.0,
+    "mix": {
+     "add": 0.84375,
+     "ldi": 0.078125,
+     "paired": 0.0625,
+     "branch": 0.015625
+    },
+    "add_ops": 928.0,
+    "mul_ops": 64.0,
+    "movs": 736.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 1024.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 672,
+     "add:add": 208,
+     "mul:mov": 64,
+     "add:shl": 48
+    },
+    "label": "store_full4",
+    "start": 219,
+    "length": 64,
+    "entries": 16,
+    "share": 0.2229965156794425
+   },
+   {
+    "executed": 96.0,
+    "mix": {
+     "add": 1.0
+    },
+    "add_ops": 96.0,
+    "mul_ops": 0.0,
+    "movs": 96.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 96.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 96
+    },
+    "label": "entry",
+    "start": 0,
+    "length": 6,
+    "entries": 16,
+    "share": 0.020905923344947737
+   },
+   {
+    "executed": 64.0,
+    "mix": {
+     "add": 0.25,
+     "signal": 0.25,
+     "nop_end": 0.5
+    },
+    "add_ops": 16.0,
+    "mul_ops": 0.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 16.0,
+    "packing": 0.25,
+    "blockers": {},
+    "ops": {
+     "add:mov": 16
+    },
+    "label": "skip19/store_done3",
+    "start": 464,
+    "length": 4,
+    "entries": 16,
+    "share": 0.013937282229965157
+   }
+  ]
+ },
+ {
+  "name": "fma",
+  "note": "",
+  "instructions": 484,
+  "programs": 16,
+  "cycles": 962,
+  "whole": {
+   "executed": 4864.0,
+   "mix": {
+    "add": 0.5855263157894737,
+    "ldi": 0.02631578947368421,
+    "paired": 0.3256578947368421,
+    "mul": 0.046052631578947366,
+    "branch": 0.006578947368421052,
+    "signal": 0.003289473684210526,
+    "nop_end": 0.006578947368421052
+   },
+   "add_ops": 4432.0,
+   "mul_ops": 1808.0,
+   "movs": 2992.0,
+   "ldi": 128.0,
+   "branches": 32.0,
+   "bound": 4592.0,
+   "packing": 0.944078947368421,
+   "blockers": {},
+   "ops": {
+    "add:add": 1760,
+    "mul:mov": 1552,
+    "add:mov": 1408,
+    "add:sub.setf": 528,
+    "add:sub": 272,
+    "mul:fmul": 256,
+    "add:fadd": 256,
+    "add:shl": 96,
+    "add:min": 48,
+    "add:mov.setf": 32,
+    "add:max": 16,
+    "add:asr": 16
+   }
+  },
+  "regions": [
+   {
+    "executed": 3664.0,
+    "mix": {
+     "add": 0.5065502183406113,
+     "ldi": 0.013100436681222707,
+     "paired": 0.4148471615720524,
+     "mul": 0.0611353711790393,
+     "branch": 0.004366812227074236
+    },
+    "add_ops": 3376.0,
+    "mul_ops": 1744.0,
+    "movs": 2128.0,
+    "ldi": 48.0,
+    "branches": 16.0,
+    "bound": 3440.0,
+    "packing": 0.9388646288209607,
+    "blockers": {},
+    "ops": {
+     "add:add": 1552,
+     "mul:mov": 1488,
+     "add:mov": 608,
+     "add:sub.setf": 528,
+     "add:sub": 272,
+     "mul:fmul": 256,
+     "add:fadd": 256,
+     "add:shl": 48,
+     "add:min": 48,
+     "add:mov.setf": 32,
+     "add:max": 16,
+     "add:asr": 16
+    },
+    "label": "main1",
+    "start": 7,
+    "length": 229,
+    "entries": 16,
+    "share": 0.7532894736842105
+   },
+   {
+    "executed": 1024.0,
+    "mix": {
+     "add": 0.84375,
+     "ldi": 0.078125,
+     "paired": 0.0625,
+     "branch": 0.015625
+    },
+    "add_ops": 928.0,
+    "mul_ops": 64.0,
+    "movs": 736.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 1024.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 672,
+     "add:add": 208,
+     "mul:mov": 64,
+     "add:shl": 48
+    },
+    "label": "store_full4",
+    "start": 236,
+    "length": 64,
+    "entries": 16,
+    "share": 0.21052631578947367
+   },
+   {
+    "executed": 112.0,
+    "mix": {
+     "add": 1.0
+    },
+    "add_ops": 112.0,
+    "mul_ops": 0.0,
+    "movs": 112.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 112.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 112
+    },
+    "label": "entry",
+    "start": 0,
+    "length": 7,
+    "entries": 16,
+    "share": 0.023026315789473683
+   },
+   {
+    "executed": 64.0,
+    "mix": {
+     "add": 0.25,
+     "signal": 0.25,
+     "nop_end": 0.5
+    },
+    "add_ops": 16.0,
+    "mul_ops": 0.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 16.0,
+    "packing": 0.25,
+    "blockers": {},
+    "ops": {
+     "add:mov": 16
+    },
+    "label": "skip19/store_done3",
+    "start": 480,
+    "length": 4,
+    "entries": 16,
+    "share": 0.013157894736842105
+   }
+  ]
+ },
+ {
+  "name": "scaled_relu",
+  "note": "tl.where",
+  "instructions": 521,
+  "programs": 16,
+  "cycles": 1040,
+  "whole": {
+   "executed": 5456.0,
+   "mix": {
+    "add": 0.6598240469208211,
+    "paired": 0.2873900293255132,
+    "ldi": 0.02932551319648094,
+    "branch": 0.005865102639296188,
+    "nop_delay": 0.008797653958944282,
+    "signal": 0.002932551319648094,
+    "nop_end": 0.005865102639296188
+   },
+   "add_ops": 5168.0,
+   "mul_ops": 1568.0,
+   "movs": 2464.0,
+   "ldi": 160.0,
+   "branches": 32.0,
+   "bound": 5360.0,
+   "packing": 0.9824046920821115,
+   "blockers": {},
+   "ops": {
+    "mul:mov": 1312,
+    "add:mov": 1120,
+    "add:sub": 1040,
+    "add:add": 992,
+    "add:asr": 528,
+    "add:min": 304,
+    "add:sub.setf": 272,
+    "mul:fmul": 256,
+    "add:and": 256,
+    "add:xor": 256,
+    "add:and.setf": 256,
+    "add:shl": 96
+   }
+  },
+  "regions": [
+   {
+    "executed": 4272.0,
+    "mix": {
+     "paired": 0.352059925093633,
+     "ldi": 0.018726591760299626,
+     "add": 0.6142322097378277,
+     "branch": 0.003745318352059925,
+     "nop_delay": 0.011235955056179775
+    },
+    "add_ops": 4128.0,
+    "mul_ops": 1504.0,
+    "movs": 1616.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 4224.0,
+    "packing": 0.9887640449438202,
+    "blockers": {},
+    "ops": {
+     "mul:mov": 1248,
+     "add:sub": 1040,
+     "add:add": 784,
+     "add:asr": 528,
+     "add:mov": 336,
+     "add:min": 304,
+     "add:sub.setf": 272,
+     "mul:fmul": 256,
+     "add:and": 256,
+     "add:xor": 256,
+     "add:and.setf": 256,
+     "add:shl": 48
+    },
+    "label": "main1",
+    "start": 6,
+    "length": 267,
+    "entries": 16,
+    "share": 0.782991202346041
+   },
+   {
+    "executed": 1024.0,
+    "mix": {
+     "add": 0.84375,
+     "ldi": 0.078125,
+     "paired": 0.0625,
+     "branch": 0.015625
+    },
+    "add_ops": 928.0,
+    "mul_ops": 64.0,
+    "movs": 736.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 1024.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 672,
+     "add:add": 208,
+     "mul:mov": 64,
+     "add:shl": 48
+    },
+    "label": "store_full4",
+    "start": 273,
+    "length": 64,
+    "entries": 16,
+    "share": 0.187683284457478
+   },
+   {
+    "executed": 96.0,
+    "mix": {
+     "add": 1.0
+    },
+    "add_ops": 96.0,
+    "mul_ops": 0.0,
+    "movs": 96.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 96.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 96
+    },
+    "label": "entry",
+    "start": 0,
+    "length": 6,
+    "entries": 16,
+    "share": 0.017595307917888565
+   },
+   {
+    "executed": 64.0,
+    "mix": {
+     "add": 0.25,
+     "signal": 0.25,
+     "nop_end": 0.5
+    },
+    "add_ops": 16.0,
+    "mul_ops": 0.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 16.0,
+    "packing": 0.25,
+    "blockers": {},
+    "ops": {
+     "add:mov": 16
+    },
+    "label": "skip19/store_done3",
+    "start": 517,
+    "length": 4,
+    "entries": 16,
+    "share": 0.011730205278592375
+   }
+  ]
+ },
+ {
+  "name": "exp",
+  "note": "sfu_kernel OP=4",
+  "instructions": 1096,
+  "programs": 16,
+  "cycles": 2172,
+  "whole": {
+   "executed": 14656.0,
+   "mix": {
+    "add": 0.6593886462882096,
+    "paired": 0.07532751091703056,
+    "ldi": 0.027292576419213975,
+    "mul": 0.15611353711790393,
+    "nop_other": 0.07314410480349345,
+    "branch": 0.002183406113537118,
+    "nop_delay": 0.0032751091703056767,
+    "signal": 0.001091703056768559,
+    "nop_end": 0.002183406113537118
+   },
+   "add_ops": 10768.0,
+   "mul_ops": 3392.0,
+   "movs": 2976.0,
+   "ldi": 400.0,
+   "branches": 32.0,
+   "bound": 11200.0,
+   "packing": 0.7641921397379913,
+   "blockers": {
+    "dependency": 3216,
+    "free": 16,
+    "port_A": 480
+   },
+   "ops": {
+    "mul:fmul": 2560,
+    "add:mov": 2112,
+    "add:fadd": 1792,
+    "add:add": 1760,
+    "mul:mov": 832,
+    "add:sub.setf": 784,
+    "add:shl": 608,
+    "add:sub": 528,
+    "add:and": 512,
+    "add:fsub": 512,
+    "add:min": 304,
+    "add:max": 272
+   }
+  },
+  "regions": [
+   {
+    "executed": 13488.0,
+    "mix": {
+     "add": 0.6453143534994069,
+     "paired": 0.0771055753262159,
+     "ldi": 0.02372479240806643,
+     "mul": 0.16963226571767498,
+     "nop_other": 0.07947805456702253,
+     "branch": 0.0011862396204033216,
+     "nop_delay": 0.0035587188612099642
+    },
+    "add_ops": 9744.0,
+    "mul_ops": 3328.0,
+    "movs": 2144.0,
+    "ldi": 320.0,
+    "branches": 16.0,
+    "bound": 10080.0,
+    "packing": 0.7473309608540926,
+    "blockers": {
+     "dependency": 3216,
+     "free": 16,
+     "port_A": 480
+    },
+    "ops": {
+     "mul:fmul": 2560,
+     "add:fadd": 1792,
+     "add:add": 1552,
+     "add:mov": 1344,
+     "add:sub.setf": 784,
+     "mul:mov": 768,
+     "add:shl": 560,
+     "add:sub": 528,
+     "add:and": 512,
+     "add:fsub": 512,
+     "add:min": 304,
+     "add:max": 272
+    },
+    "label": "main1",
+    "start": 5,
+    "length": 843,
+    "entries": 16,
+    "share": 0.9203056768558951
+   },
+   {
+    "executed": 1024.0,
+    "mix": {
+     "add": 0.84375,
+     "ldi": 0.078125,
+     "paired": 0.0625,
+     "branch": 0.015625
+    },
+    "add_ops": 928.0,
+    "mul_ops": 64.0,
+    "movs": 736.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 1024.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 672,
+     "add:add": 208,
+     "mul:mov": 64,
+     "add:shl": 48
+    },
+    "label": "store_full4",
+    "start": 848,
+    "length": 64,
+    "entries": 16,
+    "share": 0.06986899563318777
+   },
+   {
+    "executed": 80.0,
+    "mix": {
+     "add": 1.0
+    },
+    "add_ops": 80.0,
+    "mul_ops": 0.0,
+    "movs": 80.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 80.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 80
+    },
+    "label": "entry",
+    "start": 0,
+    "length": 5,
+    "entries": 16,
+    "share": 0.0054585152838427945
+   },
+   {
+    "executed": 64.0,
+    "mix": {
+     "add": 0.25,
+     "signal": 0.25,
+     "nop_end": 0.5
+    },
+    "add_ops": 16.0,
+    "mul_ops": 0.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 16.0,
+    "packing": 0.25,
+    "blockers": {},
+    "ops": {
+     "add:mov": 16
+    },
+    "label": "skip19/store_done3",
+    "start": 1092,
+    "length": 4,
+    "entries": 16,
+    "share": 0.004366812227074236
+   }
+  ]
+ },
+ {
+  "name": "exp2",
+  "note": "sfu_kernel OP=0",
+  "instructions": 1072,
+  "programs": 16,
+  "cycles": 2124,
+  "whole": {
+   "executed": 14272.0,
+   "mix": {
+    "add": 0.6737668161434978,
+    "paired": 0.061659192825112105,
+    "ldi": 0.023542600896860985,
+    "mul": 0.1412556053811659,
+    "nop_other": 0.09080717488789238,
+    "branch": 0.002242152466367713,
+    "nop_delay": 0.0033632286995515697,
+    "signal": 0.0011210762331838565,
+    "nop_end": 0.002242152466367713
+   },
+   "add_ops": 10496.0,
+   "mul_ops": 2896.0,
+   "movs": 2976.0,
+   "ldi": 336.0,
+   "branches": 32.0,
+   "bound": 10864.0,
+   "packing": 0.7612107623318386,
+   "blockers": {
+    "dependency": 2704,
+    "port_A": 496
+   },
+   "ops": {
+    "add:mov": 2096,
+    "mul:fmul": 2048,
+    "add:fadd": 1792,
+    "add:add": 1760,
+    "mul:mov": 848,
+    "add:sub.setf": 784,
+    "add:shl": 608,
+    "add:sub": 528,
+    "add:and": 512,
+    "add:min": 304,
+    "add:max": 272,
+    "add:fmin": 256
+   }
+  },
+  "regions": [
+   {
+    "executed": 13104.0,
+    "mix": {
+     "add": 0.6605616605616605,
+     "paired": 0.06227106227106227,
+     "ldi": 0.019536019536019536,
+     "mul": 0.15384615384615385,
+     "nop_other": 0.0989010989010989,
+     "branch": 0.001221001221001221,
+     "nop_delay": 0.003663003663003663
+    },
+    "add_ops": 9472.0,
+    "mul_ops": 2832.0,
+    "movs": 2144.0,
+    "ldi": 256.0,
+    "branches": 16.0,
+    "bound": 9744.0,
+    "packing": 0.7435897435897436,
+    "blockers": {
+     "dependency": 2704,
+     "port_A": 496
+    },
+    "ops": {
+     "mul:fmul": 2048,
+     "add:fadd": 1792,
+     "add:add": 1552,
+     "add:mov": 1328,
+     "mul:mov": 784,
+     "add:sub.setf": 784,
+     "add:shl": 560,
+     "add:sub": 528,
+     "add:and": 512,
+     "add:min": 304,
+     "add:max": 272,
+     "add:fmin": 256
+    },
+    "label": "main1",
+    "start": 5,
+    "length": 819,
+    "entries": 16,
+    "share": 0.9181614349775785
+   },
+   {
+    "executed": 1024.0,
+    "mix": {
+     "add": 0.84375,
+     "ldi": 0.078125,
+     "paired": 0.0625,
+     "branch": 0.015625
+    },
+    "add_ops": 928.0,
+    "mul_ops": 64.0,
+    "movs": 736.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 1024.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 672,
+     "add:add": 208,
+     "mul:mov": 64,
+     "add:shl": 48
+    },
+    "label": "store_full4",
+    "start": 824,
+    "length": 64,
+    "entries": 16,
+    "share": 0.07174887892376682
+   },
+   {
+    "executed": 80.0,
+    "mix": {
+     "add": 1.0
+    },
+    "add_ops": 80.0,
+    "mul_ops": 0.0,
+    "movs": 80.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 80.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 80
+    },
+    "label": "entry",
+    "start": 0,
+    "length": 5,
+    "entries": 16,
+    "share": 0.005605381165919282
+   },
+   {
+    "executed": 64.0,
+    "mix": {
+     "add": 0.25,
+     "signal": 0.25,
+     "nop_end": 0.5
+    },
+    "add_ops": 16.0,
+    "mul_ops": 0.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 16.0,
+    "packing": 0.25,
+    "blockers": {},
+    "ops": {
+     "add:mov": 16
+    },
+    "label": "skip19/store_done3",
+    "start": 1068,
+    "length": 4,
+    "entries": 16,
+    "share": 0.004484304932735426
+   }
+  ]
+ },
+ {
+  "name": "log",
+  "note": "",
+  "instructions": 1054,
+  "programs": 16,
+  "cycles": 2074,
+  "whole": {
+   "executed": 13872.0,
+   "mix": {
+    "add": 0.5755478662053056,
+    "ldi": 0.02768166089965398,
+    "paired": 0.1580161476355248,
+    "mul": 0.2029988465974625,
+    "nop_other": 0.0265282583621684,
+    "branch": 0.002306805074971165,
+    "nop_delay": 0.0034602076124567475,
+    "signal": 0.0011534025374855825,
+    "nop_end": 0.002306805074971165
+   },
+   "add_ops": 10176.0,
+   "mul_ops": 5008.0,
+   "movs": 4000.0,
+   "ldi": 384.0,
+   "branches": 32.0,
+   "bound": 10592.0,
+   "packing": 0.7635524798154556,
+   "blockers": {
+    "dependency": 2896,
+    "port_A": 160,
+    "port_B": 240,
+    "write_file": 368
+   },
+   "ops": {
+    "mul:fmul": 3840,
+    "add:mov": 2288,
+    "add:fadd": 1536,
+    "add:add": 1248,
+    "mul:mov": 1168,
+    "add:sub.setf": 1040,
+    "add:fsub": 1024,
+    "add:sub": 784,
+    "add:and": 768,
+    "add:mov.setf": 544,
+    "add:or": 256,
+    "add:shr": 256
+   }
+  },
+  "regions": [
+   {
+    "executed": 12704.0,
+    "mix": {
+     "add": 0.552896725440806,
+     "ldi": 0.02392947103274559,
+     "paired": 0.16750629722921914,
+     "mul": 0.2216624685138539,
+     "nop_other": 0.028967254408060455,
+     "branch": 0.0012594458438287153,
+     "nop_delay": 0.003778337531486146
+    },
+    "add_ops": 9152.0,
+    "mul_ops": 4944.0,
+    "movs": 3168.0,
+    "ldi": 304.0,
+    "branches": 16.0,
+    "bound": 9472.0,
+    "packing": 0.7455919395465995,
+    "blockers": {
+     "dependency": 2896,
+     "port_A": 160,
+     "port_B": 240,
+     "write_file": 368
+    },
+    "ops": {
+     "mul:fmul": 3840,
+     "add:fadd": 1536,
+     "add:mov": 1520,
+     "mul:mov": 1104,
+     "add:add": 1040,
+     "add:sub.setf": 1040,
+     "add:fsub": 1024,
+     "add:sub": 784,
+     "add:and": 768,
+     "add:mov.setf": 544,
+     "add:or": 256,
+     "add:shr": 256
+    },
+    "label": "main1",
+    "start": 5,
+    "length": 794,
+    "entries": 16,
+    "share": 0.9158016147635525
+   },
+   {
+    "executed": 1024.0,
+    "mix": {
+     "add": 0.84375,
+     "ldi": 0.078125,
+     "paired": 0.0625,
+     "branch": 0.015625
+    },
+    "add_ops": 928.0,
+    "mul_ops": 64.0,
+    "movs": 736.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 1024.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 672,
+     "add:add": 208,
+     "mul:mov": 64,
+     "add:shl": 48
+    },
+    "label": "store_full4",
+    "start": 799,
+    "length": 64,
+    "entries": 16,
+    "share": 0.07381776239907728
+   },
+   {
+    "executed": 80.0,
+    "mix": {
+     "add": 1.0
+    },
+    "add_ops": 80.0,
+    "mul_ops": 0.0,
+    "movs": 80.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 80.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 80
+    },
+    "label": "entry",
+    "start": 0,
+    "length": 5,
+    "entries": 16,
+    "share": 0.0057670126874279125
+   },
+   {
+    "executed": 64.0,
+    "mix": {
+     "add": 0.25,
+     "signal": 0.25,
+     "nop_end": 0.5
+    },
+    "add_ops": 16.0,
+    "mul_ops": 0.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 16.0,
+    "packing": 0.25,
+    "blockers": {},
+    "ops": {
+     "add:mov": 16
+    },
+    "label": "skip19/store_done3",
+    "start": 1050,
+    "length": 4,
+    "entries": 16,
+    "share": 0.00461361014994233
+   }
+  ]
+ },
+ {
+  "name": "log2",
+  "note": "sfu_kernel OP=1",
+  "instructions": 1028,
+  "programs": 16,
+  "cycles": 2036,
+  "whole": {
+   "executed": 13568.0,
+   "mix": {
+    "add": 0.5813679245283019,
+    "paired": 0.1650943396226415,
+    "ldi": 0.02830188679245283,
+    "mul": 0.18867924528301888,
+    "nop_other": 0.027122641509433963,
+    "branch": 0.0023584905660377358,
+    "nop_delay": 0.003537735849056604,
+    "signal": 0.0011792452830188679,
+    "nop_end": 0.0023584905660377358
+   },
+   "add_ops": 10128.0,
+   "mul_ops": 4800.0,
+   "movs": 4000.0,
+   "ldi": 384.0,
+   "branches": 32.0,
+   "bound": 10544.0,
+   "packing": 0.777122641509434,
+   "blockers": {
+    "dependency": 2720,
+    "port_A": 160,
+    "port_B": 240,
+    "write_file": 368
+   },
+   "ops": {
+    "mul:fmul": 3584,
+    "add:mov": 2240,
+    "add:fadd": 1536,
+    "add:add": 1248,
+    "mul:mov": 1216,
+    "add:sub.setf": 1040,
+    "add:fsub": 1024,
+    "add:sub": 784,
+    "add:and": 768,
+    "add:mov.setf": 544,
+    "add:or": 256,
+    "add:shr": 256
+   }
+  },
+  "regions": [
+   {
+    "executed": 12400.0,
+    "mix": {
+     "add": 0.5587096774193548,
+     "paired": 0.17548387096774193,
+     "ldi": 0.024516129032258065,
+     "mul": 0.2064516129032258,
+     "nop_other": 0.02967741935483871,
+     "branch": 0.0012903225806451613,
+     "nop_delay": 0.003870967741935484
+    },
+    "add_ops": 9104.0,
+    "mul_ops": 4736.0,
+    "movs": 3168.0,
+    "ldi": 304.0,
+    "branches": 16.0,
+    "bound": 9424.0,
+    "packing": 0.76,
+    "blockers": {
+     "dependency": 2720,
+     "port_A": 160,
+     "port_B": 240,
+     "write_file": 368
+    },
+    "ops": {
+     "mul:fmul": 3584,
+     "add:fadd": 1536,
+     "add:mov": 1472,
+     "mul:mov": 1152,
+     "add:add": 1040,
+     "add:sub.setf": 1040,
+     "add:fsub": 1024,
+     "add:sub": 784,
+     "add:and": 768,
+     "add:mov.setf": 544,
+     "add:or": 256,
+     "add:shr": 256
+    },
+    "label": "main1",
+    "start": 5,
+    "length": 775,
+    "entries": 16,
+    "share": 0.9139150943396226
+   },
+   {
+    "executed": 1024.0,
+    "mix": {
+     "add": 0.84375,
+     "ldi": 0.078125,
+     "paired": 0.0625,
+     "branch": 0.015625
+    },
+    "add_ops": 928.0,
+    "mul_ops": 64.0,
+    "movs": 736.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 1024.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 672,
+     "add:add": 208,
+     "mul:mov": 64,
+     "add:shl": 48
+    },
+    "label": "store_full4",
+    "start": 780,
+    "length": 64,
+    "entries": 16,
+    "share": 0.07547169811320754
+   },
+   {
+    "executed": 80.0,
+    "mix": {
+     "add": 1.0
+    },
+    "add_ops": 80.0,
+    "mul_ops": 0.0,
+    "movs": 80.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 80.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 80
+    },
+    "label": "entry",
+    "start": 0,
+    "length": 5,
+    "entries": 16,
+    "share": 0.00589622641509434
+   },
+   {
+    "executed": 64.0,
+    "mix": {
+     "add": 0.25,
+     "signal": 0.25,
+     "nop_end": 0.5
+    },
+    "add_ops": 16.0,
+    "mul_ops": 0.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 16.0,
+    "packing": 0.25,
+    "blockers": {},
+    "ops": {
+     "add:mov": 16
+    },
+    "label": "skip19/store_done3",
+    "start": 1024,
+    "length": 4,
+    "entries": 16,
+    "share": 0.0047169811320754715
+   }
+  ]
+ },
+ {
+  "name": "recip",
+  "note": "sfu_kernel OP=2",
+  "instructions": 931,
+  "programs": 16,
+  "cycles": 1842,
+  "whole": {
+   "executed": 12016.0,
+   "mix": {
+    "add": 0.7070572569906791,
+    "paired": 0.12516644474034622,
+    "ldi": 0.02130492676431425,
+    "mul": 0.11584553928095873,
+    "nop_other": 0.019973368841544607,
+    "branch": 0.002663115845539281,
+    "nop_delay": 0.0039946737683089215,
+    "signal": 0.0013315579227696406,
+    "nop_end": 0.002663115845539281
+   },
+   "add_ops": 10000.0,
+   "mul_ops": 2896.0,
+   "movs": 4272.0,
+   "ldi": 256.0,
+   "branches": 32.0,
+   "bound": 10288.0,
+   "packing": 0.8561917443408789,
+   "blockers": {
+    "dependency": 1184,
+    "write_file": 128,
+    "port_B": 128,
+    "port_A": 32
+   },
+   "ops": {
+    "add:mov": 2880,
+    "add:sub.setf": 1808,
+    "mul:fmul": 1792,
+    "add:and": 1536,
+    "add:add": 1248,
+    "mul:mov": 1104,
+    "add:fsub": 768,
+    "add:sub": 528,
+    "add:or": 512,
+    "add:mov.setf": 288,
+    "add:max": 272,
+    "add:shl": 96
+   }
+  },
+  "regions": [
+   {
+    "executed": 10848.0,
+    "mix": {
+     "add": 0.6946902654867256,
+     "paired": 0.13274336283185842,
+     "ldi": 0.016224188790560472,
+     "mul": 0.12831858407079647,
+     "nop_other": 0.022123893805309734,
+     "branch": 0.0014749262536873156,
+     "nop_delay": 0.004424778761061947
+    },
+    "add_ops": 8976.0,
+    "mul_ops": 2832.0,
+    "movs": 3440.0,
+    "ldi": 176.0,
+    "branches": 16.0,
+    "bound": 9168.0,
+    "packing": 0.8451327433628318,
+    "blockers": {
+     "dependency": 1184,
+     "write_file": 128,
+     "port_B": 128,
+     "port_A": 32
+    },
+    "ops": {
+     "add:mov": 2112,
+     "add:sub.setf": 1808,
+     "mul:fmul": 1792,
+     "add:and": 1536,
+     "mul:mov": 1040,
+     "add:add": 1040,
+     "add:fsub": 768,
+     "add:sub": 528,
+     "add:or": 512,
+     "add:mov.setf": 288,
+     "add:max": 272,
+     "add:shl": 48
+    },
+    "label": "main1",
+    "start": 5,
+    "length": 678,
+    "entries": 16,
+    "share": 0.9027962716378163
+   },
+   {
+    "executed": 1024.0,
+    "mix": {
+     "add": 0.84375,
+     "ldi": 0.078125,
+     "paired": 0.0625,
+     "branch": 0.015625
+    },
+    "add_ops": 928.0,
+    "mul_ops": 64.0,
+    "movs": 736.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 1024.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 672,
+     "add:add": 208,
+     "mul:mov": 64,
+     "add:shl": 48
+    },
+    "label": "store_full4",
+    "start": 683,
+    "length": 64,
+    "entries": 16,
+    "share": 0.085219707057257
+   },
+   {
+    "executed": 80.0,
+    "mix": {
+     "add": 1.0
+    },
+    "add_ops": 80.0,
+    "mul_ops": 0.0,
+    "movs": 80.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 80.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 80
+    },
+    "label": "entry",
+    "start": 0,
+    "length": 5,
+    "entries": 16,
+    "share": 0.006657789613848202
+   },
+   {
+    "executed": 64.0,
+    "mix": {
+     "add": 0.25,
+     "signal": 0.25,
+     "nop_end": 0.5
+    },
+    "add_ops": 16.0,
+    "mul_ops": 0.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 16.0,
+    "packing": 0.25,
+    "blockers": {},
+    "ops": {
+     "add:mov": 16
+    },
+    "label": "skip19/store_done3",
+    "start": 927,
+    "length": 4,
+    "entries": 16,
+    "share": 0.005326231691078562
+   }
+  ]
+ },
+ {
+  "name": "rsqrt",
+  "note": "sfu_kernel OP=3",
+  "instructions": 862,
+  "programs": 16,
+  "cycles": 1704,
+  "whole": {
+   "executed": 10912.0,
+   "mix": {
+    "add": 0.5850439882697948,
+    "paired": 0.15542521994134897,
+    "ldi": 0.021994134897360705,
+    "mul": 0.21407624633431085,
+    "nop_other": 0.011730205278592375,
+    "branch": 0.002932551319648094,
+    "nop_delay": 0.004398826979472141,
+    "signal": 0.001466275659824047,
+    "nop_end": 0.002932551319648094
+   },
+   "add_ops": 8080.0,
+   "mul_ops": 4032.0,
+   "movs": 4000.0,
+   "ldi": 240.0,
+   "branches": 32.0,
+   "bound": 8352.0,
+   "packing": 0.7653958944281525,
+   "blockers": {
+    "dependency": 1072
+   },
+   "ops": {
+    "mul:fmul": 3072,
+    "add:mov": 2496,
+    "add:add": 1248,
+    "add:sub.setf": 1040,
+    "mul:mov": 960,
+    "add:fsub": 768,
+    "add:and": 768,
+    "add:mov.setf": 544,
+    "add:sub": 528,
+    "add:shr": 256,
+    "add:or": 256,
+    "add:shl": 96
+   }
+  },
+  "regions": [
+   {
+    "executed": 9744.0,
+    "mix": {
+     "add": 0.5566502463054187,
+     "paired": 0.16748768472906403,
+     "ldi": 0.016420361247947456,
+     "mul": 0.23973727422003285,
+     "nop_other": 0.013136288998357963,
+     "branch": 0.0016420361247947454,
+     "nop_delay": 0.0049261083743842365
+    },
+    "add_ops": 7056.0,
+    "mul_ops": 3968.0,
+    "movs": 3168.0,
+    "ldi": 160.0,
+    "branches": 16.0,
+    "bound": 7232.0,
+    "packing": 0.7422003284072249,
+    "blockers": {
+     "dependency": 1072
+    },
+    "ops": {
+     "mul:fmul": 3072,
+     "add:mov": 1728,
+     "add:add": 1040,
+     "add:sub.setf": 1040,
+     "mul:mov": 896,
+     "add:fsub": 768,
+     "add:and": 768,
+     "add:mov.setf": 544,
+     "add:sub": 528,
+     "add:shr": 256,
+     "add:or": 256,
+     "add:shl": 48
+    },
+    "label": "main1",
+    "start": 5,
+    "length": 609,
+    "entries": 16,
+    "share": 0.8929618768328446
+   },
+   {
+    "executed": 1024.0,
+    "mix": {
+     "add": 0.84375,
+     "ldi": 0.078125,
+     "paired": 0.0625,
+     "branch": 0.015625
+    },
+    "add_ops": 928.0,
+    "mul_ops": 64.0,
+    "movs": 736.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 1024.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 672,
+     "add:add": 208,
+     "mul:mov": 64,
+     "add:shl": 48
+    },
+    "label": "store_full4",
+    "start": 614,
+    "length": 64,
+    "entries": 16,
+    "share": 0.093841642228739
+   },
+   {
+    "executed": 80.0,
+    "mix": {
+     "add": 1.0
+    },
+    "add_ops": 80.0,
+    "mul_ops": 0.0,
+    "movs": 80.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 80.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 80
+    },
+    "label": "entry",
+    "start": 0,
+    "length": 5,
+    "entries": 16,
+    "share": 0.007331378299120235
+   },
+   {
+    "executed": 64.0,
+    "mix": {
+     "add": 0.25,
+     "signal": 0.25,
+     "nop_end": 0.5
+    },
+    "add_ops": 16.0,
+    "mul_ops": 0.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 16.0,
+    "packing": 0.25,
+    "blockers": {},
+    "ops": {
+     "add:mov": 16
+    },
+    "label": "skip19/store_done3",
+    "start": 858,
+    "length": 4,
+    "entries": 16,
+    "share": 0.005865102639296188
+   }
+  ]
+ },
+ {
+  "name": "sqrt",
+  "note": "sfu_kernel OP=5",
+  "instructions": 818,
+  "programs": 16,
+  "cycles": 1616,
+  "whole": {
+   "executed": 10208.0,
+   "mix": {
+    "add": 0.5219435736677116,
+    "paired": 0.15673981191222572,
+    "ldi": 0.02037617554858934,
+    "mul": 0.27586206896551724,
+    "nop_other": 0.012539184952978056,
+    "branch": 0.003134796238244514,
+    "nop_delay": 0.004702194357366771,
+    "signal": 0.001567398119122257,
+    "nop_end": 0.003134796238244514
+   },
+   "add_ops": 6928.0,
+   "mul_ops": 4416.0,
+   "movs": 3744.0,
+   "ldi": 208.0,
+   "branches": 32.0,
+   "bound": 7168.0,
+   "packing": 0.7021943573667712,
+   "blockers": {
+    "dependency": 1520,
+    "port_A": 16
+   },
+   "ops": {
+    "mul:fmul": 3328,
+    "add:mov": 2112,
+    "add:add": 1248,
+    "mul:mov": 1088,
+    "add:sub.setf": 784,
+    "add:fsub": 768,
+    "add:mov.setf": 544,
+    "add:sub": 528,
+    "add:and": 512,
+    "add:shr": 256,
+    "add:shl": 96,
+    "add:min": 48
+   }
+  },
+  "regions": [
+   {
+    "executed": 9040.0,
+    "mix": {
+     "add": 0.4831858407079646,
+     "paired": 0.16991150442477876,
+     "ldi": 0.01415929203539823,
+     "mul": 0.31150442477876106,
+     "nop_other": 0.01415929203539823,
+     "branch": 0.0017699115044247787,
+     "nop_delay": 0.005309734513274336
+    },
+    "add_ops": 5904.0,
+    "mul_ops": 4352.0,
+    "movs": 2912.0,
+    "ldi": 128.0,
+    "branches": 16.0,
+    "bound": 6048.0,
+    "packing": 0.6690265486725664,
+    "blockers": {
+     "dependency": 1520,
+     "port_A": 16
+    },
+    "ops": {
+     "mul:fmul": 3328,
+     "add:mov": 1344,
+     "add:add": 1040,
+     "mul:mov": 1024,
+     "add:sub.setf": 784,
+     "add:fsub": 768,
+     "add:mov.setf": 544,
+     "add:sub": 528,
+     "add:and": 512,
+     "add:shr": 256,
+     "add:shl": 48,
+     "add:min": 48
+    },
+    "label": "main1",
+    "start": 5,
+    "length": 565,
+    "entries": 16,
+    "share": 0.8855799373040752
+   },
+   {
+    "executed": 1024.0,
+    "mix": {
+     "add": 0.84375,
+     "ldi": 0.078125,
+     "paired": 0.0625,
+     "branch": 0.015625
+    },
+    "add_ops": 928.0,
+    "mul_ops": 64.0,
+    "movs": 736.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 1024.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 672,
+     "add:add": 208,
+     "mul:mov": 64,
+     "add:shl": 48
+    },
+    "label": "store_full4",
+    "start": 570,
+    "length": 64,
+    "entries": 16,
+    "share": 0.10031347962382445
+   },
+   {
+    "executed": 80.0,
+    "mix": {
+     "add": 1.0
+    },
+    "add_ops": 80.0,
+    "mul_ops": 0.0,
+    "movs": 80.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 80.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 80
+    },
+    "label": "entry",
+    "start": 0,
+    "length": 5,
+    "entries": 16,
+    "share": 0.007836990595611285
+   },
+   {
+    "executed": 64.0,
+    "mix": {
+     "add": 0.25,
+     "signal": 0.25,
+     "nop_end": 0.5
+    },
+    "add_ops": 16.0,
+    "mul_ops": 0.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 16.0,
+    "packing": 0.25,
+    "blockers": {},
+    "ops": {
+     "add:mov": 16
+    },
+    "label": "skip19/store_done3",
+    "start": 814,
+    "length": 4,
+    "entries": 16,
+    "share": 0.006269592476489028
+   }
+  ]
+ },
+ {
+  "name": "idiv",
+  "note": "exact 32-bit // and %",
+  "instructions": 4404,
+  "programs": 16,
+  "cycles": 7582,
+  "whole": {
+   "executed": 55360.0,
+   "mix": {
+    "add": 0.6783236994219654,
+    "paired": 0.10433526011560694,
+    "ldi": 0.07109826589595376,
+    "mul": 0.09190751445086705,
+    "branch": 0.019653179190751446,
+    "nop_delay": 0.029479768786127167,
+    "nop_other": 0.004335260115606936,
+    "signal": 0.00028901734104046245,
+    "nop_end": 0.0005780346820809249
+   },
+   "add_ops": 43328.0,
+   "mul_ops": 10864.0,
+   "movs": 13312.0,
+   "ldi": 3936.0,
+   "branches": 1088.0,
+   "bound": 48352.0,
+   "packing": 0.8734104046242774,
+   "blockers": {
+    "dependency": 5664
+   },
+   "ops": {
+    "add:add": 7744,
+    "add:mov": 6992,
+    "add:sub": 5424,
+    "mul:fmul": 4096,
+    "add:xor": 3840,
+    "mul:mov": 3696,
+    "add:sub.setf": 3104,
+    "add:shr": 3072,
+    "mul:mul24": 3072,
+    "add:mov.setf": 2624,
+    "add:shl": 2208,
+    "add:min": 1616
+   }
+  },
+  "regions": [
+   {
+    "executed": 4768.0,
+    "mix": {
+     "add": 0.610738255033557,
+     "paired": 0.34563758389261745,
+     "ldi": 0.013422818791946308,
+     "mul": 0.016778523489932886,
+     "branch": 0.003355704697986577,
+     "nop_delay": 0.010067114093959731
+    },
+    "add_ops": 4560.0,
+    "mul_ops": 1728.0,
+    "movs": 2848.0,
+    "ldi": 64.0,
+    "branches": 16.0,
+    "bound": 4640.0,
+    "packing": 0.9731543624161074,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "add:add": 1936,
+     "mul:mov": 1632,
+     "add:mov": 1168,
+     "add:sub.setf": 896,
+     "add:sub": 288,
+     "mul:fmul": 96,
+     "add:shl": 48,
+     "add:mov.setf": 48,
+     "add:fsub": 48,
+     "add:xor": 32,
+     "add:max": 16,
+     "add:min": 16
+    },
+    "label": "main1",
+    "start": 7,
+    "length": 298,
+    "entries": 16,
+    "share": 0.0861271676300578
+   },
+   {
+    "executed": 1056.0,
+    "mix": {
+     "add": 0.7424242424242424,
+     "ldi": 0.07575757575757576,
+     "mul": 0.06060606060606061,
+     "paired": 0.10606060606060606,
+     "branch": 0.015151515151515152
+    },
+    "add_ops": 896.0,
+    "mul_ops": 176.0,
+    "movs": 256.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 992.0,
+    "packing": 0.9393939393939394,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:mov": 176,
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "mul:mov": 48,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32
+    },
+    "label": "div_full44",
+    "start": 3281,
+    "length": 66,
+    "entries": 16,
+    "share": 0.01907514450867052
+   },
+   {
+    "executed": 1040.0,
+    "mix": {
+     "add": 0.6923076923076923,
+     "ldi": 0.07692307692307693,
+     "mul": 0.06153846153846154,
+     "paired": 0.13846153846153847,
+     "nop_other": 0.015384615384615385,
+     "branch": 0.015384615384615385
+    },
+    "add_ops": 864.0,
+    "mul_ops": 208.0,
+    "movs": 256.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 960.0,
+    "packing": 0.9230769230769231,
+    "blockers": {
+     "dependency": 112
+    },
+    "ops": {
+     "add:add": 160,
+     "add:mov": 144,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "mul:mov": 80,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32
+    },
+    "label": "div_full47",
+    "start": 3347,
+    "length": 65,
+    "entries": 16,
+    "share": 0.01878612716763006
+   },
+   {
+    "executed": 1024.0,
+    "mix": {
+     "add": 0.84375,
+     "ldi": 0.078125,
+     "paired": 0.0625,
+     "branch": 0.015625
+    },
+    "add_ops": 928.0,
+    "mul_ops": 64.0,
+    "movs": 736.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 1024.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 672,
+     "add:add": 208,
+     "mul:mov": 64,
+     "add:shl": 48
+    },
+    "label": "store_full52",
+    "start": 1105,
+    "length": 64,
+    "entries": 16,
+    "share": 0.018497109826589597
+   },
+   {
+    "executed": 1024.0,
+    "mix": {
+     "add": 0.828125,
+     "ldi": 0.078125,
+     "paired": 0.078125,
+     "branch": 0.015625
+    },
+    "add_ops": 928.0,
+    "mul_ops": 80.0,
+    "movs": 752.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 1024.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 672,
+     "add:add": 208,
+     "mul:mov": 80,
+     "add:shl": 48
+    },
+    "label": "store_full119",
+    "start": 2178,
+    "length": 64,
+    "entries": 16,
+    "share": 0.018497109826589597
+   },
+   {
+    "executed": 992.0,
+    "mix": {
+     "add": 0.7580645161290323,
+     "ldi": 0.08064516129032258,
+     "mul": 0.08064516129032258,
+     "paired": 0.06451612903225806,
+     "branch": 0.016129032258064516
+    },
+    "add_ops": 816.0,
+    "mul_ops": 144.0,
+    "movs": 144.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 912.0,
+    "packing": 0.9193548387096774,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 96,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full69",
+    "start": 3412,
+    "length": 62,
+    "entries": 16,
+    "share": 0.017919075144508672
+   },
+   {
+    "executed": 992.0,
+    "mix": {
+     "add": 0.7580645161290323,
+     "ldi": 0.08064516129032258,
+     "mul": 0.08064516129032258,
+     "paired": 0.06451612903225806,
+     "branch": 0.016129032258064516
+    },
+    "add_ops": 816.0,
+    "mul_ops": 144.0,
+    "movs": 144.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 912.0,
+    "packing": 0.9193548387096774,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 96,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full72",
+    "start": 3474,
+    "length": 62,
+    "entries": 16,
+    "share": 0.017919075144508672
+   },
+   {
+    "executed": 992.0,
+    "mix": {
+     "add": 0.7580645161290323,
+     "ldi": 0.08064516129032258,
+     "mul": 0.08064516129032258,
+     "paired": 0.06451612903225806,
+     "branch": 0.016129032258064516
+    },
+    "add_ops": 816.0,
+    "mul_ops": 144.0,
+    "movs": 144.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 912.0,
+    "packing": 0.9193548387096774,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 96,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full75",
+    "start": 3536,
+    "length": 62,
+    "entries": 16,
+    "share": 0.017919075144508672
+   },
+   {
+    "executed": 992.0,
+    "mix": {
+     "add": 0.7580645161290323,
+     "ldi": 0.08064516129032258,
+     "mul": 0.08064516129032258,
+     "paired": 0.06451612903225806,
+     "branch": 0.016129032258064516
+    },
+    "add_ops": 816.0,
+    "mul_ops": 144.0,
+    "movs": 144.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 912.0,
+    "packing": 0.9193548387096774,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 96,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full78",
+    "start": 3598,
+    "length": 62,
+    "entries": 16,
+    "share": 0.017919075144508672
+   },
+   {
+    "executed": 992.0,
+    "mix": {
+     "add": 0.7580645161290323,
+     "ldi": 0.08064516129032258,
+     "mul": 0.08064516129032258,
+     "paired": 0.06451612903225806,
+     "branch": 0.016129032258064516
+    },
+    "add_ops": 816.0,
+    "mul_ops": 144.0,
+    "movs": 144.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 912.0,
+    "packing": 0.9193548387096774,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 96,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full81",
+    "start": 3660,
+    "length": 62,
+    "entries": 16,
+    "share": 0.017919075144508672
+   },
+   {
+    "executed": 992.0,
+    "mix": {
+     "add": 0.7580645161290323,
+     "ldi": 0.08064516129032258,
+     "mul": 0.08064516129032258,
+     "paired": 0.06451612903225806,
+     "branch": 0.016129032258064516
+    },
+    "add_ops": 816.0,
+    "mul_ops": 144.0,
+    "movs": 144.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 912.0,
+    "packing": 0.9193548387096774,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 96,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full84",
+    "start": 3722,
+    "length": 62,
+    "entries": 16,
+    "share": 0.017919075144508672
+   },
+   {
+    "executed": 992.0,
+    "mix": {
+     "add": 0.7580645161290323,
+     "ldi": 0.08064516129032258,
+     "mul": 0.08064516129032258,
+     "paired": 0.06451612903225806,
+     "branch": 0.016129032258064516
+    },
+    "add_ops": 816.0,
+    "mul_ops": 144.0,
+    "movs": 144.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 912.0,
+    "packing": 0.9193548387096774,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 96,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full87",
+    "start": 3784,
+    "length": 62,
+    "entries": 16,
+    "share": 0.017919075144508672
+   },
+   {
+    "executed": 992.0,
+    "mix": {
+     "add": 0.7580645161290323,
+     "ldi": 0.08064516129032258,
+     "mul": 0.08064516129032258,
+     "paired": 0.06451612903225806,
+     "branch": 0.016129032258064516
+    },
+    "add_ops": 816.0,
+    "mul_ops": 144.0,
+    "movs": 144.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 912.0,
+    "packing": 0.9193548387096774,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 96,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full90",
+    "start": 3846,
+    "length": 62,
+    "entries": 16,
+    "share": 0.017919075144508672
+   },
+   {
+    "executed": 992.0,
+    "mix": {
+     "add": 0.7580645161290323,
+     "ldi": 0.08064516129032258,
+     "mul": 0.08064516129032258,
+     "paired": 0.06451612903225806,
+     "branch": 0.016129032258064516
+    },
+    "add_ops": 816.0,
+    "mul_ops": 144.0,
+    "movs": 144.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 912.0,
+    "packing": 0.9193548387096774,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 96,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full93",
+    "start": 3908,
+    "length": 62,
+    "entries": 16,
+    "share": 0.017919075144508672
+   },
+   {
+    "executed": 992.0,
+    "mix": {
+     "add": 0.7580645161290323,
+     "ldi": 0.08064516129032258,
+     "mul": 0.08064516129032258,
+     "paired": 0.06451612903225806,
+     "branch": 0.016129032258064516
+    },
+    "add_ops": 816.0,
+    "mul_ops": 144.0,
+    "movs": 144.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 912.0,
+    "packing": 0.9193548387096774,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 96,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full96",
+    "start": 3970,
+    "length": 62,
+    "entries": 16,
+    "share": 0.017919075144508672
+   },
+   {
+    "executed": 992.0,
+    "mix": {
+     "add": 0.7580645161290323,
+     "ldi": 0.08064516129032258,
+     "mul": 0.08064516129032258,
+     "paired": 0.06451612903225806,
+     "branch": 0.016129032258064516
+    },
+    "add_ops": 816.0,
+    "mul_ops": 144.0,
+    "movs": 144.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 912.0,
+    "packing": 0.9193548387096774,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 96,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full99",
+    "start": 4032,
+    "length": 62,
+    "entries": 16,
+    "share": 0.017919075144508672
+   },
+   {
+    "executed": 992.0,
+    "mix": {
+     "add": 0.7580645161290323,
+     "ldi": 0.08064516129032258,
+     "mul": 0.08064516129032258,
+     "paired": 0.06451612903225806,
+     "branch": 0.016129032258064516
+    },
+    "add_ops": 816.0,
+    "mul_ops": 144.0,
+    "movs": 144.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 912.0,
+    "packing": 0.9193548387096774,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 96,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full102",
+    "start": 4094,
+    "length": 62,
+    "entries": 16,
+    "share": 0.017919075144508672
+   },
+   {
+    "executed": 992.0,
+    "mix": {
+     "add": 0.7580645161290323,
+     "ldi": 0.08064516129032258,
+     "mul": 0.08064516129032258,
+     "paired": 0.06451612903225806,
+     "branch": 0.016129032258064516
+    },
+    "add_ops": 816.0,
+    "mul_ops": 144.0,
+    "movs": 144.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 912.0,
+    "packing": 0.9193548387096774,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 96,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full105",
+    "start": 4156,
+    "length": 62,
+    "entries": 16,
+    "share": 0.017919075144508672
+   },
+   {
+    "executed": 992.0,
+    "mix": {
+     "add": 0.7580645161290323,
+     "ldi": 0.08064516129032258,
+     "mul": 0.08064516129032258,
+     "paired": 0.06451612903225806,
+     "branch": 0.016129032258064516
+    },
+    "add_ops": 816.0,
+    "mul_ops": 144.0,
+    "movs": 144.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 912.0,
+    "packing": 0.9193548387096774,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 96,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full108",
+    "start": 4218,
+    "length": 62,
+    "entries": 16,
+    "share": 0.017919075144508672
+   },
+   {
+    "executed": 992.0,
+    "mix": {
+     "add": 0.7580645161290323,
+     "ldi": 0.08064516129032258,
+     "mul": 0.08064516129032258,
+     "paired": 0.06451612903225806,
+     "branch": 0.016129032258064516
+    },
+    "add_ops": 816.0,
+    "mul_ops": 144.0,
+    "movs": 144.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 912.0,
+    "packing": 0.9193548387096774,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 96,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full111",
+    "start": 4280,
+    "length": 62,
+    "entries": 16,
+    "share": 0.017919075144508672
+   },
+   {
+    "executed": 992.0,
+    "mix": {
+     "add": 0.7580645161290323,
+     "ldi": 0.08064516129032258,
+     "mul": 0.08064516129032258,
+     "paired": 0.06451612903225806,
+     "branch": 0.016129032258064516
+    },
+    "add_ops": 816.0,
+    "mul_ops": 144.0,
+    "movs": 144.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 912.0,
+    "packing": 0.9193548387096774,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 96,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full114",
+    "start": 4342,
+    "length": 62,
+    "entries": 16,
+    "share": 0.017919075144508672
+   },
+   {
+    "executed": 976.0,
+    "mix": {
+     "add": 0.7540983606557377,
+     "ldi": 0.08196721311475409,
+     "mul": 0.08196721311475409,
+     "paired": 0.06557377049180328,
+     "branch": 0.01639344262295082
+    },
+    "add_ops": 800.0,
+    "mul_ops": 144.0,
+    "movs": 128.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 896.0,
+    "packing": 0.9180327868852459,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 80,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full2",
+    "start": 2427,
+    "length": 61,
+    "entries": 16,
+    "share": 0.01763005780346821
+   },
+   {
+    "executed": 976.0,
+    "mix": {
+     "add": 0.7540983606557377,
+     "ldi": 0.08196721311475409,
+     "mul": 0.08196721311475409,
+     "paired": 0.06557377049180328,
+     "branch": 0.01639344262295082
+    },
+    "add_ops": 800.0,
+    "mul_ops": 144.0,
+    "movs": 128.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 896.0,
+    "packing": 0.9180327868852459,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 80,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full5",
+    "start": 2488,
+    "length": 61,
+    "entries": 16,
+    "share": 0.01763005780346821
+   },
+   {
+    "executed": 976.0,
+    "mix": {
+     "add": 0.7540983606557377,
+     "ldi": 0.08196721311475409,
+     "mul": 0.08196721311475409,
+     "paired": 0.06557377049180328,
+     "branch": 0.01639344262295082
+    },
+    "add_ops": 800.0,
+    "mul_ops": 144.0,
+    "movs": 128.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 896.0,
+    "packing": 0.9180327868852459,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 80,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full8",
+    "start": 2549,
+    "length": 61,
+    "entries": 16,
+    "share": 0.01763005780346821
+   },
+   {
+    "executed": 976.0,
+    "mix": {
+     "add": 0.7540983606557377,
+     "ldi": 0.08196721311475409,
+     "mul": 0.08196721311475409,
+     "paired": 0.06557377049180328,
+     "branch": 0.01639344262295082
+    },
+    "add_ops": 800.0,
+    "mul_ops": 144.0,
+    "movs": 128.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 896.0,
+    "packing": 0.9180327868852459,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 80,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full11",
+    "start": 2610,
+    "length": 61,
+    "entries": 16,
+    "share": 0.01763005780346821
+   },
+   {
+    "executed": 976.0,
+    "mix": {
+     "add": 0.7540983606557377,
+     "ldi": 0.08196721311475409,
+     "mul": 0.08196721311475409,
+     "paired": 0.06557377049180328,
+     "branch": 0.01639344262295082
+    },
+    "add_ops": 800.0,
+    "mul_ops": 144.0,
+    "movs": 128.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 896.0,
+    "packing": 0.9180327868852459,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 80,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full14",
+    "start": 2671,
+    "length": 61,
+    "entries": 16,
+    "share": 0.01763005780346821
+   },
+   {
+    "executed": 976.0,
+    "mix": {
+     "add": 0.7540983606557377,
+     "ldi": 0.08196721311475409,
+     "mul": 0.08196721311475409,
+     "paired": 0.06557377049180328,
+     "branch": 0.01639344262295082
+    },
+    "add_ops": 800.0,
+    "mul_ops": 144.0,
+    "movs": 128.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 896.0,
+    "packing": 0.9180327868852459,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 80,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full17",
+    "start": 2732,
+    "length": 61,
+    "entries": 16,
+    "share": 0.01763005780346821
+   },
+   {
+    "executed": 976.0,
+    "mix": {
+     "add": 0.7540983606557377,
+     "ldi": 0.08196721311475409,
+     "mul": 0.08196721311475409,
+     "paired": 0.06557377049180328,
+     "branch": 0.01639344262295082
+    },
+    "add_ops": 800.0,
+    "mul_ops": 144.0,
+    "movs": 128.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 896.0,
+    "packing": 0.9180327868852459,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 80,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full20",
+    "start": 2793,
+    "length": 61,
+    "entries": 16,
+    "share": 0.01763005780346821
+   },
+   {
+    "executed": 976.0,
+    "mix": {
+     "add": 0.7540983606557377,
+     "ldi": 0.08196721311475409,
+     "mul": 0.08196721311475409,
+     "paired": 0.06557377049180328,
+     "branch": 0.01639344262295082
+    },
+    "add_ops": 800.0,
+    "mul_ops": 144.0,
+    "movs": 128.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 896.0,
+    "packing": 0.9180327868852459,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 80,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full23",
+    "start": 2854,
+    "length": 61,
+    "entries": 16,
+    "share": 0.01763005780346821
+   },
+   {
+    "executed": 976.0,
+    "mix": {
+     "add": 0.7540983606557377,
+     "ldi": 0.08196721311475409,
+     "mul": 0.08196721311475409,
+     "paired": 0.06557377049180328,
+     "branch": 0.01639344262295082
+    },
+    "add_ops": 800.0,
+    "mul_ops": 144.0,
+    "movs": 128.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 896.0,
+    "packing": 0.9180327868852459,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 80,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full26",
+    "start": 2915,
+    "length": 61,
+    "entries": 16,
+    "share": 0.01763005780346821
+   },
+   {
+    "executed": 976.0,
+    "mix": {
+     "add": 0.7540983606557377,
+     "ldi": 0.08196721311475409,
+     "mul": 0.08196721311475409,
+     "paired": 0.06557377049180328,
+     "branch": 0.01639344262295082
+    },
+    "add_ops": 800.0,
+    "mul_ops": 144.0,
+    "movs": 128.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 896.0,
+    "packing": 0.9180327868852459,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 80,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full29",
+    "start": 2976,
+    "length": 61,
+    "entries": 16,
+    "share": 0.01763005780346821
+   },
+   {
+    "executed": 976.0,
+    "mix": {
+     "add": 0.7540983606557377,
+     "ldi": 0.08196721311475409,
+     "mul": 0.08196721311475409,
+     "paired": 0.06557377049180328,
+     "branch": 0.01639344262295082
+    },
+    "add_ops": 800.0,
+    "mul_ops": 144.0,
+    "movs": 128.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 896.0,
+    "packing": 0.9180327868852459,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 80,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full32",
+    "start": 3037,
+    "length": 61,
+    "entries": 16,
+    "share": 0.01763005780346821
+   },
+   {
+    "executed": 976.0,
+    "mix": {
+     "add": 0.7540983606557377,
+     "ldi": 0.08196721311475409,
+     "mul": 0.08196721311475409,
+     "paired": 0.06557377049180328,
+     "branch": 0.01639344262295082
+    },
+    "add_ops": 800.0,
+    "mul_ops": 144.0,
+    "movs": 128.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 896.0,
+    "packing": 0.9180327868852459,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 80,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full35",
+    "start": 3098,
+    "length": 61,
+    "entries": 16,
+    "share": 0.01763005780346821
+   },
+   {
+    "executed": 976.0,
+    "mix": {
+     "add": 0.7540983606557377,
+     "ldi": 0.08196721311475409,
+     "mul": 0.08196721311475409,
+     "paired": 0.06557377049180328,
+     "branch": 0.01639344262295082
+    },
+    "add_ops": 800.0,
+    "mul_ops": 144.0,
+    "movs": 128.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 896.0,
+    "packing": 0.9180327868852459,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 80,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full38",
+    "start": 3159,
+    "length": 61,
+    "entries": 16,
+    "share": 0.01763005780346821
+   },
+   {
+    "executed": 976.0,
+    "mix": {
+     "add": 0.7540983606557377,
+     "ldi": 0.08196721311475409,
+     "mul": 0.08196721311475409,
+     "paired": 0.06557377049180328,
+     "branch": 0.01639344262295082
+    },
+    "add_ops": 800.0,
+    "mul_ops": 144.0,
+    "movs": 128.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 896.0,
+    "packing": 0.9180327868852459,
+    "blockers": {
+     "dependency": 80
+    },
+    "ops": {
+     "add:add": 160,
+     "add:shr": 96,
+     "mul:mul24": 96,
+     "add:sub": 96,
+     "add:mov": 80,
+     "add:shl": 64,
+     "add:sub.setf": 64,
+     "add:xor": 64,
+     "add:min": 48,
+     "add:itof": 32,
+     "add:mov.setf": 32,
+     "mul:fmul": 32
+    },
+    "label": "div_full41",
+    "start": 3220,
+    "length": 61,
+    "entries": 16,
+    "share": 0.01763005780346821
+   },
+   {
+    "executed": 608.0,
+    "mix": {
+     "paired": 0.13157894736842105,
+     "ldi": 0.07894736842105263,
+     "add": 0.5526315789473685,
+     "mul": 0.13157894736842105,
+     "branch": 0.02631578947368421,
+     "nop_delay": 0.07894736842105263
+    },
+    "add_ops": 416.0,
+    "mul_ops": 160.0,
+    "movs": 192.0,
+    "ldi": 48.0,
+    "branches": 16.0,
+    "bound": 480.0,
+    "packing": 0.7894736842105263,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "add:mov": 80,
+     "add:xor": 64,
+     "mul:mov": 64,
+     "add:sub": 64,
+     "add:mov.setf": 48,
+     "add:fsub": 48,
+     "add:add": 32,
+     "add:sub.setf": 16,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16
+    },
+    "label": "div_done42",
+    "start": 977,
+    "length": 38,
+    "entries": 16,
+    "share": 0.010982658959537572
+   },
+   {
+    "executed": 592.0,
+    "mix": {
+     "paired": 0.13513513513513514,
+     "ldi": 0.08108108108108109,
+     "add": 0.5405405405405406,
+     "mul": 0.13513513513513514,
+     "branch": 0.02702702702702703,
+     "nop_delay": 0.08108108108108109
+    },
+    "add_ops": 400.0,
+    "mul_ops": 160.0,
+    "movs": 176.0,
+    "ldi": 48.0,
+    "branches": 16.0,
+    "bound": 464.0,
+    "packing": 0.7837837837837838,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "add:xor": 64,
+     "mul:mov": 64,
+     "add:sub": 64,
+     "add:mov": 64,
+     "add:mov.setf": 48,
+     "add:fsub": 48,
+     "add:add": 32,
+     "add:sub.setf": 16,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16
+    },
+    "label": "div_done36",
+    "start": 870,
+    "length": 37,
+    "entries": 16,
+    "share": 0.01069364161849711
+   },
+   {
+    "executed": 592.0,
+    "mix": {
+     "paired": 0.16216216216216217,
+     "ldi": 0.08108108108108109,
+     "add": 0.5135135135135135,
+     "mul": 0.13513513513513514,
+     "branch": 0.02702702702702703,
+     "nop_delay": 0.08108108108108109
+    },
+    "add_ops": 400.0,
+    "mul_ops": 176.0,
+    "movs": 192.0,
+    "ldi": 48.0,
+    "branches": 16.0,
+    "bound": 464.0,
+    "packing": 0.7837837837837838,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "mul:mov": 80,
+     "add:xor": 64,
+     "add:sub": 64,
+     "add:mov": 64,
+     "add:mov.setf": 48,
+     "add:fsub": 48,
+     "add:add": 32,
+     "add:sub.setf": 16,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16
+    },
+    "label": "div_done45",
+    "start": 1032,
+    "length": 37,
+    "entries": 16,
+    "share": 0.01069364161849711
+   },
+   {
+    "executed": 576.0,
+    "mix": {
+     "paired": 0.1388888888888889,
+     "ldi": 0.08333333333333333,
+     "add": 0.5277777777777778,
+     "mul": 0.1388888888888889,
+     "branch": 0.027777777777777776,
+     "nop_delay": 0.08333333333333333
+    },
+    "add_ops": 384.0,
+    "mul_ops": 160.0,
+    "movs": 160.0,
+    "ldi": 48.0,
+    "branches": 16.0,
+    "bound": 448.0,
+    "packing": 0.7777777777777778,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "add:xor": 64,
+     "mul:mov": 64,
+     "add:sub": 64,
+     "add:mov": 48,
+     "add:mov.setf": 48,
+     "add:fsub": 48,
+     "add:add": 32,
+     "add:sub.setf": 16,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16
+    },
+    "label": "div_done24",
+    "start": 658,
+    "length": 36,
+    "entries": 16,
+    "share": 0.010404624277456647
+   },
+   {
+    "executed": 576.0,
+    "mix": {
+     "paired": 0.16666666666666666,
+     "ldi": 0.08333333333333333,
+     "add": 0.5,
+     "mul": 0.1388888888888889,
+     "branch": 0.027777777777777776,
+     "nop_delay": 0.08333333333333333
+    },
+    "add_ops": 384.0,
+    "mul_ops": 176.0,
+    "movs": 176.0,
+    "ldi": 48.0,
+    "branches": 16.0,
+    "bound": 448.0,
+    "packing": 0.7777777777777778,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "mul:mov": 80,
+     "add:xor": 64,
+     "add:sub": 64,
+     "add:mov": 48,
+     "add:mov.setf": 48,
+     "add:fsub": 48,
+     "add:add": 32,
+     "add:sub.setf": 16,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16
+    },
+    "label": "div_done27",
+    "start": 711,
+    "length": 36,
+    "entries": 16,
+    "share": 0.010404624277456647
+   },
+   {
+    "executed": 576.0,
+    "mix": {
+     "paired": 0.16666666666666666,
+     "ldi": 0.08333333333333333,
+     "add": 0.5,
+     "mul": 0.1388888888888889,
+     "branch": 0.027777777777777776,
+     "nop_delay": 0.08333333333333333
+    },
+    "add_ops": 384.0,
+    "mul_ops": 176.0,
+    "movs": 176.0,
+    "ldi": 48.0,
+    "branches": 16.0,
+    "bound": 448.0,
+    "packing": 0.7777777777777778,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "mul:mov": 80,
+     "add:xor": 64,
+     "add:sub": 64,
+     "add:mov": 48,
+     "add:mov.setf": 48,
+     "add:fsub": 48,
+     "add:add": 32,
+     "add:sub.setf": 16,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16
+    },
+    "label": "div_done30",
+    "start": 764,
+    "length": 36,
+    "entries": 16,
+    "share": 0.010404624277456647
+   },
+   {
+    "executed": 576.0,
+    "mix": {
+     "paired": 0.16666666666666666,
+     "ldi": 0.08333333333333333,
+     "add": 0.5,
+     "mul": 0.1388888888888889,
+     "branch": 0.027777777777777776,
+     "nop_delay": 0.08333333333333333
+    },
+    "add_ops": 384.0,
+    "mul_ops": 176.0,
+    "movs": 176.0,
+    "ldi": 48.0,
+    "branches": 16.0,
+    "bound": 448.0,
+    "packing": 0.7777777777777778,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "mul:mov": 80,
+     "add:xor": 64,
+     "add:sub": 64,
+     "add:mov": 48,
+     "add:mov.setf": 48,
+     "add:fsub": 48,
+     "add:add": 32,
+     "add:sub.setf": 16,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16
+    },
+    "label": "div_done33",
+    "start": 817,
+    "length": 36,
+    "entries": 16,
+    "share": 0.010404624277456647
+   },
+   {
+    "executed": 576.0,
+    "mix": {
+     "paired": 0.16666666666666666,
+     "ldi": 0.08333333333333333,
+     "add": 0.5,
+     "mul": 0.1388888888888889,
+     "branch": 0.027777777777777776,
+     "nop_delay": 0.08333333333333333
+    },
+    "add_ops": 384.0,
+    "mul_ops": 176.0,
+    "movs": 176.0,
+    "ldi": 48.0,
+    "branches": 16.0,
+    "bound": 448.0,
+    "packing": 0.7777777777777778,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "mul:mov": 80,
+     "add:xor": 64,
+     "add:sub": 64,
+     "add:mov": 48,
+     "add:mov.setf": 48,
+     "add:fsub": 48,
+     "add:add": 32,
+     "add:sub.setf": 16,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16
+    },
+    "label": "div_done39",
+    "start": 924,
+    "length": 36,
+    "entries": 16,
+    "share": 0.010404624277456647
+   },
+   {
+    "executed": 512.0,
+    "mix": {
+     "nop_other": 0.03125,
+     "paired": 0.09375,
+     "add": 0.53125,
+     "ldi": 0.0625,
+     "mul": 0.15625,
+     "branch": 0.03125,
+     "nop_delay": 0.09375
+    },
+    "add_ops": 320.0,
+    "mul_ops": 128.0,
+    "movs": 128.0,
+    "ldi": 32.0,
+    "branches": 16.0,
+    "bound": 368.0,
+    "packing": 0.71875,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "add:sub": 64,
+     "add:xor": 48,
+     "add:mov": 48,
+     "add:mov.setf": 48,
+     "add:fsub": 48,
+     "mul:mov": 32,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16,
+     "add:shr.setf": 16
+    },
+    "label": "div_done97",
+    "start": 1850,
+    "length": 32,
+    "entries": 16,
+    "share": 0.009248554913294798
+   },
+   {
+    "executed": 512.0,
+    "mix": {
+     "nop_other": 0.03125,
+     "paired": 0.09375,
+     "add": 0.53125,
+     "ldi": 0.0625,
+     "mul": 0.15625,
+     "branch": 0.03125,
+     "nop_delay": 0.09375
+    },
+    "add_ops": 320.0,
+    "mul_ops": 128.0,
+    "movs": 128.0,
+    "ldi": 32.0,
+    "branches": 16.0,
+    "bound": 368.0,
+    "packing": 0.71875,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "add:sub": 64,
+     "add:xor": 48,
+     "add:mov": 48,
+     "add:mov.setf": 48,
+     "add:fsub": 48,
+     "mul:mov": 32,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16,
+     "add:shr.setf": 16
+    },
+    "label": "div_done103",
+    "start": 1953,
+    "length": 32,
+    "entries": 16,
+    "share": 0.009248554913294798
+   },
+   {
+    "executed": 512.0,
+    "mix": {
+     "nop_other": 0.03125,
+     "paired": 0.09375,
+     "add": 0.53125,
+     "ldi": 0.0625,
+     "mul": 0.15625,
+     "branch": 0.03125,
+     "nop_delay": 0.09375
+    },
+    "add_ops": 320.0,
+    "mul_ops": 128.0,
+    "movs": 128.0,
+    "ldi": 32.0,
+    "branches": 16.0,
+    "bound": 368.0,
+    "packing": 0.71875,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "add:sub": 64,
+     "add:xor": 48,
+     "add:mov": 48,
+     "add:mov.setf": 48,
+     "add:fsub": 48,
+     "mul:mov": 32,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16,
+     "add:shr.setf": 16
+    },
+    "label": "div_done109",
+    "start": 2056,
+    "length": 32,
+    "entries": 16,
+    "share": 0.009248554913294798
+   },
+   {
+    "executed": 496.0,
+    "mix": {
+     "add": 0.5483870967741935,
+     "paired": 0.0967741935483871,
+     "ldi": 0.06451612903225806,
+     "mul": 0.16129032258064516,
+     "branch": 0.03225806451612903,
+     "nop_delay": 0.0967741935483871
+    },
+    "add_ops": 320.0,
+    "mul_ops": 128.0,
+    "movs": 112.0,
+    "ldi": 32.0,
+    "branches": 16.0,
+    "bound": 368.0,
+    "packing": 0.7419354838709677,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "add:xor": 64,
+     "add:sub": 64,
+     "add:mov.setf": 48,
+     "add:fsub": 48,
+     "add:mov": 32,
+     "mul:mov": 32,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16,
+     "add:shr.setf": 16
+    },
+    "label": "div_done3",
+    "start": 322,
+    "length": 31,
+    "entries": 16,
+    "share": 0.008959537572254336
+   },
+   {
+    "executed": 496.0,
+    "mix": {
+     "paired": 0.0967741935483871,
+     "add": 0.5483870967741935,
+     "ldi": 0.06451612903225806,
+     "mul": 0.16129032258064516,
+     "branch": 0.03225806451612903,
+     "nop_delay": 0.0967741935483871
+    },
+    "add_ops": 320.0,
+    "mul_ops": 128.0,
+    "movs": 112.0,
+    "ldi": 32.0,
+    "branches": 16.0,
+    "bound": 368.0,
+    "packing": 0.7419354838709677,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "add:xor": 64,
+     "add:sub": 64,
+     "add:mov.setf": 48,
+     "add:fsub": 48,
+     "mul:mov": 32,
+     "add:mov": 32,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16,
+     "add:shr.setf": 16
+    },
+    "label": "div_done6",
+    "start": 370,
+    "length": 31,
+    "entries": 16,
+    "share": 0.008959537572254336
+   },
+   {
+    "executed": 496.0,
+    "mix": {
+     "add": 0.5483870967741935,
+     "paired": 0.0967741935483871,
+     "ldi": 0.06451612903225806,
+     "mul": 0.16129032258064516,
+     "branch": 0.03225806451612903,
+     "nop_delay": 0.0967741935483871
+    },
+    "add_ops": 320.0,
+    "mul_ops": 128.0,
+    "movs": 112.0,
+    "ldi": 32.0,
+    "branches": 16.0,
+    "bound": 368.0,
+    "packing": 0.7419354838709677,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "add:xor": 64,
+     "add:sub": 64,
+     "add:mov.setf": 48,
+     "add:fsub": 48,
+     "add:mov": 32,
+     "mul:mov": 32,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16,
+     "add:shr.setf": 16
+    },
+    "label": "div_done9",
+    "start": 418,
+    "length": 31,
+    "entries": 16,
+    "share": 0.008959537572254336
+   },
+   {
+    "executed": 496.0,
+    "mix": {
+     "paired": 0.0967741935483871,
+     "add": 0.5483870967741935,
+     "ldi": 0.06451612903225806,
+     "mul": 0.16129032258064516,
+     "branch": 0.03225806451612903,
+     "nop_delay": 0.0967741935483871
+    },
+    "add_ops": 320.0,
+    "mul_ops": 128.0,
+    "movs": 112.0,
+    "ldi": 32.0,
+    "branches": 16.0,
+    "bound": 368.0,
+    "packing": 0.7419354838709677,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "add:xor": 64,
+     "add:sub": 64,
+     "add:mov.setf": 48,
+     "add:fsub": 48,
+     "mul:mov": 32,
+     "add:mov": 32,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16,
+     "add:shr.setf": 16
+    },
+    "label": "div_done12",
+    "start": 466,
+    "length": 31,
+    "entries": 16,
+    "share": 0.008959537572254336
+   },
+   {
+    "executed": 496.0,
+    "mix": {
+     "add": 0.5483870967741935,
+     "paired": 0.0967741935483871,
+     "ldi": 0.06451612903225806,
+     "mul": 0.16129032258064516,
+     "branch": 0.03225806451612903,
+     "nop_delay": 0.0967741935483871
+    },
+    "add_ops": 320.0,
+    "mul_ops": 128.0,
+    "movs": 112.0,
+    "ldi": 32.0,
+    "branches": 16.0,
+    "bound": 368.0,
+    "packing": 0.7419354838709677,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "add:xor": 64,
+     "add:sub": 64,
+     "add:mov.setf": 48,
+     "add:fsub": 48,
+     "add:mov": 32,
+     "mul:mov": 32,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16,
+     "add:shr.setf": 16
+    },
+    "label": "div_done15",
+    "start": 514,
+    "length": 31,
+    "entries": 16,
+    "share": 0.008959537572254336
+   },
+   {
+    "executed": 496.0,
+    "mix": {
+     "paired": 0.0967741935483871,
+     "add": 0.5483870967741935,
+     "ldi": 0.06451612903225806,
+     "mul": 0.16129032258064516,
+     "branch": 0.03225806451612903,
+     "nop_delay": 0.0967741935483871
+    },
+    "add_ops": 320.0,
+    "mul_ops": 128.0,
+    "movs": 112.0,
+    "ldi": 32.0,
+    "branches": 16.0,
+    "bound": 368.0,
+    "packing": 0.7419354838709677,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "add:xor": 64,
+     "add:sub": 64,
+     "add:mov.setf": 48,
+     "add:fsub": 48,
+     "mul:mov": 32,
+     "add:mov": 32,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16,
+     "add:shr.setf": 16
+    },
+    "label": "div_done18",
+    "start": 562,
+    "length": 31,
+    "entries": 16,
+    "share": 0.008959537572254336
+   },
+   {
+    "executed": 496.0,
+    "mix": {
+     "add": 0.5483870967741935,
+     "paired": 0.0967741935483871,
+     "ldi": 0.06451612903225806,
+     "mul": 0.16129032258064516,
+     "branch": 0.03225806451612903,
+     "nop_delay": 0.0967741935483871
+    },
+    "add_ops": 320.0,
+    "mul_ops": 128.0,
+    "movs": 112.0,
+    "ldi": 32.0,
+    "branches": 16.0,
+    "bound": 368.0,
+    "packing": 0.7419354838709677,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "add:xor": 64,
+     "add:sub": 64,
+     "add:mov.setf": 48,
+     "add:fsub": 48,
+     "add:mov": 32,
+     "mul:mov": 32,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16,
+     "add:shr.setf": 16
+    },
+    "label": "div_done21",
+    "start": 610,
+    "length": 31,
+    "entries": 16,
+    "share": 0.008959537572254336
+   },
+   {
+    "executed": 496.0,
+    "mix": {
+     "paired": 0.06451612903225806,
+     "add": 0.5806451612903226,
+     "ldi": 0.06451612903225806,
+     "mul": 0.16129032258064516,
+     "branch": 0.03225806451612903,
+     "nop_delay": 0.0967741935483871
+    },
+    "add_ops": 320.0,
+    "mul_ops": 112.0,
+    "movs": 112.0,
+    "ldi": 32.0,
+    "branches": 16.0,
+    "bound": 368.0,
+    "packing": 0.7419354838709677,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "add:mov": 48,
+     "add:mov.setf": 48,
+     "add:sub": 48,
+     "add:fsub": 48,
+     "add:xor": 32,
+     "mul:mov": 16,
+     "add:shl": 16,
+     "add:add": 16,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16
+    },
+    "label": "skip67/store_done51",
+    "start": 1349,
+    "length": 31,
+    "entries": 16,
+    "share": 0.008959537572254336
+   },
+   {
+    "executed": 496.0,
+    "mix": {
+     "nop_other": 0.03225806451612903,
+     "paired": 0.0967741935483871,
+     "add": 0.5161290322580645,
+     "ldi": 0.06451612903225806,
+     "mul": 0.16129032258064516,
+     "branch": 0.03225806451612903,
+     "nop_delay": 0.0967741935483871
+    },
+    "add_ops": 304.0,
+    "mul_ops": 128.0,
+    "movs": 112.0,
+    "ldi": 32.0,
+    "branches": 16.0,
+    "bound": 352.0,
+    "packing": 0.7096774193548387,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "add:sub": 64,
+     "add:xor": 48,
+     "add:mov.setf": 48,
+     "add:fsub": 48,
+     "mul:mov": 32,
+     "add:mov": 32,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16,
+     "add:shr.setf": 16
+    },
+    "label": "div_done70",
+    "start": 1399,
+    "length": 31,
+    "entries": 16,
+    "share": 0.008959537572254336
+   },
+   {
+    "executed": 496.0,
+    "mix": {
+     "nop_other": 0.03225806451612903,
+     "paired": 0.0967741935483871,
+     "add": 0.5161290322580645,
+     "ldi": 0.06451612903225806,
+     "mul": 0.16129032258064516,
+     "branch": 0.03225806451612903,
+     "nop_delay": 0.0967741935483871
+    },
+    "add_ops": 304.0,
+    "mul_ops": 128.0,
+    "movs": 112.0,
+    "ldi": 32.0,
+    "branches": 16.0,
+    "bound": 352.0,
+    "packing": 0.7096774193548387,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "add:sub": 64,
+     "add:xor": 48,
+     "add:mov.setf": 48,
+     "add:fsub": 48,
+     "mul:mov": 32,
+     "add:mov": 32,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16,
+     "add:shr.setf": 16
+    },
+    "label": "div_done73",
+    "start": 1449,
+    "length": 31,
+    "entries": 16,
+    "share": 0.008959537572254336
+   },
+   {
+    "executed": 496.0,
+    "mix": {
+     "nop_other": 0.03225806451612903,
+     "paired": 0.0967741935483871,
+     "add": 0.5161290322580645,
+     "ldi": 0.06451612903225806,
+     "mul": 0.16129032258064516,
+     "branch": 0.03225806451612903,
+     "nop_delay": 0.0967741935483871
+    },
+    "add_ops": 304.0,
+    "mul_ops": 128.0,
+    "movs": 112.0,
+    "ldi": 32.0,
+    "branches": 16.0,
+    "bound": 352.0,
+    "packing": 0.7096774193548387,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "add:sub": 64,
+     "add:xor": 48,
+     "add:mov.setf": 48,
+     "add:fsub": 48,
+     "mul:mov": 32,
+     "add:mov": 32,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16,
+     "add:shr.setf": 16
+    },
+    "label": "div_done76",
+    "start": 1499,
+    "length": 31,
+    "entries": 16,
+    "share": 0.008959537572254336
+   },
+   {
+    "executed": 496.0,
+    "mix": {
+     "nop_other": 0.03225806451612903,
+     "paired": 0.0967741935483871,
+     "add": 0.5161290322580645,
+     "ldi": 0.06451612903225806,
+     "mul": 0.16129032258064516,
+     "branch": 0.03225806451612903,
+     "nop_delay": 0.0967741935483871
+    },
+    "add_ops": 304.0,
+    "mul_ops": 128.0,
+    "movs": 112.0,
+    "ldi": 32.0,
+    "branches": 16.0,
+    "bound": 352.0,
+    "packing": 0.7096774193548387,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "add:sub": 64,
+     "add:xor": 48,
+     "add:mov.setf": 48,
+     "add:fsub": 48,
+     "mul:mov": 32,
+     "add:mov": 32,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16,
+     "add:shr.setf": 16
+    },
+    "label": "div_done79",
+    "start": 1549,
+    "length": 31,
+    "entries": 16,
+    "share": 0.008959537572254336
+   },
+   {
+    "executed": 496.0,
+    "mix": {
+     "nop_other": 0.03225806451612903,
+     "paired": 0.0967741935483871,
+     "add": 0.5161290322580645,
+     "ldi": 0.06451612903225806,
+     "mul": 0.16129032258064516,
+     "branch": 0.03225806451612903,
+     "nop_delay": 0.0967741935483871
+    },
+    "add_ops": 304.0,
+    "mul_ops": 128.0,
+    "movs": 112.0,
+    "ldi": 32.0,
+    "branches": 16.0,
+    "bound": 352.0,
+    "packing": 0.7096774193548387,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "add:sub": 64,
+     "add:xor": 48,
+     "add:mov.setf": 48,
+     "add:fsub": 48,
+     "mul:mov": 32,
+     "add:mov": 32,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16,
+     "add:shr.setf": 16
+    },
+    "label": "div_done82",
+    "start": 1599,
+    "length": 31,
+    "entries": 16,
+    "share": 0.008959537572254336
+   },
+   {
+    "executed": 496.0,
+    "mix": {
+     "nop_other": 0.03225806451612903,
+     "paired": 0.0967741935483871,
+     "add": 0.5161290322580645,
+     "ldi": 0.06451612903225806,
+     "mul": 0.16129032258064516,
+     "branch": 0.03225806451612903,
+     "nop_delay": 0.0967741935483871
+    },
+    "add_ops": 304.0,
+    "mul_ops": 128.0,
+    "movs": 112.0,
+    "ldi": 32.0,
+    "branches": 16.0,
+    "bound": 352.0,
+    "packing": 0.7096774193548387,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "add:sub": 64,
+     "add:xor": 48,
+     "add:mov.setf": 48,
+     "add:fsub": 48,
+     "mul:mov": 32,
+     "add:mov": 32,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16,
+     "add:shr.setf": 16
+    },
+    "label": "div_done85",
+    "start": 1649,
+    "length": 31,
+    "entries": 16,
+    "share": 0.008959537572254336
+   },
+   {
+    "executed": 496.0,
+    "mix": {
+     "nop_other": 0.03225806451612903,
+     "paired": 0.0967741935483871,
+     "add": 0.5161290322580645,
+     "ldi": 0.06451612903225806,
+     "mul": 0.16129032258064516,
+     "branch": 0.03225806451612903,
+     "nop_delay": 0.0967741935483871
+    },
+    "add_ops": 304.0,
+    "mul_ops": 128.0,
+    "movs": 112.0,
+    "ldi": 32.0,
+    "branches": 16.0,
+    "bound": 352.0,
+    "packing": 0.7096774193548387,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "add:sub": 64,
+     "add:xor": 48,
+     "add:mov.setf": 48,
+     "add:fsub": 48,
+     "mul:mov": 32,
+     "add:mov": 32,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16,
+     "add:shr.setf": 16
+    },
+    "label": "div_done88",
+    "start": 1699,
+    "length": 31,
+    "entries": 16,
+    "share": 0.008959537572254336
+   },
+   {
+    "executed": 496.0,
+    "mix": {
+     "nop_other": 0.03225806451612903,
+     "paired": 0.0967741935483871,
+     "add": 0.5161290322580645,
+     "ldi": 0.06451612903225806,
+     "mul": 0.16129032258064516,
+     "branch": 0.03225806451612903,
+     "nop_delay": 0.0967741935483871
+    },
+    "add_ops": 304.0,
+    "mul_ops": 128.0,
+    "movs": 112.0,
+    "ldi": 32.0,
+    "branches": 16.0,
+    "bound": 352.0,
+    "packing": 0.7096774193548387,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "add:sub": 64,
+     "add:xor": 48,
+     "add:mov.setf": 48,
+     "add:fsub": 48,
+     "mul:mov": 32,
+     "add:mov": 32,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16,
+     "add:shr.setf": 16
+    },
+    "label": "div_done91",
+    "start": 1749,
+    "length": 31,
+    "entries": 16,
+    "share": 0.008959537572254336
+   },
+   {
+    "executed": 496.0,
+    "mix": {
+     "paired": 0.0967741935483871,
+     "add": 0.5483870967741935,
+     "ldi": 0.06451612903225806,
+     "mul": 0.16129032258064516,
+     "branch": 0.03225806451612903,
+     "nop_delay": 0.0967741935483871
+    },
+    "add_ops": 320.0,
+    "mul_ops": 128.0,
+    "movs": 128.0,
+    "ldi": 32.0,
+    "branches": 16.0,
+    "bound": 368.0,
+    "packing": 0.7419354838709677,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "add:sub": 64,
+     "add:mov": 48,
+     "add:mov.setf": 48,
+     "add:xor": 48,
+     "add:fsub": 48,
+     "mul:mov": 32,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16,
+     "add:shr.setf": 16
+    },
+    "label": "div_done94",
+    "start": 1799,
+    "length": 31,
+    "entries": 16,
+    "share": 0.008959537572254336
+   },
+   {
+    "executed": 496.0,
+    "mix": {
+     "paired": 0.0967741935483871,
+     "add": 0.5483870967741935,
+     "ldi": 0.06451612903225806,
+     "mul": 0.16129032258064516,
+     "branch": 0.03225806451612903,
+     "nop_delay": 0.0967741935483871
+    },
+    "add_ops": 320.0,
+    "mul_ops": 128.0,
+    "movs": 128.0,
+    "ldi": 32.0,
+    "branches": 16.0,
+    "bound": 368.0,
+    "packing": 0.7419354838709677,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "add:sub": 64,
+     "add:mov": 48,
+     "add:mov.setf": 48,
+     "add:xor": 48,
+     "add:fsub": 48,
+     "mul:mov": 32,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16,
+     "add:shr.setf": 16
+    },
+    "label": "div_done100",
+    "start": 1902,
+    "length": 31,
+    "entries": 16,
+    "share": 0.008959537572254336
+   },
+   {
+    "executed": 496.0,
+    "mix": {
+     "paired": 0.0967741935483871,
+     "add": 0.5483870967741935,
+     "ldi": 0.06451612903225806,
+     "mul": 0.16129032258064516,
+     "branch": 0.03225806451612903,
+     "nop_delay": 0.0967741935483871
+    },
+    "add_ops": 320.0,
+    "mul_ops": 128.0,
+    "movs": 128.0,
+    "ldi": 32.0,
+    "branches": 16.0,
+    "bound": 368.0,
+    "packing": 0.7419354838709677,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "add:sub": 64,
+     "add:mov": 48,
+     "add:mov.setf": 48,
+     "add:xor": 48,
+     "add:fsub": 48,
+     "mul:mov": 32,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16,
+     "add:shr.setf": 16
+    },
+    "label": "div_done106",
+    "start": 2005,
+    "length": 31,
+    "entries": 16,
+    "share": 0.008959537572254336
+   },
+   {
+    "executed": 496.0,
+    "mix": {
+     "paired": 0.0967741935483871,
+     "add": 0.5483870967741935,
+     "ldi": 0.06451612903225806,
+     "mul": 0.16129032258064516,
+     "branch": 0.03225806451612903,
+     "nop_delay": 0.0967741935483871
+    },
+    "add_ops": 320.0,
+    "mul_ops": 128.0,
+    "movs": 128.0,
+    "ldi": 32.0,
+    "branches": 16.0,
+    "bound": 368.0,
+    "packing": 0.7419354838709677,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "add:sub": 64,
+     "add:mov": 48,
+     "add:mov.setf": 48,
+     "add:xor": 48,
+     "add:fsub": 48,
+     "mul:mov": 32,
+     "add:itof": 16,
+     "add:fadd": 16,
+     "add:or": 16,
+     "add:shr.setf": 16
+    },
+    "label": "div_done112",
+    "start": 2108,
+    "length": 31,
+    "entries": 16,
+    "share": 0.008959537572254336
+   },
+   {
+    "executed": 304.0,
+    "mix": {
+     "add": 0.6842105263157895,
+     "ldi": 0.05263157894736842,
+     "nop_other": 0.05263157894736842,
+     "branch": 0.05263157894736842,
+     "nop_delay": 0.15789473684210525
+    },
+    "add_ops": 208.0,
+    "mul_ops": 0.0,
+    "movs": 64.0,
+    "ldi": 16.0,
+    "branches": 16.0,
+    "bound": 240.0,
+    "packing": 0.7894736842105263,
+    "blockers": {},
+    "ops": {
+     "add:sub": 48,
+     "add:xor": 32,
+     "add:min": 32,
+     "add:mov.setf": 32,
+     "add:mov": 32,
+     "add:sub.setf": 16,
+     "add:asr": 16
+    },
+    "label": "div_done48",
+    "start": 1086,
+    "length": 19,
+    "entries": 16,
+    "share": 0.005491329479768786
+   },
+   {
+    "executed": 304.0,
+    "mix": {
+     "nop_other": 0.10526315789473684,
+     "add": 0.631578947368421,
+     "ldi": 0.05263157894736842,
+     "branch": 0.05263157894736842,
+     "nop_delay": 0.15789473684210525
+    },
+    "add_ops": 192.0,
+    "mul_ops": 0.0,
+    "movs": 64.0,
+    "ldi": 16.0,
+    "branches": 16.0,
+    "bound": 224.0,
+    "packing": 0.7368421052631579,
+    "blockers": {},
+    "ops": {
+     "add:sub": 48,
+     "add:min": 32,
+     "add:mov.setf": 32,
+     "add:mov": 32,
+     "add:xor": 16,
+     "add:sub.setf": 16,
+     "add:asr": 16
+    },
+    "label": "div_done115",
+    "start": 2159,
+    "length": 19,
+    "entries": 16,
+    "share": 0.005491329479768786
+   },
+   {
+    "executed": 112.0,
+    "mix": {
+     "add": 1.0
+    },
+    "add_ops": 112.0,
+    "mul_ops": 0.0,
+    "movs": 112.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 112.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 112
+    },
+    "label": "entry",
+    "start": 0,
+    "length": 7,
+    "entries": 16,
+    "share": 0.002023121387283237
+   },
+   {
+    "executed": 64.0,
+    "mix": {
+     "add": 0.25,
+     "signal": 0.25,
+     "nop_end": 0.5
+    },
+    "add_ops": 16.0,
+    "mul_ops": 0.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 16.0,
+    "packing": 0.25,
+    "blockers": {},
+    "ops": {
+     "add:mov": 16
+    },
+    "label": "skip134/store_done118",
+    "start": 2423,
+    "length": 4,
+    "entries": 16,
+    "share": 0.0011560693641618498
+   }
+  ]
+ },
+ {
+  "name": "row_sum",
+  "note": "",
+  "instructions": 203,
+  "programs": 16,
+  "cycles": 686,
+  "whole": {
+   "executed": 3248.0,
+   "mix": {
+    "add": 0.5517241379310345,
+    "ldi": 0.06896551724137931,
+    "paired": 0.18226600985221675,
+    "branch": 0.009852216748768473,
+    "nop_delay": 0.029556650246305417,
+    "signal": 0.04926108374384237,
+    "mul": 0.07389162561576355,
+    "nop_other": 0.024630541871921183,
+    "nop_end": 0.009852216748768473
+   },
+   "add_ops": 2384.0,
+   "mul_ops": 832.0,
+   "movs": 1472.0,
+   "ldi": 224.0,
+   "branches": 32.0,
+   "bound": 2640.0,
+   "packing": 0.812807881773399,
+   "blockers": {
+    "free": 192,
+    "dependency": 208
+   },
+   "ops": {
+    "add:add": 784,
+    "mul:mov": 784,
+    "add:mov": 688,
+    "add:fadd": 464,
+    "add:shl": 192,
+    "add:min": 80,
+    "add:sub.setf": 80,
+    "mul:mul24": 48,
+    "add:shl.setf": 48,
+    "add:shr": 32,
+    "add:and": 16
+   }
+  },
+  "regions": [
+   {
+    "executed": 1584.0,
+    "mix": {
+     "add": 0.5555555555555556,
+     "paired": 0.2222222222222222,
+     "signal": 0.010101010101010102,
+     "mul": 0.15151515151515152,
+     "nop_other": 0.020202020202020204,
+     "branch": 0.010101010101010102,
+     "nop_delay": 0.030303030303030304
+    },
+    "add_ops": 1232.0,
+    "mul_ops": 592.0,
+    "movs": 768.0,
+    "ldi": 0.0,
+    "branches": 16.0,
+    "bound": 1248.0,
+    "packing": 0.7878787878787878,
+    "blockers": {
+     "free": 192,
+     "dependency": 208
+    },
+    "ops": {
+     "mul:mov": 592,
+     "add:fadd": 464,
+     "add:add": 384,
+     "add:mov": 176,
+     "add:min": 64,
+     "add:sub.setf": 64,
+     "add:shl.setf": 48,
+     "add:shl": 32
+    },
+    "label": "loop3",
+    "start": 41,
+    "length": 99,
+    "entries": 16,
+    "share": 0.4876847290640394
+   },
+   {
+    "executed": 880.0,
+    "mix": {
+     "ldi": 0.14545454545454545,
+     "add": 0.5636363636363636,
+     "nop_other": 0.05454545454545454,
+     "paired": 0.18181818181818182,
+     "signal": 0.01818181818181818,
+     "nop_end": 0.03636363636363636
+    },
+    "add_ops": 656.0,
+    "mul_ops": 160.0,
+    "movs": 560.0,
+    "ldi": 128.0,
+    "branches": 0.0,
+    "bound": 784.0,
+    "packing": 0.8909090909090909,
+    "blockers": {},
+    "ops": {
+     "add:mov": 400,
+     "add:add": 160,
+     "mul:mov": 160,
+     "add:shl": 80,
+     "add:and": 16
+    },
+    "label": "loop_exit2",
+    "start": 148,
+    "length": 55,
+    "entries": 16,
+    "share": 0.270935960591133
+   },
+   {
+    "executed": 304.0,
+    "mix": {
+     "add": 0.7368421052631579,
+     "ldi": 0.2631578947368421
+    },
+    "add_ops": 224.0,
+    "mul_ops": 0.0,
+    "movs": 16.0,
+    "ldi": 80.0,
+    "branches": 0.0,
+    "bound": 304.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:add": 192,
+     "add:mov": 16,
+     "add:shl": 16
+    },
+    "label": "loop_pre2",
+    "start": 22,
+    "length": 19,
+    "entries": 16,
+    "share": 0.09359605911330049
+   },
+   {
+    "executed": 256.0,
+    "mix": {
+     "add": 0.375,
+     "ldi": 0.0625,
+     "paired": 0.3125,
+     "branch": 0.0625,
+     "nop_delay": 0.1875
+    },
+    "add_ops": 176.0,
+    "mul_ops": 80.0,
+    "movs": 32.0,
+    "ldi": 16.0,
+    "branches": 16.0,
+    "bound": 208.0,
+    "packing": 0.8125,
+    "blockers": {},
+    "ops": {
+     "add:shl": 64,
+     "mul:mul24": 48,
+     "add:add": 48,
+     "add:shr": 32,
+     "mul:mov": 32,
+     "add:min": 16,
+     "add:sub.setf": 16
+    },
+    "label": "main1",
+    "start": 6,
+    "length": 16,
+    "entries": 16,
+    "share": 0.07881773399014778
+   },
+   {
+    "executed": 128.0,
+    "mix": {
+     "signal": 1.0
+    },
+    "add_ops": 0.0,
+    "mul_ops": 0.0,
+    "movs": 0.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 0.0,
+    "packing": 0.0,
+    "blockers": {},
+    "ops": {},
+    "label": "loop_end4",
+    "start": 140,
+    "length": 8,
+    "entries": 16,
+    "share": 0.03940886699507389
+   },
+   {
+    "executed": 96.0,
+    "mix": {
+     "add": 1.0
+    },
+    "add_ops": 96.0,
+    "mul_ops": 0.0,
+    "movs": 96.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 96.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 96
+    },
+    "label": "entry",
+    "start": 0,
+    "length": 6,
+    "entries": 16,
+    "share": 0.029556650246305417
+   }
+  ]
+ },
+ {
+  "name": "row_max",
+  "note": "",
+  "instructions": 205,
+  "programs": 16,
+  "cycles": 690,
+  "whole": {
+   "executed": 3280.0,
+   "mix": {
+    "add": 0.5560975609756098,
+    "ldi": 0.07317073170731707,
+    "paired": 0.17560975609756097,
+    "branch": 0.00975609756097561,
+    "nop_delay": 0.02926829268292683,
+    "signal": 0.04878048780487805,
+    "mul": 0.07317073170731707,
+    "nop_other": 0.024390243902439025,
+    "nop_end": 0.00975609756097561
+   },
+   "add_ops": 2400.0,
+   "mul_ops": 816.0,
+   "movs": 1472.0,
+   "ldi": 240.0,
+   "branches": 32.0,
+   "bound": 2672.0,
+   "packing": 0.8146341463414634,
+   "blockers": {
+    "free": 192,
+    "dependency": 208
+   },
+   "ops": {
+    "add:add": 784,
+    "mul:mov": 768,
+    "add:mov": 704,
+    "add:fmax": 464,
+    "add:shl": 192,
+    "add:min": 80,
+    "add:sub.setf": 80,
+    "mul:mul24": 48,
+    "add:shl.setf": 48,
+    "add:shr": 32,
+    "add:and": 16
+   }
+  },
+  "regions": [
+   {
+    "executed": 1584.0,
+    "mix": {
+     "add": 0.5555555555555556,
+     "paired": 0.2222222222222222,
+     "signal": 0.010101010101010102,
+     "mul": 0.15151515151515152,
+     "nop_other": 0.020202020202020204,
+     "branch": 0.010101010101010102,
+     "nop_delay": 0.030303030303030304
+    },
+    "add_ops": 1232.0,
+    "mul_ops": 592.0,
+    "movs": 768.0,
+    "ldi": 0.0,
+    "branches": 16.0,
+    "bound": 1248.0,
+    "packing": 0.7878787878787878,
+    "blockers": {
+     "free": 192,
+     "dependency": 208
+    },
+    "ops": {
+     "mul:mov": 592,
+     "add:fmax": 464,
+     "add:add": 384,
+     "add:mov": 176,
+     "add:min": 64,
+     "add:sub.setf": 64,
+     "add:shl.setf": 48,
+     "add:shl": 32
+    },
+    "label": "loop3",
+    "start": 43,
+    "length": 99,
+    "entries": 16,
+    "share": 0.48292682926829267
+   },
+   {
+    "executed": 880.0,
+    "mix": {
+     "ldi": 0.14545454545454545,
+     "add": 0.5636363636363636,
+     "nop_other": 0.05454545454545454,
+     "paired": 0.18181818181818182,
+     "signal": 0.01818181818181818,
+     "nop_end": 0.03636363636363636
+    },
+    "add_ops": 656.0,
+    "mul_ops": 160.0,
+    "movs": 560.0,
+    "ldi": 128.0,
+    "branches": 0.0,
+    "bound": 784.0,
+    "packing": 0.8909090909090909,
+    "blockers": {},
+    "ops": {
+     "add:mov": 400,
+     "add:add": 160,
+     "mul:mov": 160,
+     "add:shl": 80,
+     "add:and": 16
+    },
+    "label": "loop_exit2",
+    "start": 150,
+    "length": 55,
+    "entries": 16,
+    "share": 0.2682926829268293
+   },
+   {
+    "executed": 304.0,
+    "mix": {
+     "add": 0.7368421052631579,
+     "ldi": 0.2631578947368421
+    },
+    "add_ops": 224.0,
+    "mul_ops": 0.0,
+    "movs": 16.0,
+    "ldi": 80.0,
+    "branches": 0.0,
+    "bound": 304.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:add": 192,
+     "add:mov": 16,
+     "add:shl": 16
+    },
+    "label": "loop_pre2",
+    "start": 24,
+    "length": 19,
+    "entries": 16,
+    "share": 0.09268292682926829
+   },
+   {
+    "executed": 288.0,
+    "mix": {
+     "add": 0.4444444444444444,
+     "ldi": 0.1111111111111111,
+     "paired": 0.2222222222222222,
+     "branch": 0.05555555555555555,
+     "nop_delay": 0.16666666666666666
+    },
+    "add_ops": 192.0,
+    "mul_ops": 64.0,
+    "movs": 32.0,
+    "ldi": 32.0,
+    "branches": 16.0,
+    "bound": 240.0,
+    "packing": 0.8333333333333334,
+    "blockers": {},
+    "ops": {
+     "add:shl": 64,
+     "mul:mul24": 48,
+     "add:add": 48,
+     "add:shr": 32,
+     "mul:mov": 16,
+     "add:mov": 16,
+     "add:min": 16,
+     "add:sub.setf": 16
+    },
+    "label": "main1",
+    "start": 6,
+    "length": 18,
+    "entries": 16,
+    "share": 0.08780487804878048
+   },
+   {
+    "executed": 128.0,
+    "mix": {
+     "signal": 1.0
+    },
+    "add_ops": 0.0,
+    "mul_ops": 0.0,
+    "movs": 0.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 0.0,
+    "packing": 0.0,
+    "blockers": {},
+    "ops": {},
+    "label": "loop_end4",
+    "start": 142,
+    "length": 8,
+    "entries": 16,
+    "share": 0.03902439024390244
+   },
+   {
+    "executed": 96.0,
+    "mix": {
+     "add": 1.0
+    },
+    "add_ops": 96.0,
+    "mul_ops": 0.0,
+    "movs": 96.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 96.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 96
+    },
+    "label": "entry",
+    "start": 0,
+    "length": 6,
+    "entries": 16,
+    "share": 0.02926829268292683
+   }
+  ]
+ },
+ {
+  "name": "transpose",
+  "note": "",
+  "instructions": 1437,
+  "programs": 16,
+  "cycles": 2578,
+  "whole": {
+   "executed": 17568.0,
+   "mix": {
+    "add": 0.599271402550091,
+    "paired": 0.19216757741347906,
+    "nop_other": 0.012750455373406194,
+    "ldi": 0.025500910746812388,
+    "mul": 0.1557377049180328,
+    "branch": 0.0036429872495446266,
+    "nop_delay": 0.00819672131147541,
+    "signal": 0.0009107468123861566,
+    "nop_end": 0.0018214936247723133
+   },
+   "add_ops": 13904.0,
+   "mul_ops": 6112.0,
+   "movs": 11504.0,
+   "ldi": 448.0,
+   "branches": 64.0,
+   "bound": 14416.0,
+   "packing": 0.8205828779599271,
+   "blockers": {
+    "dependency": 2368,
+    "free": 2768,
+    "write_file": 16
+   },
+   "ops": {
+    "mul:mov": 5712,
+    "add:mov": 5440,
+    "add:shl.setf": 3840,
+    "add:add": 1664,
+    "add:min": 592,
+    "add:sub.setf": 560,
+    "add:shl": 400,
+    "add:mov.setf": 352,
+    "add:and": 320,
+    "mul:mul24": 272,
+    "add:sub": 224,
+    "add:shr": 176
+   }
+  },
+  "regions": [
+   {
+    "executed": 15232.0,
+    "mix": {
+     "paired": 0.20693277310924368,
+     "ldi": 0.01995798319327731,
+     "add": 0.5871848739495799,
+     "mul": 0.17016806722689076,
+     "nop_other": 0.011554621848739496,
+     "branch": 0.0010504201680672268,
+     "nop_delay": 0.0031512605042016808
+    },
+    "add_ops": 12096.0,
+    "mul_ops": 5744.0,
+    "movs": 10512.0,
+    "ldi": 304.0,
+    "branches": 16.0,
+    "bound": 12416.0,
+    "packing": 0.8151260504201681,
+    "blockers": {
+     "dependency": 2160,
+     "free": 2768,
+     "write_file": 16
+    },
+    "ops": {
+     "mul:mov": 5504,
+     "add:mov": 4720,
+     "add:shl.setf": 3840,
+     "add:add": 1264,
+     "add:min": 576,
+     "add:sub.setf": 544,
+     "add:shl": 320,
+     "add:mov.setf": 288,
+     "add:and": 256,
+     "mul:mul24": 240,
+     "add:shr": 160,
+     "add:sub": 96
+    },
+    "label": "div_done3",
+    "start": 57,
+    "length": 952,
+    "entries": 16,
+    "share": 0.8670309653916212
+   },
+   {
+    "executed": 1200.0,
+    "mix": {
+     "add": 0.7466666666666667,
+     "ldi": 0.08,
+     "paired": 0.16,
+     "branch": 0.013333333333333334
+    },
+    "add_ops": 1088.0,
+    "mul_ops": 192.0,
+    "movs": 736.0,
+    "ldi": 96.0,
+    "branches": 16.0,
+    "bound": 1200.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 544,
+     "add:add": 320,
+     "mul:mov": 192,
+     "add:shl": 80,
+     "add:and": 64,
+     "add:or": 64,
+     "add:sub": 16
+    },
+    "label": "store_full10",
+    "start": 1019,
+    "length": 75,
+    "entries": 16,
+    "share": 0.06830601092896176
+   },
+   {
+    "executed": 480.0,
+    "mix": {
+     "paired": 0.06666666666666667,
+     "add": 0.5333333333333333,
+     "nop_other": 0.03333333333333333,
+     "ldi": 0.06666666666666667,
+     "mul": 0.16666666666666666,
+     "branch": 0.03333333333333333,
+     "nop_delay": 0.1
+    },
+    "add_ops": 288.0,
+    "mul_ops": 112.0,
+    "movs": 64.0,
+    "ldi": 32.0,
+    "branches": 16.0,
+    "bound": 336.0,
+    "packing": 0.7,
+    "blockers": {
+     "dependency": 96
+    },
+    "ops": {
+     "mul:fmul": 96,
+     "add:fsub": 48,
+     "add:add": 32,
+     "add:asr": 32,
+     "add:mov.setf": 32,
+     "add:sub": 32,
+     "mul:mov": 16,
+     "add:shr": 16,
+     "add:mov": 16,
+     "add:xor": 16,
+     "add:itof": 16,
+     "add:fadd": 16
+    },
+    "label": "main1",
+    "start": 8,
+    "length": 30,
+    "entries": 16,
+    "share": 0.0273224043715847
+   },
+   {
+    "executed": 304.0,
+    "mix": {
+     "add": 0.6842105263157895,
+     "mul": 0.21052631578947367,
+     "nop_other": 0.10526315789473684
+    },
+    "add_ops": 208.0,
+    "mul_ops": 64.0,
+    "movs": 32.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 208.0,
+    "packing": 0.6842105263157895,
+    "blockers": {
+     "dependency": 112
+    },
+    "ops": {
+     "add:sub": 48,
+     "add:add": 48,
+     "add:itof": 32,
+     "mul:fmul": 32,
+     "add:ftoi": 32,
+     "mul:mul24": 32,
+     "add:sub.setf": 16,
+     "add:mov": 16,
+     "add:mov.setf": 16
+    },
+    "label": "div_small4",
+    "start": 38,
+    "length": 19,
+    "entries": 16,
+    "share": 0.017304189435336976
+   },
+   {
+    "executed": 160.0,
+    "mix": {
+     "ldi": 0.1,
+     "add": 0.5,
+     "branch": 0.1,
+     "nop_delay": 0.3
+    },
+    "add_ops": 80.0,
+    "mul_ops": 0.0,
+    "movs": 16.0,
+    "ldi": 16.0,
+    "branches": 16.0,
+    "bound": 112.0,
+    "packing": 0.7,
+    "blockers": {},
+    "ops": {
+     "add:sub": 32,
+     "add:min": 16,
+     "add:asr": 16,
+     "add:mov.setf": 16
+    },
+    "label": "store_fast7",
+    "start": 1009,
+    "length": 10,
+    "entries": 16,
+    "share": 0.009107468123861567
+   },
+   {
+    "executed": 128.0,
+    "mix": {
+     "add": 1.0
+    },
+    "add_ops": 128.0,
+    "mul_ops": 0.0,
+    "movs": 128.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 128.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 128
+    },
+    "label": "entry",
+    "start": 0,
+    "length": 8,
+    "entries": 16,
+    "share": 0.007285974499089253
+   },
+   {
+    "executed": 64.0,
+    "mix": {
+     "add": 0.25,
+     "signal": 0.25,
+     "nop_end": 0.5
+    },
+    "add_ops": 16.0,
+    "mul_ops": 0.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 16.0,
+    "packing": 0.25,
+    "blockers": {},
+    "ops": {
+     "add:mov": 16
+    },
+    "label": "skip17/store_done9/store_rows_done6",
+    "start": 1238,
+    "length": 4,
+    "entries": 16,
+    "share": 0.0036429872495446266
+   }
+  ]
+ },
+ {
+  "name": "softmax",
+  "note": "tutorial 02",
+  "instructions": 417,
+  "programs": 64,
+  "cycles": 2604,
+  "whole": {
+   "executed": 23488.0,
+   "mix": {
+    "add": 0.6566757493188011,
+    "ldi": 0.08446866485013624,
+    "paired": 0.08174386920980926,
+    "mul": 0.1444141689373297,
+    "nop_other": 0.010899182561307902,
+    "branch": 0.005449591280653951,
+    "nop_delay": 0.008174386920980926,
+    "signal": 0.0027247956403269754,
+    "nop_end": 0.005449591280653951
+   },
+   "add_ops": 17344.0,
+   "mul_ops": 5312.0,
+   "movs": 5568.0,
+   "ldi": 1984.0,
+   "branches": 128.0,
+   "bound": 19456.0,
+   "packing": 0.8283378746594006,
+   "blockers": {
+    "dependency": 3584,
+    "free": 128,
+    "port_A": 1152,
+    "write_file": 192
+   },
+   "ops": {
+    "add:mov": 3648,
+    "mul:fmul": 3200,
+    "add:fadd": 2240,
+    "add:add": 1984,
+    "mul:mov": 1728,
+    "add:sub.setf": 1728,
+    "add:and": 1472,
+    "add:shl": 1024,
+    "add:fsub": 960,
+    "add:fmax": 704,
+    "add:max": 576,
+    "add:or": 576
+   }
+  },
+  "regions": [
+   {
+    "executed": 21440.0,
+    "mix": {
+     "ldi": 0.08059701492537313,
+     "add": 0.6597014925373135,
+     "paired": 0.07761194029850746,
+     "mul": 0.1582089552238806,
+     "nop_other": 0.011940298507462687,
+     "branch": 0.0029850746268656717,
+     "nop_delay": 0.008955223880597015
+    },
+    "add_ops": 15808.0,
+    "mul_ops": 5056.0,
+    "movs": 4224.0,
+    "ldi": 1728.0,
+    "branches": 64.0,
+    "bound": 17600.0,
+    "packing": 0.8208955223880597,
+    "blockers": {
+     "dependency": 3584,
+     "free": 128,
+     "port_A": 1152,
+     "write_file": 192
+    },
+    "ops": {
+     "mul:fmul": 3200,
+     "add:mov": 2560,
+     "add:fadd": 2240,
+     "add:add": 1728,
+     "add:sub.setf": 1728,
+     "mul:mov": 1472,
+     "add:and": 1472,
+     "add:fsub": 960,
+     "add:shl": 832,
+     "add:fmax": 704,
+     "add:max": 576,
+     "add:or": 576
+    },
+    "label": "main1",
+    "start": 7,
+    "length": 335,
+    "entries": 64,
+    "share": 0.9128065395095368
+   },
+   {
+    "executed": 1344.0,
+    "mix": {
+     "add": 0.5714285714285714,
+     "ldi": 0.19047619047619047,
+     "paired": 0.19047619047619047,
+     "branch": 0.047619047619047616
+    },
+    "add_ops": 1024.0,
+    "mul_ops": 256.0,
+    "movs": 832.0,
+    "ldi": 256.0,
+    "branches": 64.0,
+    "bound": 1344.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 576,
+     "add:add": 256,
+     "mul:mov": 256,
+     "add:shl": 192
+    },
+    "label": "store_full4",
+    "start": 342,
+    "length": 21,
+    "entries": 64,
+    "share": 0.05722070844686648
+   },
+   {
+    "executed": 448.0,
+    "mix": {
+     "add": 1.0
+    },
+    "add_ops": 448.0,
+    "mul_ops": 0.0,
+    "movs": 448.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 448.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 448
+    },
+    "label": "entry",
+    "start": 0,
+    "length": 7,
+    "entries": 64,
+    "share": 0.01907356948228883
+   },
+   {
+    "executed": 256.0,
+    "mix": {
+     "add": 0.25,
+     "signal": 0.25,
+     "nop_end": 0.5
+    },
+    "add_ops": 64.0,
+    "mul_ops": 0.0,
+    "movs": 64.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 64.0,
+    "packing": 0.25,
+    "blockers": {},
+    "ops": {
+     "add:mov": 64
+    },
+    "label": "skip7/store_done3",
+    "start": 413,
+    "length": 4,
+    "entries": 64,
+    "share": 0.010899182561307902
+   }
+  ]
+ },
+ {
+  "name": "matmul_8x64x4",
+  "note": "tutorial 03, 8x64x4",
+  "instructions": 2299,
+  "programs": 8,
+  "cycles": 13743,
+  "whole": {
+   "executed": 107168.0,
+   "mix": {
+    "add": 0.1496715437444013,
+    "paired": 0.717751567632129,
+    "ldi": 0.0025380710659898475,
+    "nop_other": 0.008211406389967155,
+    "mul": 0.1119737234995521,
+    "branch": 0.0058972827709764105,
+    "nop_delay": 0.003135264257987459,
+    "signal": 0.0006718423409973126,
+    "nop_end": 0.00014929829799940282
+   },
+   "add_ops": 92960.0,
+   "mul_ops": 88920.0,
+   "movs": 32168.0,
+   "ldi": 272.0,
+   "branches": 632.0,
+   "bound": 93864.0,
+   "packing": 0.8758584652134965,
+   "blockers": {
+    "dependency": 1064,
+    "free": 512
+   },
+   "ops": {
+    "mul:fmul": 66112,
+    "add:fadd": 65600,
+    "mul:mov": 22544,
+    "add:add": 13648,
+    "add:mov": 9304,
+    "add:sub": 1208,
+    "add:sub.setf": 1136,
+    "add:mov.setf": 320,
+    "mul:mul24": 264,
+    "add:xor": 256,
+    "add:itof": 256,
+    "add:shl": 232
+   }
+  },
+  "regions": [
+   {
+    "executed": 100352.0,
+    "mix": {
+     "nop_other": 0.00510204081632653,
+     "add": 0.11734693877551021,
+     "paired": 0.7602040816326531,
+     "mul": 0.11224489795918367,
+     "branch": 0.00510204081632653
+    },
+    "add_ops": 88064.0,
+    "mul_ops": 87552.0,
+    "movs": 30208.0,
+    "ldi": 0.0,
+    "branches": 512.0,
+    "bound": 88576.0,
+    "packing": 0.8826530612244898,
+    "blockers": {
+     "free": 512
+    },
+    "ops": {
+     "mul:fmul": 65536,
+     "add:fadd": 65536,
+     "mul:mov": 22016,
+     "add:add": 12800,
+     "add:mov": 8192,
+     "add:sub.setf": 1024,
+     "add:sub": 512
+    },
+    "label": "loop26",
+    "start": 420,
+    "length": 196,
+    "entries": 512,
+    "share": 0.9363989250522544
+   },
+   {
+    "executed": 1024.0,
+    "mix": {
+     "add": 0.8359375,
+     "ldi": 0.046875,
+     "paired": 0.109375,
+     "branch": 0.0078125
+    },
+    "add_ops": 968.0,
+    "mul_ops": 112.0,
+    "movs": 720.0,
+    "ldi": 48.0,
+    "branches": 8.0,
+    "bound": 1024.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 608,
+     "add:add": 200,
+     "mul:mov": 112,
+     "add:and": 64,
+     "add:or": 64,
+     "add:shl": 24,
+     "add:sub": 8
+    },
+    "label": "store_full46",
+    "start": 916,
+    "length": 128,
+    "entries": 8,
+    "share": 0.00955509107196178
+   },
+   {
+    "executed": 424.0,
+    "mix": {
+     "nop_other": 0.018867924528301886,
+     "add": 0.5660377358490566,
+     "paired": 0.16981132075471697,
+     "ldi": 0.05660377358490566,
+     "mul": 0.11320754716981132,
+     "branch": 0.018867924528301886,
+     "nop_delay": 0.05660377358490566
+    },
+    "add_ops": 312.0,
+    "mul_ops": 120.0,
+    "movs": 72.0,
+    "ldi": 24.0,
+    "branches": 8.0,
+    "bound": 344.0,
+    "packing": 0.8113207547169812,
+    "blockers": {
+     "dependency": 48
+    },
+    "ops": {
+     "add:add": 64,
+     "add:sub": 56,
+     "mul:mul24": 48,
+     "mul:fmul": 48,
+     "add:shr": 32,
+     "add:shl": 32,
+     "add:xor": 24,
+     "mul:mov": 24,
+     "add:mov": 24,
+     "add:mov.setf": 24,
+     "add:fsub": 24,
+     "add:itof": 8
+    },
+    "label": "div_done12",
+    "start": 213,
+    "length": 53,
+    "entries": 8,
+    "share": 0.003956404896984175
+   },
+   {
+    "executed": 368.0,
+    "mix": {
+     "nop_other": 0.021739130434782608,
+     "add": 0.6086956521739131,
+     "ldi": 0.08695652173913043,
+     "mul": 0.06521739130434782,
+     "paired": 0.13043478260869565,
+     "branch": 0.021739130434782608,
+     "nop_delay": 0.06521739130434782
+    },
+    "add_ops": 272.0,
+    "mul_ops": 72.0,
+    "movs": 104.0,
+    "ldi": 32.0,
+    "branches": 8.0,
+    "bound": 312.0,
+    "packing": 0.8478260869565217,
+    "blockers": {
+     "dependency": 8
+    },
+    "ops": {
+     "add:add": 56,
+     "mul:mov": 48,
+     "add:sub": 40,
+     "add:shl": 40,
+     "add:mov": 40,
+     "add:min": 32,
+     "mul:mul24": 24,
+     "add:shr": 16,
+     "add:mov.setf": 16,
+     "add:sub.setf": 16,
+     "add:xor": 8,
+     "add:or.setf": 8
+    },
+    "label": "div_done39",
+    "start": 860,
+    "length": 46,
+    "entries": 8,
+    "share": 0.0034338608539862645
+   },
+   {
+    "executed": 352.0,
+    "mix": {
+     "ldi": 0.11363636363636363,
+     "paired": 0.045454545454545456,
+     "add": 0.5227272727272727,
+     "nop_other": 0.11363636363636363,
+     "mul": 0.11363636363636363,
+     "branch": 0.022727272727272728,
+     "nop_delay": 0.06818181818181818
+    },
+    "add_ops": 200.0,
+    "mul_ops": 56.0,
+    "movs": 64.0,
+    "ldi": 40.0,
+    "branches": 8.0,
+    "bound": 248.0,
+    "packing": 0.7045454545454546,
+    "blockers": {
+     "dependency": 48
+    },
+    "ops": {
+     "mul:fmul": 48,
+     "add:mov": 40,
+     "add:add": 32,
+     "add:fsub": 24,
+     "add:asr": 16,
+     "add:mov.setf": 16,
+     "add:sub": 16,
+     "mul:mov": 8,
+     "add:shr": 8,
+     "add:shl": 8,
+     "add:xor": 8,
+     "add:itof": 8
+    },
+    "label": "loop_exit26",
+    "start": 624,
+    "length": 44,
+    "entries": 8,
+    "share": 0.0032845625559868616
+   },
+   {
+    "executed": 344.0,
+    "mix": {
+     "paired": 0.06976744186046512,
+     "add": 0.6511627906976745,
+     "nop_other": 0.023255813953488372,
+     "ldi": 0.046511627906976744,
+     "mul": 0.11627906976744186,
+     "branch": 0.023255813953488372,
+     "nop_delay": 0.06976744186046512
+    },
+    "add_ops": 248.0,
+    "mul_ops": 64.0,
+    "movs": 80.0,
+    "ldi": 16.0,
+    "branches": 8.0,
+    "bound": 272.0,
+    "packing": 0.7906976744186046,
+    "blockers": {
+     "dependency": 48
+    },
+    "ops": {
+     "mul:fmul": 48,
+     "add:mov": 40,
+     "add:sub": 40,
+     "add:xor": 24,
+     "add:add": 24,
+     "add:mov.setf": 24,
+     "add:fsub": 24,
+     "mul:mov": 16,
+     "add:asr": 16,
+     "add:shr": 8,
+     "add:shl": 8,
+     "add:min": 8
+    },
+    "label": "div_done30",
+    "start": 687,
+    "length": 43,
+    "entries": 8,
+    "share": 0.0032099134069871606
+   },
+   {
+    "executed": 328.0,
+    "mix": {
+     "add": 0.6585365853658537,
+     "paired": 0.07317073170731707,
+     "ldi": 0.04878048780487805,
+     "mul": 0.12195121951219512,
+     "branch": 0.024390243902439025,
+     "nop_delay": 0.07317073170731707
+    },
+    "add_ops": 240.0,
+    "mul_ops": 64.0,
+    "movs": 56.0,
+    "ldi": 16.0,
+    "branches": 8.0,
+    "bound": 264.0,
+    "packing": 0.8048780487804879,
+    "blockers": {
+     "dependency": 48
+    },
+    "ops": {
+     "mul:fmul": 48,
+     "add:xor": 40,
+     "add:sub": 40,
+     "add:add": 32,
+     "add:mov.setf": 24,
+     "add:fsub": 24,
+     "mul:mov": 16,
+     "add:shl": 16,
+     "add:mov": 16,
+     "add:shr": 8,
+     "add:and": 8,
+     "add:itof": 8
+    },
+    "label": "div_done6",
+    "start": 119,
+    "length": 41,
+    "entries": 8,
+    "share": 0.0030606151089877577
+   },
+   {
+    "executed": 312.0,
+    "mix": {
+     "paired": 0.07692307692307693,
+     "add": 0.6410256410256411,
+     "ldi": 0.05128205128205128,
+     "mul": 0.1282051282051282,
+     "branch": 0.02564102564102564,
+     "nop_delay": 0.07692307692307693
+    },
+    "add_ops": 224.0,
+    "mul_ops": 64.0,
+    "movs": 64.0,
+    "ldi": 16.0,
+    "branches": 8.0,
+    "bound": 248.0,
+    "packing": 0.7948717948717948,
+    "blockers": {
+     "dependency": 48
+    },
+    "ops": {
+     "mul:fmul": 48,
+     "add:sub": 40,
+     "add:mov": 24,
+     "add:xor": 24,
+     "add:mov.setf": 24,
+     "add:fsub": 24,
+     "mul:mov": 16,
+     "add:add": 16,
+     "add:asr": 16,
+     "add:shl": 8,
+     "add:shr": 8,
+     "add:min": 8
+    },
+    "label": "div_done36",
+    "start": 802,
+    "length": 39,
+    "entries": 8,
+    "share": 0.0029113168109883548
+   },
+   {
+    "executed": 296.0,
+    "mix": {
+     "paired": 0.05405405405405406,
+     "add": 0.5945945945945946,
+     "ldi": 0.08108108108108109,
+     "nop_other": 0.02702702702702703,
+     "mul": 0.13513513513513514,
+     "branch": 0.02702702702702703,
+     "nop_delay": 0.08108108108108109
+    },
+    "add_ops": 192.0,
+    "mul_ops": 56.0,
+    "movs": 32.0,
+    "ldi": 24.0,
+    "branches": 8.0,
+    "bound": 224.0,
+    "packing": 0.7567567567567568,
+    "blockers": {
+     "dependency": 48
+    },
+    "ops": {
+     "mul:fmul": 48,
+     "add:add": 32,
+     "add:asr": 32,
+     "add:fsub": 24,
+     "add:shr": 16,
+     "add:mov.setf": 16,
+     "add:sub": 16,
+     "mul:mov": 8,
+     "add:shl": 8,
+     "add:mov": 8,
+     "add:xor": 8,
+     "add:itof": 8
+    },
+    "label": "main1",
+    "start": 10,
+    "length": 37,
+    "entries": 8,
+    "share": 0.002762018512988952
+   },
+   {
+    "executed": 288.0,
+    "mix": {
+     "paired": 0.05555555555555555,
+     "add": 0.5833333333333334,
+     "ldi": 0.08333333333333333,
+     "nop_other": 0.027777777777777776,
+     "mul": 0.1388888888888889,
+     "branch": 0.027777777777777776,
+     "nop_delay": 0.08333333333333333
+    },
+    "add_ops": 184.0,
+    "mul_ops": 56.0,
+    "movs": 32.0,
+    "ldi": 24.0,
+    "branches": 8.0,
+    "bound": 216.0,
+    "packing": 0.75,
+    "blockers": {
+     "dependency": 48
+    },
+    "ops": {
+     "mul:fmul": 48,
+     "add:xor": 24,
+     "add:sub": 24,
+     "add:fsub": 24,
+     "add:shl": 16,
+     "add:add": 16,
+     "add:asr": 16,
+     "add:mov.setf": 16,
+     "mul:mov": 8,
+     "add:shr": 8,
+     "add:mov": 8,
+     "add:itof": 8
+    },
+    "label": "div_done33",
+    "start": 747,
+    "length": 36,
+    "entries": 8,
+    "share": 0.0026873693639892504
+   },
+   {
+    "executed": 272.0,
+    "mix": {
+     "paired": 0.08823529411764706,
+     "add": 0.5882352941176471,
+     "ldi": 0.058823529411764705,
+     "mul": 0.14705882352941177,
+     "branch": 0.029411764705882353,
+     "nop_delay": 0.08823529411764706
+    },
+    "add_ops": 184.0,
+    "mul_ops": 64.0,
+    "movs": 64.0,
+    "ldi": 16.0,
+    "branches": 8.0,
+    "bound": 208.0,
+    "packing": 0.7647058823529411,
+    "blockers": {
+     "dependency": 48
+    },
+    "ops": {
+     "mul:fmul": 48,
+     "add:sub": 40,
+     "add:mov": 24,
+     "add:xor": 24,
+     "add:mov.setf": 24,
+     "add:fsub": 24,
+     "mul:mov": 16,
+     "add:shl": 8,
+     "add:min": 8,
+     "add:itof": 8,
+     "add:fadd": 8,
+     "add:or": 8
+    },
+    "label": "div_done3",
+    "start": 66,
+    "length": 34,
+    "entries": 8,
+    "share": 0.0025380710659898475
+   },
+   {
+    "executed": 264.0,
+    "mix": {
+     "nop_other": 0.030303030303030304,
+     "paired": 0.8181818181818182,
+     "add": 0.12121212121212122,
+     "ldi": 0.030303030303030304
+    },
+    "add_ops": 248.0,
+    "mul_ops": 216.0,
+    "movs": 288.0,
+    "ldi": 8.0,
+    "branches": 0.0,
+    "bound": 256.0,
+    "packing": 0.9696969696969697,
+    "blockers": {},
+    "ops": {
+     "mul:mov": 216,
+     "add:add": 88,
+     "add:mov": 72,
+     "add:shl": 64,
+     "add:xor": 8,
+     "add:sub": 8,
+     "add:and": 8
+    },
+    "label": "div_done24",
+    "start": 387,
+    "length": 33,
+    "entries": 8,
+    "share": 0.0024634219169901465
+   },
+   {
+    "executed": 152.0,
+    "mix": {
+     "add": 0.6842105263157895,
+     "mul": 0.21052631578947367,
+     "nop_other": 0.10526315789473684
+    },
+    "add_ops": 104.0,
+    "mul_ops": 32.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 104.0,
+    "packing": 0.6842105263157895,
+    "blockers": {
+     "dependency": 56
+    },
+    "ops": {
+     "add:sub": 24,
+     "add:add": 24,
+     "add:itof": 16,
+     "mul:fmul": 16,
+     "add:ftoi": 16,
+     "mul:mul24": 16,
+     "add:sub.setf": 8,
+     "add:mov": 8,
+     "add:mov.setf": 8
+    },
+    "label": "div_small4",
+    "start": 47,
+    "length": 19,
+    "entries": 8,
+    "share": 0.0014183338309943267
+   },
+   {
+    "executed": 152.0,
+    "mix": {
+     "add": 0.6842105263157895,
+     "mul": 0.21052631578947367,
+     "nop_other": 0.10526315789473684
+    },
+    "add_ops": 104.0,
+    "mul_ops": 32.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 104.0,
+    "packing": 0.6842105263157895,
+    "blockers": {
+     "dependency": 56
+    },
+    "ops": {
+     "add:sub": 24,
+     "add:add": 24,
+     "add:itof": 16,
+     "mul:fmul": 16,
+     "add:ftoi": 16,
+     "mul:mul24": 16,
+     "add:sub.setf": 8,
+     "add:mov": 8,
+     "add:mov.setf": 8
+    },
+    "label": "div_small7",
+    "start": 100,
+    "length": 19,
+    "entries": 8,
+    "share": 0.0014183338309943267
+   },
+   {
+    "executed": 152.0,
+    "mix": {
+     "add": 0.6842105263157895,
+     "mul": 0.21052631578947367,
+     "nop_other": 0.10526315789473684
+    },
+    "add_ops": 104.0,
+    "mul_ops": 32.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 104.0,
+    "packing": 0.6842105263157895,
+    "blockers": {
+     "dependency": 56
+    },
+    "ops": {
+     "add:sub": 24,
+     "add:add": 24,
+     "add:itof": 16,
+     "mul:fmul": 16,
+     "add:ftoi": 16,
+     "mul:mul24": 16,
+     "add:sub.setf": 8,
+     "add:mov": 8,
+     "add:mov.setf": 8
+    },
+    "label": "div_small10",
+    "start": 160,
+    "length": 19,
+    "entries": 8,
+    "share": 0.0014183338309943267
+   },
+   {
+    "executed": 152.0,
+    "mix": {
+     "add": 0.6842105263157895,
+     "mul": 0.21052631578947367,
+     "nop_other": 0.10526315789473684
+    },
+    "add_ops": 104.0,
+    "mul_ops": 32.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 104.0,
+    "packing": 0.6842105263157895,
+    "blockers": {
+     "dependency": 56
+    },
+    "ops": {
+     "add:sub": 24,
+     "add:add": 24,
+     "add:itof": 16,
+     "mul:fmul": 16,
+     "add:ftoi": 16,
+     "mul:mul24": 16,
+     "add:sub.setf": 8,
+     "add:mov": 8,
+     "add:mov.setf": 8
+    },
+    "label": "div_small13",
+    "start": 194,
+    "length": 19,
+    "entries": 8,
+    "share": 0.0014183338309943267
+   },
+   {
+    "executed": 152.0,
+    "mix": {
+     "add": 0.6842105263157895,
+     "mul": 0.21052631578947367,
+     "nop_other": 0.10526315789473684
+    },
+    "add_ops": 104.0,
+    "mul_ops": 32.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 104.0,
+    "packing": 0.6842105263157895,
+    "blockers": {
+     "dependency": 56
+    },
+    "ops": {
+     "add:sub": 24,
+     "add:add": 24,
+     "add:itof": 16,
+     "mul:fmul": 16,
+     "add:ftoi": 16,
+     "mul:mul24": 16,
+     "add:sub.setf": 8,
+     "add:mov": 8,
+     "add:mov.setf": 8
+    },
+    "label": "div_small16",
+    "start": 266,
+    "length": 19,
+    "entries": 8,
+    "share": 0.0014183338309943267
+   },
+   {
+    "executed": 152.0,
+    "mix": {
+     "add": 0.6842105263157895,
+     "mul": 0.21052631578947367,
+     "nop_other": 0.10526315789473684
+    },
+    "add_ops": 104.0,
+    "mul_ops": 32.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 104.0,
+    "packing": 0.6842105263157895,
+    "blockers": {
+     "dependency": 56
+    },
+    "ops": {
+     "add:sub": 24,
+     "add:add": 24,
+     "add:itof": 16,
+     "mul:fmul": 16,
+     "add:ftoi": 16,
+     "mul:mul24": 16,
+     "add:sub.setf": 8,
+     "add:mov": 8,
+     "add:mov.setf": 8
+    },
+    "label": "div_small19",
+    "start": 300,
+    "length": 19,
+    "entries": 8,
+    "share": 0.0014183338309943267
+   },
+   {
+    "executed": 152.0,
+    "mix": {
+     "add": 0.6842105263157895,
+     "mul": 0.21052631578947367,
+     "nop_other": 0.10526315789473684
+    },
+    "add_ops": 104.0,
+    "mul_ops": 32.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 104.0,
+    "packing": 0.6842105263157895,
+    "blockers": {
+     "dependency": 56
+    },
+    "ops": {
+     "add:sub": 24,
+     "add:add": 24,
+     "add:itof": 16,
+     "mul:fmul": 16,
+     "add:ftoi": 16,
+     "mul:mul24": 16,
+     "add:sub.setf": 8,
+     "add:mov": 8,
+     "add:mov.setf": 8
+    },
+    "label": "div_small22",
+    "start": 334,
+    "length": 19,
+    "entries": 8,
+    "share": 0.0014183338309943267
+   },
+   {
+    "executed": 152.0,
+    "mix": {
+     "add": 0.6842105263157895,
+     "mul": 0.21052631578947367,
+     "nop_other": 0.10526315789473684
+    },
+    "add_ops": 104.0,
+    "mul_ops": 32.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 104.0,
+    "packing": 0.6842105263157895,
+    "blockers": {
+     "dependency": 56
+    },
+    "ops": {
+     "add:sub": 24,
+     "add:add": 24,
+     "add:itof": 16,
+     "mul:fmul": 16,
+     "add:ftoi": 16,
+     "mul:mul24": 16,
+     "add:sub.setf": 8,
+     "add:mov": 8,
+     "add:mov.setf": 8
+    },
+    "label": "div_small25",
+    "start": 368,
+    "length": 19,
+    "entries": 8,
+    "share": 0.0014183338309943267
+   },
+   {
+    "executed": 152.0,
+    "mix": {
+     "add": 0.6842105263157895,
+     "mul": 0.21052631578947367,
+     "nop_other": 0.10526315789473684
+    },
+    "add_ops": 104.0,
+    "mul_ops": 32.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 104.0,
+    "packing": 0.6842105263157895,
+    "blockers": {
+     "dependency": 56
+    },
+    "ops": {
+     "add:sub": 24,
+     "add:add": 24,
+     "add:itof": 16,
+     "mul:fmul": 16,
+     "add:ftoi": 16,
+     "mul:mul24": 16,
+     "add:sub.setf": 8,
+     "add:mov": 8,
+     "add:mov.setf": 8
+    },
+    "label": "div_small31",
+    "start": 668,
+    "length": 19,
+    "entries": 8,
+    "share": 0.0014183338309943267
+   },
+   {
+    "executed": 152.0,
+    "mix": {
+     "add": 0.6842105263157895,
+     "mul": 0.21052631578947367,
+     "nop_other": 0.10526315789473684
+    },
+    "add_ops": 104.0,
+    "mul_ops": 32.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 104.0,
+    "packing": 0.6842105263157895,
+    "blockers": {
+     "dependency": 56
+    },
+    "ops": {
+     "add:sub": 24,
+     "add:add": 24,
+     "add:itof": 16,
+     "mul:fmul": 16,
+     "add:ftoi": 16,
+     "mul:mul24": 16,
+     "add:sub.setf": 8,
+     "add:mov": 8,
+     "add:mov.setf": 8
+    },
+    "label": "div_small37",
+    "start": 783,
+    "length": 19,
+    "entries": 8,
+    "share": 0.0014183338309943267
+   },
+   {
+    "executed": 152.0,
+    "mix": {
+     "add": 0.6842105263157895,
+     "mul": 0.21052631578947367,
+     "nop_other": 0.10526315789473684
+    },
+    "add_ops": 104.0,
+    "mul_ops": 32.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 104.0,
+    "packing": 0.6842105263157895,
+    "blockers": {
+     "dependency": 56
+    },
+    "ops": {
+     "add:sub": 24,
+     "add:add": 24,
+     "add:itof": 16,
+     "mul:fmul": 16,
+     "add:ftoi": 16,
+     "mul:mul24": 16,
+     "add:sub.setf": 8,
+     "add:mov": 8,
+     "add:mov.setf": 8
+    },
+    "label": "div_small40",
+    "start": 841,
+    "length": 19,
+    "entries": 8,
+    "share": 0.0014183338309943267
+   },
+   {
+    "executed": 136.0,
+    "mix": {
+     "add": 0.6470588235294118,
+     "mul": 0.23529411764705882,
+     "nop_other": 0.058823529411764705,
+     "paired": 0.058823529411764705
+    },
+    "add_ops": 96.0,
+    "mul_ops": 40.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 96.0,
+    "packing": 0.7058823529411765,
+    "blockers": {
+     "dependency": 56
+    },
+    "ops": {
+     "add:sub": 24,
+     "add:add": 24,
+     "add:itof": 16,
+     "mul:fmul": 16,
+     "add:ftoi": 16,
+     "mul:mul24": 16,
+     "add:sub.setf": 8,
+     "mul:mov": 8,
+     "add:mov.setf": 8
+    },
+    "label": "div_small34",
+    "start": 730,
+    "length": 17,
+    "entries": 8,
+    "share": 0.0012690355329949238
+   },
+   {
+    "executed": 120.0,
+    "mix": {
+     "nop_other": 0.2,
+     "add": 0.4666666666666667,
+     "paired": 0.06666666666666667,
+     "branch": 0.06666666666666667,
+     "nop_delay": 0.2
+    },
+    "add_ops": 64.0,
+    "mul_ops": 8.0,
+    "movs": 24.0,
+    "ldi": 0.0,
+    "branches": 8.0,
+    "bound": 72.0,
+    "packing": 0.6,
+    "blockers": {},
+    "ops": {
+     "add:xor": 16,
+     "add:sub": 16,
+     "mul:mov": 8,
+     "add:mov.setf": 8,
+     "add:mov": 8,
+     "add:or": 8,
+     "add:shr.setf": 8
+    },
+    "label": "div_done9",
+    "start": 179,
+    "length": 15,
+    "entries": 8,
+    "share": 0.001119737234995521
+   },
+   {
+    "executed": 120.0,
+    "mix": {
+     "nop_other": 0.2,
+     "add": 0.4666666666666667,
+     "paired": 0.06666666666666667,
+     "branch": 0.06666666666666667,
+     "nop_delay": 0.2
+    },
+    "add_ops": 64.0,
+    "mul_ops": 8.0,
+    "movs": 24.0,
+    "ldi": 0.0,
+    "branches": 8.0,
+    "bound": 72.0,
+    "packing": 0.6,
+    "blockers": {},
+    "ops": {
+     "add:xor": 16,
+     "add:sub": 16,
+     "mul:mov": 8,
+     "add:mov.setf": 8,
+     "add:mov": 8,
+     "add:or": 8,
+     "add:shr.setf": 8
+    },
+    "label": "div_done15",
+    "start": 285,
+    "length": 15,
+    "entries": 8,
+    "share": 0.001119737234995521
+   },
+   {
+    "executed": 120.0,
+    "mix": {
+     "nop_other": 0.2,
+     "add": 0.4666666666666667,
+     "paired": 0.06666666666666667,
+     "branch": 0.06666666666666667,
+     "nop_delay": 0.2
+    },
+    "add_ops": 64.0,
+    "mul_ops": 8.0,
+    "movs": 24.0,
+    "ldi": 0.0,
+    "branches": 8.0,
+    "bound": 72.0,
+    "packing": 0.6,
+    "blockers": {},
+    "ops": {
+     "add:xor": 16,
+     "add:sub": 16,
+     "mul:mov": 8,
+     "add:mov.setf": 8,
+     "add:mov": 8,
+     "add:or": 8,
+     "add:shr.setf": 8
+    },
+    "label": "div_done18",
+    "start": 319,
+    "length": 15,
+    "entries": 8,
+    "share": 0.001119737234995521
+   },
+   {
+    "executed": 120.0,
+    "mix": {
+     "nop_other": 0.2,
+     "add": 0.4666666666666667,
+     "paired": 0.06666666666666667,
+     "branch": 0.06666666666666667,
+     "nop_delay": 0.2
+    },
+    "add_ops": 64.0,
+    "mul_ops": 8.0,
+    "movs": 24.0,
+    "ldi": 0.0,
+    "branches": 8.0,
+    "bound": 72.0,
+    "packing": 0.6,
+    "blockers": {},
+    "ops": {
+     "add:xor": 16,
+     "add:sub": 16,
+     "mul:mov": 8,
+     "add:mov.setf": 8,
+     "add:mov": 8,
+     "add:or": 8,
+     "add:shr.setf": 8
+    },
+    "label": "div_done21",
+    "start": 353,
+    "length": 15,
+    "entries": 8,
+    "share": 0.001119737234995521
+   },
+   {
+    "executed": 80.0,
+    "mix": {
+     "add": 1.0
+    },
+    "add_ops": 80.0,
+    "mul_ops": 0.0,
+    "movs": 80.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 80.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 80
+    },
+    "label": "entry",
+    "start": 0,
+    "length": 10,
+    "entries": 8,
+    "share": 0.000746491489997014
+   },
+   {
+    "executed": 80.0,
+    "mix": {
+     "ldi": 0.1,
+     "add": 0.5,
+     "branch": 0.1,
+     "nop_delay": 0.3
+    },
+    "add_ops": 40.0,
+    "mul_ops": 0.0,
+    "movs": 8.0,
+    "ldi": 8.0,
+    "branches": 8.0,
+    "bound": 56.0,
+    "packing": 0.7,
+    "blockers": {},
+    "ops": {
+     "add:sub": 16,
+     "add:min": 8,
+     "add:asr": 8,
+     "add:mov.setf": 8
+    },
+    "label": "store_fast43",
+    "start": 906,
+    "length": 10,
+    "entries": 8,
+    "share": 0.000746491489997014
+   },
+   {
+    "executed": 64.0,
+    "mix": {
+     "signal": 1.0
+    },
+    "add_ops": 0.0,
+    "mul_ops": 0.0,
+    "movs": 0.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 0.0,
+    "packing": 0.0,
+    "blockers": {},
+    "ops": {},
+    "label": "loop_end27",
+    "start": 616,
+    "length": 8,
+    "entries": 8,
+    "share": 0.0005971931919976113
+   },
+   {
+    "executed": 32.0,
+    "mix": {
+     "add": 0.25,
+     "signal": 0.25,
+     "nop_end": 0.5
+    },
+    "add_ops": 8.0,
+    "mul_ops": 0.0,
+    "movs": 8.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 8.0,
+    "packing": 0.25,
+    "blockers": {},
+    "ops": {
+     "add:mov": 8
+    },
+    "label": "skip61/store_done45/store_rows_done42",
+    "start": 1324,
+    "length": 4,
+    "entries": 8,
+    "share": 0.00029859659599880563
+   }
+  ]
+ },
+ {
+  "name": "matmul_8x64x8",
+  "note": "tutorial 03, 8x64x8",
+  "instructions": 2707,
+  "programs": 8,
+  "cycles": 13993,
+  "whole": {
+   "executed": 108632.0,
+   "mix": {
+    "add": 0.17983651226158037,
+    "paired": 0.6967376095441491,
+    "ldi": 0.002503866264084248,
+    "nop_other": 0.006480595036453347,
+    "mul": 0.10648795934899477,
+    "branch": 0.0036085131452978864,
+    "nop_delay": 0.003534870019883644,
+    "signal": 0.0006627881287281833,
+    "nop_end": 0.00014728625082848515
+   },
+   "add_ops": 95224.0,
+   "mul_ops": 87256.0,
+   "movs": 34040.0,
+   "ldi": 272.0,
+   "branches": 392.0,
+   "bound": 95888.0,
+   "packing": 0.8826865012151116,
+   "blockers": {
+    "dependency": 1176,
+    "free": 3072,
+    "write_file": 256
+   },
+   "ops": {
+    "mul:fmul": 66144,
+    "add:fadd": 65600,
+    "mul:mov": 20768,
+    "add:add": 13000,
+    "add:mov": 12920,
+    "add:sub": 776,
+    "add:sub.setf": 640,
+    "add:mov.setf": 352,
+    "mul:mul24": 344,
+    "add:xor": 288,
+    "add:itof": 288,
+    "add:shl": 264
+   }
+  },
+  "regions": [
+   {
+    "executed": 101120.0,
+    "mix": {
+     "nop_other": 0.002531645569620253,
+     "add": 0.1468354430379747,
+     "paired": 0.7417721518987341,
+     "mul": 0.10632911392405063,
+     "branch": 0.002531645569620253
+    },
+    "add_ops": 89856.0,
+    "mul_ops": 85760.0,
+    "movs": 32000.0,
+    "ldi": 0.0,
+    "branches": 256.0,
+    "bound": 90112.0,
+    "packing": 0.8911392405063291,
+    "blockers": {
+     "free": 3072,
+     "write_file": 256
+    },
+    "ops": {
+     "mul:fmul": 65536,
+     "add:fadd": 65536,
+     "mul:mov": 20224,
+     "add:add": 12032,
+     "add:mov": 11776,
+     "add:sub.setf": 512
+    },
+    "label": "loop32",
+    "start": 507,
+    "length": 395,
+    "entries": 256,
+    "share": 0.9308491052360263
+   },
+   {
+    "executed": 1024.0,
+    "mix": {
+     "add": 0.8359375,
+     "ldi": 0.046875,
+     "paired": 0.109375,
+     "branch": 0.0078125
+    },
+    "add_ops": 968.0,
+    "mul_ops": 112.0,
+    "movs": 720.0,
+    "ldi": 48.0,
+    "branches": 8.0,
+    "bound": 1024.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 608,
+     "add:add": 200,
+     "mul:mov": 112,
+     "add:and": 64,
+     "add:or": 64,
+     "add:shl": 24,
+     "add:sub": 8
+    },
+    "label": "store_full52",
+    "start": 1202,
+    "length": 128,
+    "entries": 8,
+    "share": 0.00942632005302305
+   },
+   {
+    "executed": 536.0,
+    "mix": {
+     "nop_other": 0.014925373134328358,
+     "add": 0.5671641791044776,
+     "paired": 0.19402985074626866,
+     "ldi": 0.04477611940298507,
+     "mul": 0.11940298507462686,
+     "branch": 0.014925373134328358,
+     "nop_delay": 0.04477611940298507
+    },
+    "add_ops": 408.0,
+    "mul_ops": 168.0,
+    "movs": 72.0,
+    "ldi": 24.0,
+    "branches": 8.0,
+    "bound": 440.0,
+    "packing": 0.8208955223880597,
+    "blockers": {
+     "dependency": 48
+    },
+    "ops": {
+     "mul:mul24": 96,
+     "add:add": 96,
+     "add:shr": 64,
+     "add:shl": 64,
+     "add:sub": 56,
+     "mul:fmul": 48,
+     "add:xor": 24,
+     "mul:mov": 24,
+     "add:mov": 24,
+     "add:mov.setf": 24,
+     "add:fsub": 24,
+     "add:itof": 8
+    },
+    "label": "div_done18",
+    "start": 285,
+    "length": 67,
+    "entries": 8,
+    "share": 0.004934089402754253
+   },
+   {
+    "executed": 368.0,
+    "mix": {
+     "nop_other": 0.021739130434782608,
+     "add": 0.6086956521739131,
+     "ldi": 0.08695652173913043,
+     "mul": 0.06521739130434782,
+     "paired": 0.13043478260869565,
+     "branch": 0.021739130434782608,
+     "nop_delay": 0.06521739130434782
+    },
+    "add_ops": 272.0,
+    "mul_ops": 72.0,
+    "movs": 104.0,
+    "ldi": 32.0,
+    "branches": 8.0,
+    "bound": 312.0,
+    "packing": 0.8478260869565217,
+    "blockers": {
+     "dependency": 8
+    },
+    "ops": {
+     "add:add": 56,
+     "mul:mov": 48,
+     "add:sub": 40,
+     "add:shl": 40,
+     "add:mov": 40,
+     "add:min": 32,
+     "mul:mul24": 24,
+     "add:shr": 16,
+     "add:mov.setf": 16,
+     "add:sub.setf": 16,
+     "add:xor": 8,
+     "add:or.setf": 8
+    },
+    "label": "div_done45",
+    "start": 1146,
+    "length": 46,
+    "entries": 8,
+    "share": 0.0033875837690551585
+   },
+   {
+    "executed": 360.0,
+    "mix": {
+     "add": 0.6888888888888889,
+     "paired": 0.06666666666666667,
+     "ldi": 0.044444444444444446,
+     "mul": 0.1111111111111111,
+     "branch": 0.022222222222222223,
+     "nop_delay": 0.06666666666666667
+    },
+    "add_ops": 272.0,
+    "mul_ops": 64.0,
+    "movs": 56.0,
+    "ldi": 16.0,
+    "branches": 8.0,
+    "bound": 296.0,
+    "packing": 0.8222222222222222,
+    "blockers": {
+     "dependency": 48
+    },
+    "ops": {
+     "add:add": 64,
+     "mul:fmul": 48,
+     "add:xor": 40,
+     "add:sub": 40,
+     "add:mov.setf": 24,
+     "add:fsub": 24,
+     "mul:mov": 16,
+     "add:shl": 16,
+     "add:mov": 16,
+     "add:shr": 8,
+     "add:and": 8,
+     "add:itof": 8
+    },
+    "label": "div_done6",
+    "start": 119,
+    "length": 45,
+    "entries": 8,
+    "share": 0.003313940643640916
+   },
+   {
+    "executed": 352.0,
+    "mix": {
+     "ldi": 0.11363636363636363,
+     "paired": 0.045454545454545456,
+     "add": 0.5227272727272727,
+     "nop_other": 0.11363636363636363,
+     "mul": 0.11363636363636363,
+     "branch": 0.022727272727272728,
+     "nop_delay": 0.06818181818181818
+    },
+    "add_ops": 200.0,
+    "mul_ops": 56.0,
+    "movs": 64.0,
+    "ldi": 40.0,
+    "branches": 8.0,
+    "bound": 248.0,
+    "packing": 0.7045454545454546,
+    "blockers": {
+     "dependency": 48
+    },
+    "ops": {
+     "mul:fmul": 48,
+     "add:mov": 40,
+     "add:add": 32,
+     "add:fsub": 24,
+     "add:asr": 16,
+     "add:mov.setf": 16,
+     "add:sub": 16,
+     "mul:mov": 8,
+     "add:shr": 8,
+     "add:shl": 8,
+     "add:xor": 8,
+     "add:itof": 8
+    },
+    "label": "loop_exit32",
+    "start": 910,
+    "length": 44,
+    "entries": 8,
+    "share": 0.0032402975182266734
+   },
+   {
+    "executed": 344.0,
+    "mix": {
+     "paired": 0.06976744186046512,
+     "add": 0.6511627906976745,
+     "nop_other": 0.023255813953488372,
+     "ldi": 0.046511627906976744,
+     "mul": 0.11627906976744186,
+     "branch": 0.023255813953488372,
+     "nop_delay": 0.06976744186046512
+    },
+    "add_ops": 248.0,
+    "mul_ops": 64.0,
+    "movs": 80.0,
+    "ldi": 16.0,
+    "branches": 8.0,
+    "bound": 272.0,
+    "packing": 0.7906976744186046,
+    "blockers": {
+     "dependency": 48
+    },
+    "ops": {
+     "mul:fmul": 48,
+     "add:mov": 40,
+     "add:sub": 40,
+     "add:xor": 24,
+     "add:add": 24,
+     "add:mov.setf": 24,
+     "add:fsub": 24,
+     "mul:mov": 16,
+     "add:asr": 16,
+     "add:shr": 8,
+     "add:shl": 8,
+     "add:min": 8
+    },
+    "label": "div_done36",
+    "start": 973,
+    "length": 43,
+    "entries": 8,
+    "share": 0.003166654392812431
+   },
+   {
+    "executed": 312.0,
+    "mix": {
+     "paired": 0.07692307692307693,
+     "add": 0.6410256410256411,
+     "ldi": 0.05128205128205128,
+     "mul": 0.1282051282051282,
+     "branch": 0.02564102564102564,
+     "nop_delay": 0.07692307692307693
+    },
+    "add_ops": 224.0,
+    "mul_ops": 64.0,
+    "movs": 64.0,
+    "ldi": 16.0,
+    "branches": 8.0,
+    "bound": 248.0,
+    "packing": 0.7948717948717948,
+    "blockers": {
+     "dependency": 48
+    },
+    "ops": {
+     "mul:fmul": 48,
+     "add:sub": 40,
+     "add:mov": 24,
+     "add:xor": 24,
+     "add:mov.setf": 24,
+     "add:fsub": 24,
+     "mul:mov": 16,
+     "add:add": 16,
+     "add:asr": 16,
+     "add:shl": 8,
+     "add:shr": 8,
+     "add:min": 8
+    },
+    "label": "div_done42",
+    "start": 1088,
+    "length": 39,
+    "entries": 8,
+    "share": 0.0028720818911554605
+   },
+   {
+    "executed": 296.0,
+    "mix": {
+     "paired": 0.05405405405405406,
+     "add": 0.5945945945945946,
+     "ldi": 0.08108108108108109,
+     "nop_other": 0.02702702702702703,
+     "mul": 0.13513513513513514,
+     "branch": 0.02702702702702703,
+     "nop_delay": 0.08108108108108109
+    },
+    "add_ops": 192.0,
+    "mul_ops": 56.0,
+    "movs": 32.0,
+    "ldi": 24.0,
+    "branches": 8.0,
+    "bound": 224.0,
+    "packing": 0.7567567567567568,
+    "blockers": {
+     "dependency": 48
+    },
+    "ops": {
+     "mul:fmul": 48,
+     "add:add": 32,
+     "add:asr": 32,
+     "add:fsub": 24,
+     "add:shr": 16,
+     "add:mov.setf": 16,
+     "add:sub": 16,
+     "mul:mov": 8,
+     "add:shl": 8,
+     "add:mov": 8,
+     "add:xor": 8,
+     "add:itof": 8
+    },
+    "label": "main1",
+    "start": 10,
+    "length": 37,
+    "entries": 8,
+    "share": 0.0027247956403269754
+   },
+   {
+    "executed": 288.0,
+    "mix": {
+     "paired": 0.05555555555555555,
+     "add": 0.5833333333333334,
+     "ldi": 0.08333333333333333,
+     "nop_other": 0.027777777777777776,
+     "mul": 0.1388888888888889,
+     "branch": 0.027777777777777776,
+     "nop_delay": 0.08333333333333333
+    },
+    "add_ops": 184.0,
+    "mul_ops": 56.0,
+    "movs": 32.0,
+    "ldi": 24.0,
+    "branches": 8.0,
+    "bound": 216.0,
+    "packing": 0.75,
+    "blockers": {
+     "dependency": 48
+    },
+    "ops": {
+     "mul:fmul": 48,
+     "add:xor": 24,
+     "add:sub": 24,
+     "add:fsub": 24,
+     "add:shl": 16,
+     "add:add": 16,
+     "add:asr": 16,
+     "add:mov.setf": 16,
+     "mul:mov": 8,
+     "add:shr": 8,
+     "add:mov": 8,
+     "add:itof": 8
+    },
+    "label": "div_done39",
+    "start": 1033,
+    "length": 36,
+    "entries": 8,
+    "share": 0.002651152514912733
+   },
+   {
+    "executed": 272.0,
+    "mix": {
+     "paired": 0.08823529411764706,
+     "add": 0.5882352941176471,
+     "ldi": 0.058823529411764705,
+     "mul": 0.14705882352941177,
+     "branch": 0.029411764705882353,
+     "nop_delay": 0.08823529411764706
+    },
+    "add_ops": 184.0,
+    "mul_ops": 64.0,
+    "movs": 64.0,
+    "ldi": 16.0,
+    "branches": 8.0,
+    "bound": 208.0,
+    "packing": 0.7647058823529411,
+    "blockers": {
+     "dependency": 48
+    },
+    "ops": {
+     "mul:fmul": 48,
+     "add:sub": 40,
+     "add:mov": 24,
+     "add:xor": 24,
+     "add:mov.setf": 24,
+     "add:fsub": 24,
+     "mul:mov": 16,
+     "add:shl": 8,
+     "add:min": 8,
+     "add:itof": 8,
+     "add:fadd": 8,
+     "add:or": 8
+    },
+    "label": "div_done3",
+    "start": 66,
+    "length": 34,
+    "entries": 8,
+    "share": 0.002503866264084248
+   },
+   {
+    "executed": 272.0,
+    "mix": {
+     "nop_other": 0.029411764705882353,
+     "paired": 0.7941176470588235,
+     "add": 0.14705882352941177,
+     "ldi": 0.029411764705882353
+    },
+    "add_ops": 256.0,
+    "mul_ops": 216.0,
+    "movs": 288.0,
+    "ldi": 8.0,
+    "branches": 0.0,
+    "bound": 264.0,
+    "packing": 0.9705882352941176,
+    "blockers": {},
+    "ops": {
+     "mul:mov": 216,
+     "add:add": 96,
+     "add:mov": 72,
+     "add:shl": 64,
+     "add:xor": 8,
+     "add:sub": 8,
+     "add:and": 8
+    },
+    "label": "div_done30",
+    "start": 473,
+    "length": 34,
+    "entries": 8,
+    "share": 0.002503866264084248
+   },
+   {
+    "executed": 152.0,
+    "mix": {
+     "add": 0.6842105263157895,
+     "mul": 0.21052631578947367,
+     "nop_other": 0.10526315789473684
+    },
+    "add_ops": 104.0,
+    "mul_ops": 32.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 104.0,
+    "packing": 0.6842105263157895,
+    "blockers": {
+     "dependency": 56
+    },
+    "ops": {
+     "add:sub": 24,
+     "add:add": 24,
+     "add:itof": 16,
+     "mul:fmul": 16,
+     "add:ftoi": 16,
+     "mul:mul24": 16,
+     "add:sub.setf": 8,
+     "add:mov": 8,
+     "add:mov.setf": 8
+    },
+    "label": "div_small4",
+    "start": 47,
+    "length": 19,
+    "entries": 8,
+    "share": 0.001399219382870609
+   },
+   {
+    "executed": 152.0,
+    "mix": {
+     "add": 0.6842105263157895,
+     "mul": 0.21052631578947367,
+     "nop_other": 0.10526315789473684
+    },
+    "add_ops": 104.0,
+    "mul_ops": 32.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 104.0,
+    "packing": 0.6842105263157895,
+    "blockers": {
+     "dependency": 56
+    },
+    "ops": {
+     "add:sub": 24,
+     "add:add": 24,
+     "add:itof": 16,
+     "mul:fmul": 16,
+     "add:ftoi": 16,
+     "mul:mul24": 16,
+     "add:sub.setf": 8,
+     "add:mov": 8,
+     "add:mov.setf": 8
+    },
+    "label": "div_small7",
+    "start": 100,
+    "length": 19,
+    "entries": 8,
+    "share": 0.001399219382870609
+   },
+   {
+    "executed": 152.0,
+    "mix": {
+     "add": 0.6842105263157895,
+     "mul": 0.21052631578947367,
+     "nop_other": 0.10526315789473684
+    },
+    "add_ops": 104.0,
+    "mul_ops": 32.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 104.0,
+    "packing": 0.6842105263157895,
+    "blockers": {
+     "dependency": 56
+    },
+    "ops": {
+     "add:sub": 24,
+     "add:add": 24,
+     "add:itof": 16,
+     "mul:fmul": 16,
+     "add:ftoi": 16,
+     "mul:mul24": 16,
+     "add:sub.setf": 8,
+     "add:mov": 8,
+     "add:mov.setf": 8
+    },
+    "label": "div_small10",
+    "start": 164,
+    "length": 19,
+    "entries": 8,
+    "share": 0.001399219382870609
+   },
+   {
+    "executed": 152.0,
+    "mix": {
+     "add": 0.6842105263157895,
+     "mul": 0.21052631578947367,
+     "nop_other": 0.10526315789473684
+    },
+    "add_ops": 104.0,
+    "mul_ops": 32.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 104.0,
+    "packing": 0.6842105263157895,
+    "blockers": {
+     "dependency": 56
+    },
+    "ops": {
+     "add:sub": 24,
+     "add:add": 24,
+     "add:itof": 16,
+     "mul:fmul": 16,
+     "add:ftoi": 16,
+     "mul:mul24": 16,
+     "add:sub.setf": 8,
+     "add:mov": 8,
+     "add:mov.setf": 8
+    },
+    "label": "div_small13",
+    "start": 198,
+    "length": 19,
+    "entries": 8,
+    "share": 0.001399219382870609
+   },
+   {
+    "executed": 152.0,
+    "mix": {
+     "add": 0.6842105263157895,
+     "mul": 0.21052631578947367,
+     "nop_other": 0.10526315789473684
+    },
+    "add_ops": 104.0,
+    "mul_ops": 32.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 104.0,
+    "packing": 0.6842105263157895,
+    "blockers": {
+     "dependency": 56
+    },
+    "ops": {
+     "add:sub": 24,
+     "add:add": 24,
+     "add:itof": 16,
+     "mul:fmul": 16,
+     "add:ftoi": 16,
+     "mul:mul24": 16,
+     "add:sub.setf": 8,
+     "add:mov": 8,
+     "add:mov.setf": 8
+    },
+    "label": "div_small16",
+    "start": 232,
+    "length": 19,
+    "entries": 8,
+    "share": 0.001399219382870609
+   },
+   {
+    "executed": 152.0,
+    "mix": {
+     "add": 0.6842105263157895,
+     "mul": 0.21052631578947367,
+     "nop_other": 0.10526315789473684
+    },
+    "add_ops": 104.0,
+    "mul_ops": 32.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 104.0,
+    "packing": 0.6842105263157895,
+    "blockers": {
+     "dependency": 56
+    },
+    "ops": {
+     "add:sub": 24,
+     "add:add": 24,
+     "add:itof": 16,
+     "mul:fmul": 16,
+     "add:ftoi": 16,
+     "mul:mul24": 16,
+     "add:sub.setf": 8,
+     "add:mov": 8,
+     "add:mov.setf": 8
+    },
+    "label": "div_small19",
+    "start": 266,
+    "length": 19,
+    "entries": 8,
+    "share": 0.001399219382870609
+   },
+   {
+    "executed": 152.0,
+    "mix": {
+     "add": 0.6842105263157895,
+     "mul": 0.21052631578947367,
+     "nop_other": 0.10526315789473684
+    },
+    "add_ops": 104.0,
+    "mul_ops": 32.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 104.0,
+    "packing": 0.6842105263157895,
+    "blockers": {
+     "dependency": 56
+    },
+    "ops": {
+     "add:sub": 24,
+     "add:add": 24,
+     "add:itof": 16,
+     "mul:fmul": 16,
+     "add:ftoi": 16,
+     "mul:mul24": 16,
+     "add:sub.setf": 8,
+     "add:mov": 8,
+     "add:mov.setf": 8
+    },
+    "label": "div_small22",
+    "start": 352,
+    "length": 19,
+    "entries": 8,
+    "share": 0.001399219382870609
+   },
+   {
+    "executed": 152.0,
+    "mix": {
+     "add": 0.6842105263157895,
+     "mul": 0.21052631578947367,
+     "nop_other": 0.10526315789473684
+    },
+    "add_ops": 104.0,
+    "mul_ops": 32.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 104.0,
+    "packing": 0.6842105263157895,
+    "blockers": {
+     "dependency": 56
+    },
+    "ops": {
+     "add:sub": 24,
+     "add:add": 24,
+     "add:itof": 16,
+     "mul:fmul": 16,
+     "add:ftoi": 16,
+     "mul:mul24": 16,
+     "add:sub.setf": 8,
+     "add:mov": 8,
+     "add:mov.setf": 8
+    },
+    "label": "div_small25",
+    "start": 386,
+    "length": 19,
+    "entries": 8,
+    "share": 0.001399219382870609
+   },
+   {
+    "executed": 152.0,
+    "mix": {
+     "add": 0.6842105263157895,
+     "mul": 0.21052631578947367,
+     "nop_other": 0.10526315789473684
+    },
+    "add_ops": 104.0,
+    "mul_ops": 32.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 104.0,
+    "packing": 0.6842105263157895,
+    "blockers": {
+     "dependency": 56
+    },
+    "ops": {
+     "add:sub": 24,
+     "add:add": 24,
+     "add:itof": 16,
+     "mul:fmul": 16,
+     "add:ftoi": 16,
+     "mul:mul24": 16,
+     "add:sub.setf": 8,
+     "add:mov": 8,
+     "add:mov.setf": 8
+    },
+    "label": "div_small28",
+    "start": 420,
+    "length": 19,
+    "entries": 8,
+    "share": 0.001399219382870609
+   },
+   {
+    "executed": 152.0,
+    "mix": {
+     "add": 0.6842105263157895,
+     "mul": 0.21052631578947367,
+     "nop_other": 0.10526315789473684
+    },
+    "add_ops": 104.0,
+    "mul_ops": 32.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 104.0,
+    "packing": 0.6842105263157895,
+    "blockers": {
+     "dependency": 56
+    },
+    "ops": {
+     "add:sub": 24,
+     "add:add": 24,
+     "add:itof": 16,
+     "mul:fmul": 16,
+     "add:ftoi": 16,
+     "mul:mul24": 16,
+     "add:sub.setf": 8,
+     "add:mov": 8,
+     "add:mov.setf": 8
+    },
+    "label": "div_small31",
+    "start": 454,
+    "length": 19,
+    "entries": 8,
+    "share": 0.001399219382870609
+   },
+   {
+    "executed": 152.0,
+    "mix": {
+     "add": 0.6842105263157895,
+     "mul": 0.21052631578947367,
+     "nop_other": 0.10526315789473684
+    },
+    "add_ops": 104.0,
+    "mul_ops": 32.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 104.0,
+    "packing": 0.6842105263157895,
+    "blockers": {
+     "dependency": 56
+    },
+    "ops": {
+     "add:sub": 24,
+     "add:add": 24,
+     "add:itof": 16,
+     "mul:fmul": 16,
+     "add:ftoi": 16,
+     "mul:mul24": 16,
+     "add:sub.setf": 8,
+     "add:mov": 8,
+     "add:mov.setf": 8
+    },
+    "label": "div_small37",
+    "start": 954,
+    "length": 19,
+    "entries": 8,
+    "share": 0.001399219382870609
+   },
+   {
+    "executed": 152.0,
+    "mix": {
+     "add": 0.6842105263157895,
+     "mul": 0.21052631578947367,
+     "nop_other": 0.10526315789473684
+    },
+    "add_ops": 104.0,
+    "mul_ops": 32.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 104.0,
+    "packing": 0.6842105263157895,
+    "blockers": {
+     "dependency": 56
+    },
+    "ops": {
+     "add:sub": 24,
+     "add:add": 24,
+     "add:itof": 16,
+     "mul:fmul": 16,
+     "add:ftoi": 16,
+     "mul:mul24": 16,
+     "add:sub.setf": 8,
+     "add:mov": 8,
+     "add:mov.setf": 8
+    },
+    "label": "div_small43",
+    "start": 1069,
+    "length": 19,
+    "entries": 8,
+    "share": 0.001399219382870609
+   },
+   {
+    "executed": 152.0,
+    "mix": {
+     "add": 0.6842105263157895,
+     "mul": 0.21052631578947367,
+     "nop_other": 0.10526315789473684
+    },
+    "add_ops": 104.0,
+    "mul_ops": 32.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 104.0,
+    "packing": 0.6842105263157895,
+    "blockers": {
+     "dependency": 56
+    },
+    "ops": {
+     "add:sub": 24,
+     "add:add": 24,
+     "add:itof": 16,
+     "mul:fmul": 16,
+     "add:ftoi": 16,
+     "mul:mul24": 16,
+     "add:sub.setf": 8,
+     "add:mov": 8,
+     "add:mov.setf": 8
+    },
+    "label": "div_small46",
+    "start": 1127,
+    "length": 19,
+    "entries": 8,
+    "share": 0.001399219382870609
+   },
+   {
+    "executed": 136.0,
+    "mix": {
+     "add": 0.6470588235294118,
+     "mul": 0.23529411764705882,
+     "nop_other": 0.058823529411764705,
+     "paired": 0.058823529411764705
+    },
+    "add_ops": 96.0,
+    "mul_ops": 40.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 96.0,
+    "packing": 0.7058823529411765,
+    "blockers": {
+     "dependency": 56
+    },
+    "ops": {
+     "add:sub": 24,
+     "add:add": 24,
+     "add:itof": 16,
+     "mul:fmul": 16,
+     "add:ftoi": 16,
+     "mul:mul24": 16,
+     "add:sub.setf": 8,
+     "mul:mov": 8,
+     "add:mov.setf": 8
+    },
+    "label": "div_small40",
+    "start": 1016,
+    "length": 17,
+    "entries": 8,
+    "share": 0.001251933132042124
+   },
+   {
+    "executed": 120.0,
+    "mix": {
+     "nop_other": 0.2,
+     "add": 0.4666666666666667,
+     "paired": 0.06666666666666667,
+     "branch": 0.06666666666666667,
+     "nop_delay": 0.2
+    },
+    "add_ops": 64.0,
+    "mul_ops": 8.0,
+    "movs": 24.0,
+    "ldi": 0.0,
+    "branches": 8.0,
+    "bound": 72.0,
+    "packing": 0.6,
+    "blockers": {},
+    "ops": {
+     "add:xor": 16,
+     "add:sub": 16,
+     "mul:mov": 8,
+     "add:mov.setf": 8,
+     "add:mov": 8,
+     "add:or": 8,
+     "add:shr.setf": 8
+    },
+    "label": "div_done9",
+    "start": 183,
+    "length": 15,
+    "entries": 8,
+    "share": 0.0011046468812136387
+   },
+   {
+    "executed": 120.0,
+    "mix": {
+     "nop_other": 0.2,
+     "add": 0.4666666666666667,
+     "paired": 0.06666666666666667,
+     "branch": 0.06666666666666667,
+     "nop_delay": 0.2
+    },
+    "add_ops": 64.0,
+    "mul_ops": 8.0,
+    "movs": 24.0,
+    "ldi": 0.0,
+    "branches": 8.0,
+    "bound": 72.0,
+    "packing": 0.6,
+    "blockers": {},
+    "ops": {
+     "add:xor": 16,
+     "add:sub": 16,
+     "mul:mov": 8,
+     "add:mov.setf": 8,
+     "add:mov": 8,
+     "add:or": 8,
+     "add:shr.setf": 8
+    },
+    "label": "div_done12",
+    "start": 217,
+    "length": 15,
+    "entries": 8,
+    "share": 0.0011046468812136387
+   },
+   {
+    "executed": 120.0,
+    "mix": {
+     "nop_other": 0.2,
+     "add": 0.4666666666666667,
+     "paired": 0.06666666666666667,
+     "branch": 0.06666666666666667,
+     "nop_delay": 0.2
+    },
+    "add_ops": 64.0,
+    "mul_ops": 8.0,
+    "movs": 24.0,
+    "ldi": 0.0,
+    "branches": 8.0,
+    "bound": 72.0,
+    "packing": 0.6,
+    "blockers": {},
+    "ops": {
+     "add:xor": 16,
+     "add:sub": 16,
+     "mul:mov": 8,
+     "add:mov.setf": 8,
+     "add:mov": 8,
+     "add:or": 8,
+     "add:shr.setf": 8
+    },
+    "label": "div_done15",
+    "start": 251,
+    "length": 15,
+    "entries": 8,
+    "share": 0.0011046468812136387
+   },
+   {
+    "executed": 120.0,
+    "mix": {
+     "nop_other": 0.2,
+     "add": 0.4666666666666667,
+     "paired": 0.06666666666666667,
+     "branch": 0.06666666666666667,
+     "nop_delay": 0.2
+    },
+    "add_ops": 64.0,
+    "mul_ops": 8.0,
+    "movs": 24.0,
+    "ldi": 0.0,
+    "branches": 8.0,
+    "bound": 72.0,
+    "packing": 0.6,
+    "blockers": {},
+    "ops": {
+     "add:xor": 16,
+     "add:sub": 16,
+     "mul:mov": 8,
+     "add:mov.setf": 8,
+     "add:mov": 8,
+     "add:or": 8,
+     "add:shr.setf": 8
+    },
+    "label": "div_done21",
+    "start": 371,
+    "length": 15,
+    "entries": 8,
+    "share": 0.0011046468812136387
+   },
+   {
+    "executed": 120.0,
+    "mix": {
+     "nop_other": 0.2,
+     "add": 0.4666666666666667,
+     "paired": 0.06666666666666667,
+     "branch": 0.06666666666666667,
+     "nop_delay": 0.2
+    },
+    "add_ops": 64.0,
+    "mul_ops": 8.0,
+    "movs": 24.0,
+    "ldi": 0.0,
+    "branches": 8.0,
+    "bound": 72.0,
+    "packing": 0.6,
+    "blockers": {},
+    "ops": {
+     "add:xor": 16,
+     "add:sub": 16,
+     "mul:mov": 8,
+     "add:mov.setf": 8,
+     "add:mov": 8,
+     "add:or": 8,
+     "add:shr.setf": 8
+    },
+    "label": "div_done24",
+    "start": 405,
+    "length": 15,
+    "entries": 8,
+    "share": 0.0011046468812136387
+   },
+   {
+    "executed": 120.0,
+    "mix": {
+     "nop_other": 0.2,
+     "add": 0.4666666666666667,
+     "paired": 0.06666666666666667,
+     "branch": 0.06666666666666667,
+     "nop_delay": 0.2
+    },
+    "add_ops": 64.0,
+    "mul_ops": 8.0,
+    "movs": 24.0,
+    "ldi": 0.0,
+    "branches": 8.0,
+    "bound": 72.0,
+    "packing": 0.6,
+    "blockers": {},
+    "ops": {
+     "add:xor": 16,
+     "add:sub": 16,
+     "mul:mov": 8,
+     "add:mov.setf": 8,
+     "add:mov": 8,
+     "add:or": 8,
+     "add:shr.setf": 8
+    },
+    "label": "div_done27",
+    "start": 439,
+    "length": 15,
+    "entries": 8,
+    "share": 0.0011046468812136387
+   },
+   {
+    "executed": 80.0,
+    "mix": {
+     "add": 1.0
+    },
+    "add_ops": 80.0,
+    "mul_ops": 0.0,
+    "movs": 80.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 80.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 80
+    },
+    "label": "entry",
+    "start": 0,
+    "length": 10,
+    "entries": 8,
+    "share": 0.0007364312541424258
+   },
+   {
+    "executed": 80.0,
+    "mix": {
+     "ldi": 0.1,
+     "add": 0.5,
+     "branch": 0.1,
+     "nop_delay": 0.3
+    },
+    "add_ops": 40.0,
+    "mul_ops": 0.0,
+    "movs": 8.0,
+    "ldi": 8.0,
+    "branches": 8.0,
+    "bound": 56.0,
+    "packing": 0.7,
+    "blockers": {},
+    "ops": {
+     "add:sub": 16,
+     "add:min": 8,
+     "add:asr": 8,
+     "add:mov.setf": 8
+    },
+    "label": "store_fast49",
+    "start": 1192,
+    "length": 10,
+    "entries": 8,
+    "share": 0.0007364312541424258
+   },
+   {
+    "executed": 64.0,
+    "mix": {
+     "signal": 1.0
+    },
+    "add_ops": 0.0,
+    "mul_ops": 0.0,
+    "movs": 0.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 0.0,
+    "packing": 0.0,
+    "blockers": {},
+    "ops": {},
+    "label": "loop_end33",
+    "start": 902,
+    "length": 8,
+    "entries": 8,
+    "share": 0.0005891450033139406
+   },
+   {
+    "executed": 32.0,
+    "mix": {
+     "add": 0.25,
+     "signal": 0.25,
+     "nop_end": 0.5
+    },
+    "add_ops": 8.0,
+    "mul_ops": 0.0,
+    "movs": 8.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 8.0,
+    "packing": 0.25,
+    "blockers": {},
+    "ops": {
+     "add:mov": 8
+    },
+    "label": "skip67/store_done51/store_rows_done48",
+    "start": 1609,
+    "length": 4,
+    "entries": 8,
+    "share": 0.0002945725016569703
+   }
+  ]
+ },
+ {
+  "name": "dense_relu",
+  "note": "digits layer 1",
+  "instructions": 767,
+  "programs": 16,
+  "cycles": 4994,
+  "whole": {
+   "executed": 35584.0,
+   "mix": {
+    "add": 0.2927158273381295,
+    "paired": 0.585431654676259,
+    "ldi": 0.005845323741007194,
+    "mul": 0.09667266187050359,
+    "nop_other": 0.008093525179856115,
+    "branch": 0.0044964028776978415,
+    "signal": 0.0044964028776978415,
+    "nop_delay": 0.0013489208633093526,
+    "nop_end": 0.0008992805755395684
+   },
+   "add_ops": 31248.0,
+   "mul_ops": 24272.0,
+   "movs": 12016.0,
+   "ldi": 208.0,
+   "branches": 160.0,
+   "bound": 31616.0,
+   "packing": 0.8884892086330936,
+   "blockers": {
+    "dependency": 816,
+    "port_A": 256,
+    "free": 512,
+    "write_file": 128
+   },
+   "ops": {
+    "mul:fmul": 16832,
+    "add:fadd": 16640,
+    "mul:mov": 7184,
+    "add:add": 7040,
+    "add:mov": 4672,
+    "add:sub.setf": 688,
+    "add:sub": 544,
+    "add:shl": 368,
+    "add:itof": 288,
+    "add:ftoi": 256,
+    "mul:mul24": 256,
+    "add:fmax": 256
+   }
+  },
+  "regions": [
+   {
+    "executed": 29184.0,
+    "mix": {
+     "nop_other": 0.0043859649122807015,
+     "add": 0.19736842105263158,
+     "paired": 0.6973684210526315,
+     "mul": 0.09649122807017543,
+     "branch": 0.0043859649122807015
+    },
+    "add_ops": 26112.0,
+    "mul_ops": 23168.0,
+    "movs": 10112.0,
+    "ldi": 0.0,
+    "branches": 128.0,
+    "bound": 26240.0,
+    "packing": 0.8991228070175439,
+    "blockers": {
+     "free": 512,
+     "write_file": 128
+    },
+    "ops": {
+     "mul:fmul": 16384,
+     "add:fadd": 16384,
+     "mul:mov": 6784,
+     "add:add": 5888,
+     "add:mov": 3328,
+     "add:sub.setf": 512
+    },
+    "label": "loop2",
+    "start": 235,
+    "length": 228,
+    "entries": 128,
+    "share": 0.8201438848920863
+   },
+   {
+    "executed": 3632.0,
+    "mix": {
+     "paired": 0.11013215859030837,
+     "ldi": 0.022026431718061675,
+     "add": 0.6696035242290749,
+     "mul": 0.17180616740088106,
+     "nop_other": 0.02643171806167401
+    },
+    "add_ops": 2832.0,
+    "mul_ops": 1024.0,
+    "movs": 752.0,
+    "ldi": 80.0,
+    "branches": 0.0,
+    "bound": 2912.0,
+    "packing": 0.801762114537445,
+    "blockers": {
+     "dependency": 816,
+     "port_A": 256
+    },
+    "ops": {
+     "add:add": 784,
+     "add:sub": 512,
+     "mul:fmul": 448,
+     "mul:mov": 320,
+     "add:mov": 304,
+     "add:itof": 288,
+     "add:ftoi": 256,
+     "mul:mul24": 256,
+     "add:shl": 176,
+     "add:sub.setf": 160,
+     "add:mov.setf": 128,
+     "add:fsub": 96
+    },
+    "label": "main1",
+    "start": 8,
+    "length": 227,
+    "entries": 16,
+    "share": 0.10206834532374101
+   },
+   {
+    "executed": 1424.0,
+    "mix": {
+     "ldi": 0.033707865168539325,
+     "add": 0.8539325842696629,
+     "nop_other": 0.0449438202247191,
+     "signal": 0.011235955056179775,
+     "paired": 0.011235955056179775,
+     "branch": 0.011235955056179775,
+     "nop_delay": 0.033707865168539325
+    },
+    "add_ops": 1232.0,
+    "mul_ops": 16.0,
+    "movs": 272.0,
+    "ldi": 48.0,
+    "branches": 16.0,
+    "bound": 1296.0,
+    "packing": 0.9101123595505618,
+    "blockers": {},
+    "ops": {
+     "add:fadd": 256,
+     "add:fmax": 256,
+     "add:mov": 224,
+     "add:add": 160,
+     "add:shl": 144,
+     "add:min": 48,
+     "add:asr": 32,
+     "add:sub": 32,
+     "add:mov.setf": 32,
+     "add:and": 16,
+     "mul:mov": 16,
+     "add:max": 16
+    },
+    "label": "loop_exit2",
+    "start": 471,
+    "length": 89,
+    "entries": 16,
+    "share": 0.04001798561151079
+   },
+   {
+    "executed": 1024.0,
+    "mix": {
+     "add": 0.84375,
+     "ldi": 0.078125,
+     "paired": 0.0625,
+     "branch": 0.015625
+    },
+    "add_ops": 928.0,
+    "mul_ops": 64.0,
+    "movs": 736.0,
+    "ldi": 80.0,
+    "branches": 16.0,
+    "bound": 1024.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 672,
+     "add:add": 208,
+     "mul:mov": 64,
+     "add:shl": 48
+    },
+    "label": "store_full7",
+    "start": 560,
+    "length": 64,
+    "entries": 16,
+    "share": 0.02877697841726619
+   },
+   {
+    "executed": 128.0,
+    "mix": {
+     "add": 1.0
+    },
+    "add_ops": 128.0,
+    "mul_ops": 0.0,
+    "movs": 128.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 128.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 128
+    },
+    "label": "entry",
+    "start": 0,
+    "length": 8,
+    "entries": 16,
+    "share": 0.0035971223021582736
+   },
+   {
+    "executed": 128.0,
+    "mix": {
+     "signal": 1.0
+    },
+    "add_ops": 0.0,
+    "mul_ops": 0.0,
+    "movs": 0.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 0.0,
+    "packing": 0.0,
+    "blockers": {},
+    "ops": {},
+    "label": "loop_end3",
+    "start": 463,
+    "length": 8,
+    "entries": 16,
+    "share": 0.0035971223021582736
+   },
+   {
+    "executed": 64.0,
+    "mix": {
+     "add": 0.25,
+     "signal": 0.25,
+     "nop_end": 0.5
+    },
+    "add_ops": 16.0,
+    "mul_ops": 0.0,
+    "movs": 16.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 16.0,
+    "packing": 0.25,
+    "blockers": {},
+    "ops": {
+     "add:mov": 16
+    },
+    "label": "skip14/store_done6",
+    "start": 763,
+    "length": 4,
+    "entries": 16,
+    "share": 0.0017985611510791368
+   }
+  ]
+ },
+ {
+  "name": "mandel_32x16",
+  "note": "32x16x1, zoom 1000",
+  "instructions": 495,
+  "programs": 4,
+  "cycles": 22414,
+  "whole": {
+   "executed": 87888.0,
+   "mix": {
+    "add": 0.5700892044420172,
+    "paired": 0.13985982159111596,
+    "ldi": 0.0004551247041689423,
+    "branch": 0.010194793373384307,
+    "nop_other": 0.012015292190060076,
+    "mul": 0.2505006371745858,
+    "nop_delay": 0.016748589113417076,
+    "signal": 4.551247041689423e-05,
+    "nop_end": 9.102494083378845e-05
+   },
+   "add_ops": 62396.0,
+   "mul_ops": 34308.0,
+   "movs": 3156.0,
+   "ldi": 40.0,
+   "branches": 896.0,
+   "bound": 63332.0,
+   "packing": 0.7205989441106864,
+   "blockers": {
+    "dependency": 1024,
+    "port_B": 8448,
+    "port_A": 8704
+   },
+   "ops": {
+    "mul:fmul": 32808,
+    "add:fadd": 24616,
+    "add:fsub": 16384,
+    "add:add": 8888,
+    "add:asr": 8232,
+    "add:mov": 1688,
+    "mul:mov": 1404,
+    "add:max": 1284,
+    "add:sub.setf": 672,
+    "add:sub": 296,
+    "add:shl": 152,
+    "mul:mul24": 96
+   }
+  },
+  "regions": [
+   {
+    "executed": 79104.0,
+    "mix": {
+     "mul": 0.26537216828478966,
+     "add": 0.5825242718446602,
+     "paired": 0.1488673139158576,
+     "branch": 0.003236245954692557
+    },
+    "add_ops": 57856.0,
+    "mul_ops": 32768.0,
+    "movs": 256.0,
+    "ldi": 0.0,
+    "branches": 256.0,
+    "bound": 58112.0,
+    "packing": 0.7346278317152104,
+    "blockers": {
+     "port_B": 8448,
+     "port_A": 8704
+    },
+    "ops": {
+     "mul:fmul": 32768,
+     "add:fadd": 24576,
+     "add:fsub": 16384,
+     "add:asr": 8192,
+     "add:add": 8192,
+     "add:sub": 256,
+     "add:mov": 256
+    },
+    "label": "then7",
+    "start": 77,
+    "length": 309,
+    "entries": 256,
+    "share": 0.9000546149645002
+   },
+   {
+    "executed": 4608.0,
+    "mix": {
+     "add": 0.3333333333333333,
+     "nop_other": 0.2222222222222222,
+     "mul": 0.2222222222222222,
+     "branch": 0.05555555555555555,
+     "nop_delay": 0.16666666666666666
+    },
+    "add_ops": 1536.0,
+    "mul_ops": 1024.0,
+    "movs": 1024.0,
+    "ldi": 0.0,
+    "branches": 256.0,
+    "bound": 1792.0,
+    "packing": 0.3888888888888889,
+    "blockers": {
+     "dependency": 1024
+    },
+    "ops": {
+     "add:max": 1280,
+     "mul:mov": 1024,
+     "add:sub.setf": 256
+    },
+    "label": "loop_pre3/loop4",
+    "start": 59,
+    "length": 18,
+    "entries": 256,
+    "share": 0.05243036592026215
+   },
+   {
+    "executed": 1792.0,
+    "mix": {
+     "add": 0.5714285714285714,
+     "branch": 0.14285714285714285,
+     "nop_delay": 0.2857142857142857
+    },
+    "add_ops": 1024.0,
+    "mul_ops": 0.0,
+    "movs": 512.0,
+    "ldi": 0.0,
+    "branches": 256.0,
+    "bound": 1280.0,
+    "packing": 0.7142857142857143,
+    "blockers": {},
+    "ops": {
+     "add:mov": 512,
+     "add:add": 256,
+     "add:sub.setf": 256
+    },
+    "label": "endif6",
+    "start": 388,
+    "length": 7,
+    "entries": 256,
+    "share": 0.020389586746768613
+   },
+   {
+    "executed": 992.0,
+    "mix": {
+     "add": 0.7096774193548387,
+     "paired": 0.16129032258064516,
+     "branch": 0.03225806451612903,
+     "nop_delay": 0.0967741935483871
+    },
+    "add_ops": 864.0,
+    "mul_ops": 160.0,
+    "movs": 320.0,
+    "ldi": 0.0,
+    "branches": 32.0,
+    "bound": 896.0,
+    "packing": 0.9032258064516129,
+    "blockers": {},
+    "ops": {
+     "add:add": 256,
+     "add:mov": 192,
+     "add:shl": 128,
+     "add:sub.setf": 96,
+     "mul:mul24": 96,
+     "add:mov.setf": 64,
+     "mul:mov": 64,
+     "add:shr": 32,
+     "add:min": 32,
+     "add:sub": 32,
+     "add:asr": 32
+    },
+    "label": "loop_exit3",
+    "start": 395,
+    "length": 31,
+    "entries": 32,
+    "share": 0.011287092663389769
+   },
+   {
+    "executed": 608.0,
+    "mix": {
+     "add": 0.8947368421052632,
+     "paired": 0.05263157894736842,
+     "branch": 0.05263157894736842
+    },
+    "add_ops": 576.0,
+    "mul_ops": 32.0,
+    "movs": 512.0,
+    "ldi": 0.0,
+    "branches": 32.0,
+    "bound": 608.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 480,
+     "add:add": 96,
+     "mul:mov": 32
+    },
+    "label": "store_full11",
+    "start": 426,
+    "length": 19,
+    "entries": 32,
+    "share": 0.006917895503367923
+   },
+   {
+    "executed": 352.0,
+    "mix": {
+     "paired": 0.8181818181818182,
+     "add": 0.09090909090909091,
+     "branch": 0.09090909090909091
+    },
+    "add_ops": 320.0,
+    "mul_ops": 288.0,
+    "movs": 448.0,
+    "ldi": 0.0,
+    "branches": 32.0,
+    "bound": 352.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "mul:mov": 256,
+     "add:mov": 192,
+     "add:add": 32,
+     "add:itof": 32,
+     "mul:fmul": 32,
+     "add:fadd": 32,
+     "add:sub.setf": 32
+    },
+    "label": "loop2",
+    "start": 48,
+    "length": 11,
+    "entries": 32,
+    "share": 0.004005097396686692
+   },
+   {
+    "executed": 224.0,
+    "mix": {
+     "add": 0.2857142857142857,
+     "nop_other": 0.14285714285714285,
+     "branch": 0.14285714285714285,
+     "nop_delay": 0.42857142857142855
+    },
+    "add_ops": 64.0,
+    "mul_ops": 0.0,
+    "movs": 0.0,
+    "ldi": 0.0,
+    "branches": 32.0,
+    "bound": 96.0,
+    "packing": 0.42857142857142855,
+    "blockers": {},
+    "ops": {
+     "add:add": 32,
+     "add:sub.setf": 32
+    },
+    "label": "skip14/store_done10",
+    "start": 484,
+    "length": 7,
+    "entries": 32,
+    "share": 0.0025486983433460767
+   },
+   {
+    "executed": 152.0,
+    "mix": {
+     "add": 0.5,
+     "paired": 0.23684210526315788,
+     "ldi": 0.2631578947368421
+    },
+    "add_ops": 112.0,
+    "mul_ops": 36.0,
+    "movs": 40.0,
+    "ldi": 40.0,
+    "branches": 0.0,
+    "bound": 152.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "mul:mov": 28,
+     "add:shl": 24,
+     "add:add": 24,
+     "add:mov": 12,
+     "add:sub": 8,
+     "add:itof": 8,
+     "mul:fmul": 8,
+     "add:fadd": 8,
+     "add:asr": 8,
+     "add:shr": 8,
+     "add:min": 8,
+     "add:max": 4
+    },
+    "label": "main1",
+    "start": 10,
+    "length": 38,
+    "entries": 4,
+    "share": 0.0017294738758419808
+   },
+   {
+    "executed": 40.0,
+    "mix": {
+     "add": 1.0
+    },
+    "add_ops": 40.0,
+    "mul_ops": 0.0,
+    "movs": 40.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 40.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 40
+    },
+    "label": "entry",
+    "start": 0,
+    "length": 10,
+    "entries": 4,
+    "share": 0.0004551247041689423
+   },
+   {
+    "executed": 16.0,
+    "mix": {
+     "add": 0.25,
+     "signal": 0.25,
+     "nop_end": 0.5
+    },
+    "add_ops": 4.0,
+    "mul_ops": 0.0,
+    "movs": 4.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 4.0,
+    "packing": 0.25,
+    "blockers": {},
+    "ops": {
+     "add:mov": 4
+    },
+    "label": "loop_exit2",
+    "start": 491,
+    "length": 4,
+    "entries": 4,
+    "share": 0.0001820498816675769
+   }
+  ]
+ },
+ {
+  "name": "mandel_16x16x2",
+  "note": "16x16x2, zoom 1000",
+  "instructions": 542,
+  "programs": 8,
+  "cycles": 11746,
+  "whole": {
+   "executed": 91642.0,
+   "mix": {
+    "add": 0.5872853058641234,
+    "paired": 0.08926038279391546,
+    "mul": 0.2839309486916479,
+    "ldi": 0.0008729621789135986,
+    "branch": 0.010104537220924904,
+    "nop_other": 0.0115231007616595,
+    "nop_delay": 0.016760873835141094,
+    "signal": 8.729621789135986e-05,
+    "nop_end": 0.00017459243578271972
+   },
+   "add_ops": 62000.0,
+   "mul_ops": 34200.0,
+   "movs": 3202.0,
+   "ldi": 80.0,
+   "branches": 926.0,
+   "bound": 63006.0,
+   "packing": 0.6875231880578774,
+   "blockers": {
+    "dependency": 1104,
+    "write_file": 32,
+    "port_B": 8890,
+    "port_A": 8668
+   },
+   "ops": {
+    "mul:fmul": 32552,
+    "add:fadd": 24424,
+    "add:fsub": 16256,
+    "add:add": 8808,
+    "add:asr": 8176,
+    "add:mov": 1586,
+    "mul:mov": 1552,
+    "add:max": 1288,
+    "add:sub.setf": 672,
+    "add:sub": 310,
+    "add:shl": 224,
+    "mul:mul24": 96
+   }
+  },
+  "regions": [
+   {
+    "executed": 82550.0,
+    "mix": {
+     "mul": 0.30153846153846153,
+     "add": 0.6030769230769231,
+     "paired": 0.09230769230769231,
+     "branch": 0.003076923076923077
+    },
+    "add_ops": 57404.0,
+    "mul_ops": 32512.0,
+    "movs": 254.0,
+    "ldi": 0.0,
+    "branches": 254.0,
+    "bound": 57658.0,
+    "packing": 0.6984615384615385,
+    "blockers": {
+     "port_B": 8890,
+     "port_A": 8636
+    },
+    "ops": {
+     "mul:fmul": 32512,
+     "add:fadd": 24384,
+     "add:fsub": 16256,
+     "add:asr": 8128,
+     "add:add": 8128,
+     "add:sub": 254,
+     "add:mov": 254
+    },
+    "label": "then7",
+    "start": 86,
+    "length": 325,
+    "entries": 254,
+    "share": 0.9007878483664695
+   },
+   {
+    "executed": 4608.0,
+    "mix": {
+     "add": 0.3333333333333333,
+     "nop_other": 0.2222222222222222,
+     "mul": 0.2222222222222222,
+     "branch": 0.05555555555555555,
+     "nop_delay": 0.16666666666666666
+    },
+    "add_ops": 1536.0,
+    "mul_ops": 1024.0,
+    "movs": 1024.0,
+    "ldi": 0.0,
+    "branches": 256.0,
+    "bound": 1792.0,
+    "packing": 0.3888888888888889,
+    "blockers": {
+     "dependency": 1024
+    },
+    "ops": {
+     "add:max": 1280,
+     "mul:mov": 1024,
+     "add:sub.setf": 256
+    },
+    "label": "loop_pre3/loop4",
+    "start": 68,
+    "length": 18,
+    "entries": 256,
+    "share": 0.05028262150542328
+   },
+   {
+    "executed": 1792.0,
+    "mix": {
+     "add": 0.5714285714285714,
+     "branch": 0.14285714285714285,
+     "nop_delay": 0.2857142857142857
+    },
+    "add_ops": 1024.0,
+    "mul_ops": 0.0,
+    "movs": 512.0,
+    "ldi": 0.0,
+    "branches": 256.0,
+    "bound": 1280.0,
+    "packing": 0.7142857142857143,
+    "blockers": {},
+    "ops": {
+     "add:mov": 512,
+     "add:add": 256,
+     "add:sub.setf": 256
+    },
+    "label": "endif6",
+    "start": 413,
+    "length": 7,
+    "entries": 256,
+    "share": 0.01955435280766461
+   },
+   {
+    "executed": 928.0,
+    "mix": {
+     "add": 0.6206896551724138,
+     "paired": 0.20689655172413793,
+     "mul": 0.06896551724137931,
+     "branch": 0.034482758620689655,
+     "nop_delay": 0.06896551724137931
+    },
+    "add_ops": 768.0,
+    "mul_ops": 256.0,
+    "movs": 352.0,
+    "ldi": 0.0,
+    "branches": 32.0,
+    "bound": 800.0,
+    "packing": 0.8620689655172413,
+    "blockers": {
+     "port_A": 32,
+     "dependency": 64
+    },
+    "ops": {
+     "add:add": 256,
+     "add:mov": 160,
+     "mul:mov": 160,
+     "add:shl": 128,
+     "add:sub.setf": 96,
+     "mul:mul24": 96,
+     "add:shr": 32,
+     "add:min": 32,
+     "add:mov.setf": 32,
+     "add:or.setf": 32
+    },
+    "label": "loop_exit3",
+    "start": 420,
+    "length": 29,
+    "entries": 32,
+    "share": 0.010126361275397743
+   },
+   {
+    "executed": 512.0,
+    "mix": {
+     "paired": 0.625,
+     "add": 0.25,
+     "branch": 0.0625,
+     "mul": 0.0625
+    },
+    "add_ops": 448.0,
+    "mul_ops": 352.0,
+    "movs": 576.0,
+    "ldi": 0.0,
+    "branches": 32.0,
+    "bound": 480.0,
+    "packing": 0.9375,
+    "blockers": {
+     "write_file": 32
+    },
+    "ops": {
+     "mul:mov": 320,
+     "add:mov": 256,
+     "add:add": 64,
+     "add:shl": 32,
+     "add:itof": 32,
+     "mul:fmul": 32,
+     "add:fadd": 32,
+     "add:sub.setf": 32
+    },
+    "label": "loop2",
+    "start": 52,
+    "length": 16,
+    "entries": 32,
+    "share": 0.005586957945047031
+   },
+   {
+    "executed": 352.0,
+    "mix": {
+     "add": 0.9090909090909091,
+     "branch": 0.09090909090909091
+    },
+    "add_ops": 320.0,
+    "mul_ops": 0.0,
+    "movs": 288.0,
+    "ldi": 0.0,
+    "branches": 32.0,
+    "bound": 352.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 288,
+     "add:add": 32
+    },
+    "label": "store_full14",
+    "start": 456,
+    "length": 11,
+    "entries": 32,
+    "share": 0.0038410335872198337
+   },
+   {
+    "executed": 336.0,
+    "mix": {
+     "add": 0.5952380952380952,
+     "paired": 0.14285714285714285,
+     "mul": 0.023809523809523808,
+     "ldi": 0.23809523809523808
+    },
+    "add_ops": 248.0,
+    "mul_ops": 56.0,
+    "movs": 72.0,
+    "ldi": 80.0,
+    "branches": 0.0,
+    "bound": 328.0,
+    "packing": 0.9761904761904762,
+    "blockers": {
+     "dependency": 16
+    },
+    "ops": {
+     "add:shl": 64,
+     "mul:mov": 48,
+     "add:add": 40,
+     "add:mov": 24,
+     "add:sub": 24,
+     "add:asr": 16,
+     "add:shr": 16,
+     "add:min": 16,
+     "add:and": 16,
+     "add:itof": 8,
+     "mul:fmul": 8,
+     "add:fadd": 8
+    },
+    "label": "main1",
+    "start": 10,
+    "length": 42,
+    "entries": 8,
+    "share": 0.003666441151437114
+   },
+   {
+    "executed": 224.0,
+    "mix": {
+     "add": 0.42857142857142855,
+     "branch": 0.14285714285714285,
+     "nop_delay": 0.42857142857142855
+    },
+    "add_ops": 96.0,
+    "mul_ops": 0.0,
+    "movs": 32.0,
+    "ldi": 0.0,
+    "branches": 32.0,
+    "bound": 128.0,
+    "packing": 0.5714285714285714,
+    "blockers": {},
+    "ops": {
+     "add:sub": 32,
+     "add:asr": 32,
+     "add:mov.setf": 32
+    },
+    "label": "store_fast11",
+    "start": 449,
+    "length": 7,
+    "entries": 32,
+    "share": 0.002444294100958076
+   },
+   {
+    "executed": 224.0,
+    "mix": {
+     "add": 0.2857142857142857,
+     "nop_other": 0.14285714285714285,
+     "branch": 0.14285714285714285,
+     "nop_delay": 0.42857142857142855
+    },
+    "add_ops": 64.0,
+    "mul_ops": 0.0,
+    "movs": 0.0,
+    "ldi": 0.0,
+    "branches": 32.0,
+    "bound": 96.0,
+    "packing": 0.42857142857142855,
+    "blockers": {},
+    "ops": {
+     "add:add": 32,
+     "add:sub.setf": 32
+    },
+    "label": "skip15/store_done13/store_rows_done10",
+    "start": 489,
+    "length": 7,
+    "entries": 32,
+    "share": 0.002444294100958076
+   },
+   {
+    "executed": 80.0,
+    "mix": {
+     "add": 1.0
+    },
+    "add_ops": 80.0,
+    "mul_ops": 0.0,
+    "movs": 80.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 80.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 80
+    },
+    "label": "entry",
+    "start": 0,
+    "length": 10,
+    "entries": 8,
+    "share": 0.0008729621789135986
+   },
+   {
+    "executed": 32.0,
+    "mix": {
+     "add": 0.25,
+     "signal": 0.25,
+     "nop_end": 0.5
+    },
+    "add_ops": 8.0,
+    "mul_ops": 0.0,
+    "movs": 8.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 8.0,
+    "packing": 0.25,
+    "blockers": {},
+    "ops": {
+     "add:mov": 8
+    },
+    "label": "loop_exit2",
+    "start": 496,
+    "length": 4,
+    "entries": 8,
+    "share": 0.00034918487156543944
+   },
+   {
+    "executed": 4.0,
+    "mix": {
+     "add": 1.0
+    },
+    "add_ops": 4.0,
+    "mul_ops": 0.0,
+    "movs": 4.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 4.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 4
+    },
+    "label": "else5",
+    "start": 411,
+    "length": 2,
+    "entries": 2,
+    "share": 4.364810894567993e-05
+   }
+  ]
+ },
+ {
+  "name": "compute_peak",
+  "note": "register-resident FMA recurrences",
+  "instructions": 156,
+  "programs": 12,
+  "cycles": 646,
+  "whole": {
+   "executed": 4356.0,
+   "mix": {
+    "add": 0.209366391184573,
+    "paired": 0.7162534435261708,
+    "ldi": 0.030303030303030304,
+    "signal": 0.005509641873278237,
+    "nop_other": 0.011019283746556474,
+    "mul": 0.011019283746556474,
+    "branch": 0.011019283746556474,
+    "nop_end": 0.005509641873278237
+   },
+   "add_ops": 4032.0,
+   "mul_ops": 3168.0,
+   "movs": 576.0,
+   "ldi": 132.0,
+   "branches": 48.0,
+   "bound": 4212.0,
+   "packing": 0.9669421487603306,
+   "blockers": {},
+   "ops": {
+    "mul:fmul": 3072,
+    "add:fadd": 3072,
+    "add:mov": 480,
+    "add:add": 336,
+    "add:shl": 96,
+    "mul:mov": 96,
+    "add:sub.setf": 48
+   }
+  },
+  "regions": [
+   {
+    "executed": 3312.0,
+    "mix": {
+     "nop_other": 0.014492753623188406,
+     "mul": 0.014492753623188406,
+     "paired": 0.9130434782608695,
+     "add": 0.043478260869565216,
+     "branch": 0.014492753623188406
+    },
+    "add_ops": 3168.0,
+    "mul_ops": 3072.0,
+    "movs": 0.0,
+    "ldi": 0.0,
+    "branches": 48.0,
+    "bound": 3216.0,
+    "packing": 0.9710144927536232,
+    "blockers": {},
+    "ops": {
+     "mul:fmul": 3072,
+     "add:fadd": 3072,
+     "add:add": 48,
+     "add:sub.setf": 48
+    },
+    "label": "loop2",
+    "start": 24,
+    "length": 69,
+    "entries": 48,
+    "share": 0.7603305785123967
+   },
+   {
+    "executed": 756.0,
+    "mix": {
+     "add": 0.746031746031746,
+     "ldi": 0.1111111111111111,
+     "paired": 0.09523809523809523,
+     "signal": 0.015873015873015872,
+     "nop_end": 0.031746031746031744
+    },
+    "add_ops": 636.0,
+    "mul_ops": 72.0,
+    "movs": 456.0,
+    "ldi": 84.0,
+    "branches": 0.0,
+    "bound": 720.0,
+    "packing": 0.9523809523809523,
+    "blockers": {},
+    "ops": {
+     "add:mov": 384,
+     "add:add": 192,
+     "mul:mov": 72,
+     "add:shl": 60
+    },
+    "label": "loop_exit2",
+    "start": 93,
+    "length": 63,
+    "entries": 12,
+    "share": 0.17355371900826447
+   },
+   {
+    "executed": 240.0,
+    "mix": {
+     "paired": 0.1,
+     "add": 0.65,
+     "ldi": 0.2,
+     "signal": 0.05
+    },
+    "add_ops": 180.0,
+    "mul_ops": 24.0,
+    "movs": 72.0,
+    "ldi": 48.0,
+    "branches": 0.0,
+    "bound": 228.0,
+    "packing": 0.95,
+    "blockers": {},
+    "ops": {
+     "add:add": 96,
+     "add:mov": 48,
+     "add:shl": 36,
+     "mul:mov": 24
+    },
+    "label": "main1",
+    "start": 4,
+    "length": 20,
+    "entries": 12,
+    "share": 0.05509641873278237
+   },
+   {
+    "executed": 48.0,
+    "mix": {
+     "add": 1.0
+    },
+    "add_ops": 48.0,
+    "mul_ops": 0.0,
+    "movs": 48.0,
+    "ldi": 0.0,
+    "branches": 0.0,
+    "bound": 48.0,
+    "packing": 1.0,
+    "blockers": {},
+    "ops": {
+     "add:mov": 48
+    },
+    "label": "entry",
+    "start": 0,
+    "length": 4,
+    "entries": 12,
+    "share": 0.011019283746556474
+   }
+  ]
+ }
+]

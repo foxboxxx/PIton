@@ -1,0 +1,39 @@
+[
+ {
+  "name": "idiv",
+  "note": "exact 32-bit // and %",
+  "instructions": 396,
+  "programs": 1024,
+  "times_us": [
+   7878,
+   7885,
+   7861,
+   7890,
+   7849
+  ],
+  "best_us": 7849,
+  "counters": {
+   "idle": 218744,
+   "valid": 16961536,
+   "tmu_stall": 3352780,
+   "sb_stall": 0,
+   "icache_hit": 4240384,
+   "icache_miss": 120,
+   "unif_miss": 704,
+   "tmu_quads": 524288,
+   "tmu_miss": 32768,
+   "vdw_stall": 0,
+   "l2_hit": 254,
+   "l2_miss": 33338
+  },
+  "busy": 0.7203268356903215,
+  "tmu": 0.14238671592984245,
+  "idle": 0.009289675967214507,
+  "icache_miss": 2.829852300575592e-05,
+  "checked": {
+   "q_ptr": 1021,
+   "r_ptr": 1021
+  },
+  "errors": {}
+ }
+]
