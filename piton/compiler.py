@@ -128,6 +128,10 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
         g = tuple(grid) if isinstance(grid, (tuple, list)) else (grid,)
         pid_max = tuple(max(1, int(x)) - 1 for x in g) + (0,) * (3 - len(g))
     options = {"num_stages": num_stages, "store_mutex": store_mutex}
+    if os.environ.get("PITON_MANDEL_FAST", "0") != "0":
+        # `if tl.max(x) > c` branches on the lanes of x, and a loop guarded by
+        # such an if exits when it fails (examples/mandelbrot.py)
+        options["fast_branches"] = True
     use_reroll = os.environ.get("PITON_REROLL", "1") != "0"
     sub = reroll.SUB
     try:

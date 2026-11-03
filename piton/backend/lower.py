@@ -265,11 +265,21 @@ class Lowering:
         self.row_gap_fits = None
         self.divcache = {}
         self.in_pipelined_body = False
+        self.exit_ifs = {}           # scf.if -> exit label of the loop it guards (fast_branches)
         self.use_counts = {}
         for o in fn.walk():
             for v in o.operands:
                 if v is not None:
                     self.use_counts[v.id] = self.use_counts.get(v.id, 0) + 1
+        # fast_branches: scf.if -> lane_pattern() of its condition, whose compare
+        # and reduction are then never lowered
+        self.lane_ifs = {}
+        self.skip_ops = set()
+        if options.get("fast_branches"):
+            for o in fn.walk():
+                if o.name == "scf.if" and (m := self.lane_pattern(o.operands[0])) is not None:
+                    self.lane_ifs[o] = m
+                    self.skip_ops.update((o.operands[0].op, m[1]))
 
     # -- infrastructure --------------------------------------------------------
 
@@ -1525,7 +1535,7 @@ class Lowering:
 
     def lower_block(self, block: ir.Block):
         for op in block.ops:
-            if op.results and all(r.id in self.env for r in op.results):
+            if op.results and all(r.id in self.env for r in op.results) or op in self.skip_ops:
                 continue
             self.lower_op(op)
             if block is self.fn.body and op in self.late_plan:
@@ -3452,6 +3462,10 @@ class Lowering:
         ub_r = self.rng(op.operands[1])
         known_nonempty = lb_r is not None and ub_r is not None and lb_r[1] < ub_r[0]
         exit_label = f"loop_exit{self.blocks}"
+        if self.opts.get("fast_branches"):
+            guard = self._exit_guard(op)
+            if guard is not None:
+                self.exit_ifs[guard] = exit_label
         # software pipelining of loads
         self.lazy_ok = set(o for o in body.ops if o.name not in ("tt.load", "tt.store", "tt.dot",
                                                                     "scf.for", "scf.if"))
@@ -3517,6 +3531,38 @@ class Lowering:
         self.lazy_ok = set()
         return [form for form, _, _ in forms]
 
+    def _exit_guard(self, op):
+        """The scf.if that makes the rest of loop `op` a no-op once it fails, or None.
+
+        The body must be pure ops, then `if c: ...` whose else branch yields
+        the loop-carried values unchanged, with c independent of the loop
+        variable: when c is false the carried state stays the same, so c stays
+        false and every later trip does nothing. The loop can then exit there
+        (a while loop with a trip limit)."""
+        body = op.regions[0]
+        ops = body.ops
+        if len(ops) < 2 or ops[-1].name != "scf.yield" or ops[-2].name != "scf.if":
+            return None
+        guard, loop_yield = ops[-2], ops[-1]
+        else_ops = guard.regions[1].ops
+        if len(else_ops) != 1:
+            return None
+        for arg, v in zip(body.args[1:], loop_yield.operands):
+            if v is arg:
+                continue
+            k = next((i for i, r in enumerate(guard.results) if r is v), None)
+            if k is None or else_ops[0].operands[k] is not arg:
+                return None
+        varying = {body.args[0].id}
+        for o in ops[:-2]:
+            if o.regions or not (o.name.startswith(("arith.", "math.")) or o.name in (
+                    "tt.splat", "tt.broadcast", "tt.expand_dims", "tt.make_range", "tt.reshape",
+                    "tt.trans", "tt.reduce", "tt.addptr", "tt.bitcast")):
+                return None
+            if any(x is not None and x.id in varying for x in o.operands):
+                varying.update(r.id for r in o.results)
+        return None if guard.operands[0].id in varying else guard
+
     def iv_step(self, dst, iv, step, saturate):
         """dst = iv + step (step > 0); with saturate, a sum past INT_MAX gives INT_MAX
         (which is never < ub, so the loop ends instead of wrapping around)."""
@@ -3580,9 +3626,50 @@ class Lowering:
             return None
         return LoopStream(self, op, loads)
 
+    def lane_pattern(self, v):
+        """(predicate, tt.reduce op, other operand) if scalar condition v is
+        `tl.max(x) > c` (or >=, <, <=, or tl.min), x an int tile of whole
+        registers, with the comparison and the reduction used only here; with
+        the predicate oriented as `reduction OP other`. Else None."""
+        op = v.op
+        flip = {"slt": "sgt", "sle": "sge", "sgt": "slt", "sge": "sle"}
+        if op is None or op.name != "arith.cmpi" or op.result.shape or op.attrs["predicate"] not in flip \
+                or self.use_counts.get(v.id, 0) != 1:
+            return None
+        pred = op.attrs["predicate"]
+        for red, other, p in ((op.operands[0], op.operands[1], pred), (op.operands[1], op.operands[0], flip[pred])):
+            r = red.op
+            if r is None or r.name != "tt.reduce" or red.shape or r.attrs["kind"] not in ("max", "min") \
+                    or self.use_counts.get(red.id, 0) != 1 or other.shape or red is other:
+                continue
+            src = r.operands[0]
+            if src.dtype.kind == "int" and numel(src.shape) % LANES == 0:
+                return p, r, other
+        return None
+
+    def lane_condition(self, pattern):
+        """Flags on the lanes of x for lane_pattern() `max(x) OP c`: returns
+        (condition, every), the if holding when the condition is true in some
+        lane (every=False) or in every lane (every=True). The QPU branches on
+        any / all of its 16 lanes, so no lane reduction is needed."""
+        p, r, other = pattern
+        # max(x) > c: some lane > c; max(x) < c: every lane < c (and the reverse for min)
+        every = (p in ("slt", "sle")) == (r.attrs["kind"] == "max")
+        src = r.operands[0]
+        d = self.materialize(self.get(src))
+        cur = self.reg_of(d, 0)
+        for j in range(1, len(d.regs)):
+            n = self.new("rd")
+            self.elementwise(r.attrs["kind"], n, cur, self.reg_of(d, j), False)
+            cur = n
+        wide = not _sub_cannot_overflow(self.rng(src), self.rng(other), False)
+        lanes = Pred("cmp", (LANES,), (p, S(reg=cur), self.scalar(other), False), wide=wide)
+        return self.set_flags(lanes, 0), every
+
     def op_scf_if(self, op):
-        cond = self.as_pred(self.get(op.operands[0]))
-        if cond.kind == "const":
+        lanes = self.lane_ifs.get(op)
+        cond = self.as_pred(self.get(op.operands[0])) if lanes is None else None
+        if lanes is None and cond.kind == "const":
             region = op.regions[0] if cond.value else op.regions[1]
             self.lower_block(region)
             y = region.ops[-1]
@@ -3597,28 +3684,31 @@ class Lowering:
                 outs.append(Dense(r.shape, r.dtype, [self.new("if", r.dtype.is_float) for _ in range(nregs(r.shape))]))
             else:
                 outs.append(S(reg=self.new("if", r.dtype.is_float), is_float=r.dtype.is_float))
-        c = self.set_flags(cond, 0)
+        c, every = self.lane_condition(lanes) if lanes is not None else (self.set_flags(cond, 0), False)
         else_lbl = f"else{self.blocks}"
         end_lbl = f"endif{self.blocks + 1}"
         self.blocks += 2
+        exit_lbl = self.exit_ifs.get(op)
         if c != "always":                      # branch to else where the condition fails
-            self.emit(MInst(kind="branch", bcond={"ifz": "allnz", "ifnz": "allz", "ifn": "allnn",
-                                                  "ifnn": "alln", "never": "always"}[c],
-                            target=else_lbl))
+            fails = {"ifz": "anynz", "ifnz": "anyz", "ifn": "anynn", "ifnn": "anyn", "never": "always"} \
+                if every else {"ifz": "allnz", "ifnz": "allz", "ifn": "allnn", "ifnn": "alln", "never": "always"}
+            self.emit(MInst(kind="branch", bcond=fails[c], target=exit_lbl or else_lbl))
         then_blk = self.new_block("then")
         self.cur = then_blk
         self.lower_block(op.regions[0])
         self.tmu.drain()
         self.dma_wait()
         self._if_assign(outs, op.regions[0].ops[-1])
-        self.emit(MInst(kind="branch", bcond="always", target=end_lbl))
-        eb = mir.Block(else_lbl, loop_depth=self.loop_depth)
-        self.add_block(eb)
-        self.cur = eb
-        self.lower_block(op.regions[1])
-        self.tmu.drain()
-        self.dma_wait()
-        self._if_assign(outs, op.regions[1].ops[-1])
+        if exit_lbl is None:
+            self.emit(MInst(kind="branch", bcond="always", target=end_lbl))
+            eb = mir.Block(else_lbl, loop_depth=self.loop_depth)
+            self.add_block(eb)
+            self.cur = eb
+            self.lower_block(op.regions[1])
+            self.tmu.drain()
+            self.dma_wait()
+            self._if_assign(outs, op.regions[1].ops[-1])
+        # (else: the else branch changes nothing, so it leaves the loop directly)
         end = mir.Block(end_lbl, loop_depth=self.loop_depth)
         self.add_block(end)
         self.cur = end
