@@ -3662,7 +3662,9 @@ class Lowering:
             n = self.new("rd")
             self.elementwise(r.attrs["kind"], n, cur, self.reg_of(d, j), False)
             cur = n
-        wide = not _sub_cannot_overflow(self.rng(src), self.rng(other), False)
+        # set_flags subtracts lanes - other for < and >=, other - lanes for > and <=
+        ra, rb = self.rng(src) or (-2 ** 31, 2 ** 31 - 1), self.rng(other) or (-2 ** 31, 2 ** 31 - 1)
+        wide = not (_sub_cannot_overflow(ra, rb, False) if p in ("slt", "sge") else _sub_cannot_overflow(rb, ra, False))
         lanes = Pred("cmp", (LANES,), (p, S(reg=cur), self.scalar(other), False), wide=wide)
         return self.set_flags(lanes, 0), every
 

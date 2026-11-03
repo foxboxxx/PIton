@@ -66,36 +66,38 @@ def mandelbrot_fast(out_ptr, palette_ptr, x0, y0, step, width, pitch, max_iter,
                     TILE_H: tl.constexpr):
     """`mandelbrot_kernel` with the same counts and less work (PITON_MANDEL_FAST=1).
 
-    Lanes that known_inside() puts in the set never escape, so they do not keep
-    a tile iterating, and a tile made only of them skips its iterations.  The
-    exit check `tl.max(...) >= 0` compiles to one flag-setting instruction and a
-    branch on any lane (the compiler's `fast_branches`, same switch), and the
-    loop exits at the first failed check instead of testing every remaining
-    chunk. A pixel's count does not depend on when its tile stops, as long as
-    the tile runs until the pixel escaped."""
+    A pixel's count does not depend on when its tile stops iterating, as long
+    as the tile runs until the pixel escaped, so:
+    - lanes that known_inside() puts in the set never escape, so they do not
+      keep a tile iterating, and a tile made only of them skips its iterations
+    - misses is 0 exactly while a lane has not escaped, so the exit check reads
+      misses (escaped is no longer carried); settled lanes start at INT_MIN
+      and stay there, which keeps them out of the check
+    - the check `tl.max(misses) >= 0` compiles to one flag-setting compare and
+      a branch on any lane (the compiler's `fast_branches`, same switch), and
+      the loop exits at the first failed check instead of testing every
+      remaining chunk."""
     col = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
     cx = tl.broadcast_to((x0 + col.to(tl.float32) * step)[None, :], [TILE_H, BLOCK])
     for r in range(ROWS // TILE_H):
         row = tl.program_id(1) * ROWS + r * TILE_H + tl.arange(0, TILE_H)
         cy = tl.broadcast_to((y0 + row.to(tl.float32) * step)[:, None], [TILE_H, BLOCK])
-        settled = known_inside(cx, cy)                  # -1: in the set
         x = tl.zeros([TILE_H, BLOCK], tl.float32)
         y = tl.zeros([TILE_H, BLOCK], tl.float32)
-        escaped = tl.zeros([TILE_H, BLOCK], tl.int32)
-        misses = tl.zeros([TILE_H, BLOCK], tl.int32)
+        misses = known_inside(cx, cy) << 31             # INT_MIN: in the set, else 0
         done = 0
         for chunk in range(max_iter // UNROLL):
-            if tl.max(escaped | settled) >= 0:          # a lane is still undecided
+            if tl.max(misses) >= 0:                     # a lane is still undecided
                 for u in tl.static_range(UNROLL):
                     xx = x * x
                     yy = y * y
-                    escaped = (4.0 - (xx + yy)).to(tl.int32, bitcast=True) >> 31
-                    misses += escaped
                     xy = x * y
                     x = xx - yy + cx
                     y = xy * 2.0 + cy
+                    misses += (4.0 - (xx + yy)).to(tl.int32, bitcast=True) >> 31
                 done += UNROLL
-        color = tl.load(palette_ptr + tl.where(misses == 0, 0, done + misses))
+        # misses << 1 == 0: never escaped (0) or settled (INT_MIN)
+        color = tl.load(palette_ptr + tl.where(misses << 1 == 0, 0, done + misses))
         tl.store(out_ptr + row[:, None] * pitch + col[None, :], color, mask=col[None, :] < width)
 
 
