@@ -113,20 +113,41 @@ def _compile_tile(fn, signature, constants, name, pid_max, options, chunk: int =
     return tile, prog, mf, lw, stats, asm
 
 
-# PITON_PERSISTENT=1 coarsens 1-D grids of at least COARSEN_MIN_GRID programs
-# (21 per QPU) by the largest power of two up to COARSEN_MAX that leaves
-# COARSEN_MIN_PROGRAMS hardware programs. The Pi BLOCK sweeps
-# (perf/results/tune-2026-11-03-*.json) ran 128-512 programs equally fast and
-# 64 (5 per QPU) 3-9% slower: the last programs leave QPUs idle.
+# PITON_PERSISTENT=1 coarsens known 1-D grids of at least COARSEN_MIN_GRID
+# programs (21 per QPU) by the largest power of two up to COARSEN_MAX (short
+# program ids) or COARSEN_MAX_LONG that leaves COARSEN_MIN_PROGRAMS hardware
+# programs. The Pi BLOCK sweeps (perf/results/tune-2026-11-03-*.json) ran
+# 128-512 programs about equally fast and 64 (5 per QPU) 3-9% slower: the last
+# programs leave QPUs idle. With 256 programs of ~90 us (idiv at 4x BLOCK)
+# that tail cost 2% more than the per-program start saved, so ids that run
+# more than COARSEN_SHORT instructions, or run-time loops, get at most 2.
 COARSEN_MIN_GRID = 256
 COARSEN_MIN_PROGRAMS = 128
 COARSEN_MAX = 4
+COARSEN_MAX_LONG = 2
+COARSEN_SHORT = 1500
 
 
-def _coarsening(tile, pid_max) -> int:
+def _id_length(tile, prog: Program) -> Optional[int]:
+    """Instructions one program id executes at most: the program length times
+    the trip count of every loop (None when a loop runs a run-time count)."""
+    n = len(prog.instrs)
+    for op in tile.walk():
+        if op.name != "scf.for":
+            continue
+        lb, ub, step = (v.op.attrs["value"] if v.op is not None and v.op.name == "arith.constant" else None
+                        for v in op.operands[:3])
+        if lb is None or ub is None or not step or step < 0:
+            return None
+        n *= max(1, -(-(ub - lb) // step))
+    return n
+
+
+def _coarsening(tile, pid_max, id_length) -> int:
     """Logical program ids per hardware program along axis 0 (PITON_PERSISTENT):
     unset or 0 -> 1 (one hardware program per id), 1 -> automatic, k >= 2 -> k
-    for every grid. Kernels that never read tl.program_id(0) are not coarsened."""
+    for every grid. Kernels that never read tl.program_id(0) are not coarsened.
+    id_length() is _id_length of the plain build."""
     env = os.environ.get("PITON_PERSISTENT", "0")
     try:
         want = int(env)
@@ -140,7 +161,8 @@ def _coarsening(tile, pid_max) -> int:
         return want if bound is None else max(1, min(want, bound))
     if bound is None or any(pid_max[1:]) or bound < COARSEN_MIN_GRID:
         return 1
-    k = COARSEN_MAX
+    length = id_length()
+    k = COARSEN_MAX if length is not None and length <= COARSEN_SHORT else COARSEN_MAX_LONG
     while k > 1 and bound // k < COARSEN_MIN_PROGRAMS:
         k //= 2
     return k
@@ -193,7 +215,7 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
     # shorter. Constants hoisted out of that loop stay live through every id;
     # without hoisting a kernel needs only ~3 registers more than its plain
     # build. If no version allocates, the plain build stays.
-    coarsen = _coarsening(tile, pid_max)
+    coarsen = _coarsening(tile, pid_max, lambda: _id_length(tile, prog))
     if coarsen > 1:
         best = None
         for hoist in (True, False):
