@@ -54,6 +54,33 @@ def test_softmax_hw():
     np.testing.assert_allclose(hw[0], e / e.sum(1, keepdims=True), rtol=2e-5, atol=1e-6)
 
 
+def test_icache_sized_kernels_hw():
+    """Kernels too long for the instruction cache unrolled: softmax at BLOCK_SIZE=256
+    and a 16x16 transpose (with PITON_REROLL_REDUCE=1 a loop per pass and loads
+    through transposed pointers). Bit for bit the emulator either way."""
+    from kernels import softmax_kernel
+    from primitive_kernels import transpose_kernel
+    rng = np.random.default_rng(12)
+    rows, cols = 13, 250
+    x = (rng.standard_normal((rows, cols)) * 3).astype(np.float32)
+    x[0, :6] = [-0.0, 1e-40, -1e-40, -100.0, 0.0, 88.0]      # -0, denormals, exp underflow
+
+    def args():
+        return [np.full_like(x, np.nan), x.copy(), cols, cols, cols]
+    emu, hw = _both(softmax_kernel, (rows,), args, BLOCK_SIZE=256)
+    np.testing.assert_array_equal(hw[0].view(np.uint32), emu[0].view(np.uint32))
+    e = np.exp(x.astype(np.float64) - x.max(1, keepdims=True))
+    np.testing.assert_allclose(hw[0], e / e.sum(1, keepdims=True), rtol=2e-5, atol=1e-8)
+    n_rows, n_cols = 40, 50
+    sx, so = n_cols + 3, n_rows + 5
+    t = rng.standard_normal((n_rows, sx)).astype(np.float32)
+    grid = (piton.cdiv(n_rows, 16) * piton.cdiv(n_cols, 16),)
+    emu, hw = _both(transpose_kernel, grid, lambda: [t.copy(), np.full(n_cols * so, np.nan, np.float32),
+                                                     n_rows, n_cols, sx, so], BLOCK_M=16, BLOCK_N=16)
+    np.testing.assert_array_equal(hw[1].view(np.uint32), emu[1].view(np.uint32))
+    np.testing.assert_array_equal(hw[1].reshape(n_cols, so)[:, :n_rows], t[:, :n_cols].T)
+
+
 def test_where_and_row_sum_hw():
     from kernels import scaled_relu_kernel, row_sum_kernel
     rng = np.random.default_rng(4)
