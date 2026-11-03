@@ -263,6 +263,22 @@ def _first_wait_after_loads(ck) -> bool:
     return any("t0s" in t or "t1s" in t for t in text[:first_wait])
 
 
+def _waits_after_last_kick(ck, block_prefix) -> int:
+    """DMA waits after the last DMA start (vw_addr write) of each block whose
+    label starts with block_prefix."""
+    prog = ck.program
+    starts = sorted(prog.labels.values())
+    total = 0
+    for label, at in prog.labels.items():
+        if not label.startswith(block_prefix):
+            continue
+        end = next((i for i in starts if i > at), len(prog.instrs))
+        text = [isa.format_instr(prog.instrs[i]) for i in range(at, end)]
+        kick = max(i for i, t in enumerate(text) if "vw_addr" in t)
+        total += sum("vw_wait" in t for t in text[kick + 1:])
+    return total
+
+
 @pytest.mark.parametrize("kernel,cons", [(sfu_kernel, {"OP": 4, "BLOCK": 256}), (copy_kernel, {"BLOCK": 64})])
 def test_last_store_overlaps_the_next_id(persistent, kernel, cons):
     """Rerolled (exp) and straight-line versioned (copy) bodies: no wait for the
@@ -273,6 +289,11 @@ def test_last_store_overlaps_the_next_id(persistent, kernel, cons):
                                    {"x_ptr": x, "out_ptr": np.zeros(n, np.float32), "n": n})
     assert ck.coarsen == 4 and bool(ck.stats["rerolled"]) == (kernel is sfu_kernel)
     assert _first_wait_after_loads(ck)
+    if kernel is copy_kernel:
+        # the unmasked store path leaves its DMA running (the plain build waits there)
+        persistent(None)
+        assert _waits_after_last_kick(compiler.compile(kernel, COPY_SIG, cons, grid=(16,)), "store_full") == 1
+        assert _waits_after_last_kick(ck, "store_full") == 0
     if kernel is sfu_kernel:
         np.testing.assert_allclose(got["out_ptr"], np.exp(x.astype(np.float64)), rtol=4e-6)
     else:
@@ -333,10 +354,11 @@ def test_factor(persistent, value, kernel, sig, cons, grid, k):
     assert compiler.compile(kernel, sig, cons, grid=grid).coarsen == k
 
 
-def test_id_length():
+def test_id_length(persistent):
     """Per-id instruction estimate: straight-line length, times constant trip
     counts (the reroll chunk loop), unknown for run-time loops."""
     from piton import frontend
+    persistent(None)
     sig = {"x_ptr": "*fp32", "out_ptr": "*fp32", "n": "i32"}
     ck = compiler.compile(sfu_kernel, sig, {"OP": 4, "BLOCK": 256})
     assert ck.stats["rerolled"] == 64
@@ -386,10 +408,11 @@ def test_launcher(persistent):
     np.testing.assert_allclose(out, x + y, rtol=1e-6, atol=1e-6)
 
 
-def test_dma_running_at_thread_end_is_a_hazard():
+def test_dma_running_at_thread_end_is_a_hazard(persistent):
     """The emulator rejects a program that ends while its VDW DMA still runs
     (the final wait the coarsened loop relies on). The last block is partial,
     so it takes the masked store path, which leaves its DMA to that wait."""
+    persistent(None)
     ck = compiler.compile(copy_kernel, COPY_SIG, {"BLOCK": 64}, grid=(4,))
     prog = ck.program
     end = next(i for i, ins in enumerate(prog.instrs) if ins.sig == "thrend")
