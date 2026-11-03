@@ -236,7 +236,12 @@ def _vreg_operands(ins: MInst):
 #     is a chance to save one instruction, not a saved instruction.
 # Starting from the 2-colouring, whole components and single values move to
 # the other file while the cost falls and neither file passes FILE_LIMIT live
-# values (or its peak before the moves, if higher).
+# values (or its peak before the moves, if higher).  Values of missed pairs
+# that no file choice can fit are "blamed" and get the first pick of the
+# accumulators (step 2) if they live at most PROMOTE_SPAN positions.
+# compiler.py allocates up to PORT_ROUNDS times, each round adding the pairs
+# the previous schedule still missed, and keeps the plain allocation unless
+# an attempt schedules shorter.
 
 
 def port_group(units_ops):
