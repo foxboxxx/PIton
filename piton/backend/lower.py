@@ -46,6 +46,9 @@ from .mir import MInst, MOp, VReg, alu
 
 LANES = 16
 TMU_DEPTH = 4                  # per TMU, measured on hardware
+# 64 VPM rows are addressable (perf/vdw_probe.py capacity). VDW throughput
+# grows with rows per DMA, but 5 rows per QPU (60 of 64) leaves 256-float
+# stores at four DMAs and measured no faster on the Pi; 8+ would not fit.
 VPM_ROWS_PER_QPU = 4
 
 

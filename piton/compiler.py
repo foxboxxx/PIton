@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import inspect
+import os
 from dataclasses import dataclass, field
 from typing import Optional
 
-from . import frontend, ir, passes
-from .backend import opt
+from . import frontend, ir, passes, reroll
+from .backend import opt, presched
 from .backend.lower import Lowering
 from .backend.regalloc import RegAllocError, allocate
 from .backend.sched import schedule_function
@@ -41,6 +42,73 @@ def _pyfn(kernel):
     raise TypeError("expected a @jit function")
 
 
+def _weighted_length(prog: Program, mf) -> int:
+    """Instruction count with each block weighted by 100^loop depth."""
+    depth = {b.label: b.loop_depth for b in mf.blocks}
+    starts = sorted((idx, label) for label, idx in prog.labels.items())
+    bounds = [idx for idx, _ in starts] + [len(prog.instrs)]
+    total, current = bounds[0], 0           # code before the first label: depth 0
+    for (idx, label), end in zip(starts, bounds[1:]):
+        current = depth.get(label, current)
+        total += (end - idx) * 100 ** current
+    return total
+
+
+def _build(tile, ranges, options: dict, interleave: bool):
+    """Lower, allocate and schedule; returns (program, mir, lowering, stats, mir dumps)."""
+    for cache_dot_a in (True, False):
+        lw = Lowering(tile, ranges, dict(options, cache_dot_a=cache_dot_a))
+        mf = lw.run()
+        stats = dict(lw.stats)
+        stats.update(opt.run(mf))
+        stats["presched_blocks"] = presched.run(mf) if interleave else 0
+        mir = mf.dump()
+        try:
+            alloc = allocate(mf)
+        except RegAllocError:
+            # Values outside the dot may already occupy rotation accumulators.
+            # Rebuild fresh MIR without the optional cache before rejecting a
+            # tile that the original allocation strategy could support.
+            if not cache_dot_a or not stats.get("dot_a_cache_registers", 0):
+                raise
+            continue
+        stats["dot_a_cache_fallback"] = int(not cache_dot_a)
+        break
+    stats["copies_inserted"] = alloc.copies_inserted
+    stats["self_moves_dropped"] = opt.drop_self_moves(mf)
+    mir_alloc = mf.dump()
+    prog = schedule_function(mf, tile.name)
+    return prog, mf, lw, stats, mir, mir_alloc
+
+
+def _compile_tile(fn, signature, constants, name, pid_max, options, chunk: int = 0):
+    """Tile IR (rerolled into `chunk`-element pieces if nonzero) through
+    scheduling; picks the better of the plain and pre-scheduled builds."""
+    tile = frontend.generate(fn, signature, constants, name=name)
+    asm = {"ttir": tile.dump()}
+    if chunk:
+        reroll.run(tile, chunk)
+        asm["ttir_rerolled"] = tile.dump()
+    ranges = passes.optimize(tile, pid_max)
+    asm["ttir_opt"] = tile.dump()
+    # Interleaving independent chains before allocation (presched.py) usually
+    # shortens the schedule but needs more registers; keep whichever version
+    # allocates and runs shorter, weighting loop bodies by their depth.
+    prog, mf, lw, stats, asm["mir"], asm["mir_alloc"] = _build(tile, ranges, options, interleave=False)
+    stats["presched"] = 0
+    candidate = None
+    if os.environ.get("PITON_PRESCHED", "1") != "0":       # PITON_PRESCHED=0: A/B comparisons
+        try:
+            candidate = _build(tile, ranges, options, interleave=True)
+        except RegAllocError:
+            pass
+    if candidate is not None and _weighted_length(candidate[0], candidate[1]) < _weighted_length(prog, mf):
+        prog, mf, lw, stats, asm["mir"], asm["mir_alloc"] = candidate
+        stats["presched"] = 1
+    stats["rerolled"] = chunk
+    return tile, prog, mf, lw, stats, asm
+
+
 def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stages: int = 2,
             name: Optional[str] = None, verify: bool = True, store_mutex: bool = True,
             grid=None) -> CompiledKernel:
@@ -55,36 +123,24 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
     """
     fn = _pyfn(kernel)
     constants = dict(constants or {})
-    tile = frontend.generate(fn, signature, constants, name=name)
-    asm = {"ttir": tile.dump()}
     pid_max = None
     if grid is not None:
         g = tuple(grid) if isinstance(grid, (tuple, list)) else (grid,)
         pid_max = tuple(max(1, int(x)) - 1 for x in g) + (0,) * (3 - len(g))
-    ranges = passes.optimize(tile, pid_max)
-    asm["ttir_opt"] = tile.dump()
-    for cache_dot_a in (True, False):
-        lw = Lowering(tile, ranges, {"num_stages": num_stages, "store_mutex": store_mutex,
-                                     "cache_dot_a": cache_dot_a})
-        mf = lw.run()
-        stats = dict(lw.stats)
-        stats.update(opt.run(mf))
-        asm["mir"] = mf.dump()
-        try:
-            alloc = allocate(mf)
-        except RegAllocError:
-            # Values outside the dot may already occupy rotation accumulators.
-            # Rebuild fresh MIR without the optional cache before rejecting a
-            # tile that the original allocation strategy could support.
-            if not cache_dot_a or not stats.get("dot_a_cache_registers", 0):
-                raise
-            continue
-        stats["dot_a_cache_fallback"] = int(not cache_dot_a)
-        break
-    stats["copies_inserted"] = alloc.copies_inserted
-    stats["self_moves_dropped"] = opt.drop_self_moves(mf)
-    asm["mir_alloc"] = mf.dump()
-    prog = schedule_function(mf, tile.name)
+    options = {"num_stages": num_stages, "store_mutex": store_mutex}
+    tile, prog, mf, lw, stats, asm = _compile_tile(fn, signature, constants, name, pid_max, options)
+    # A straight-line program larger than the instruction cache stalls on
+    # every cache line (reroll.py); a loop over 64-element chunks fits, and
+    # heavier bodies (exact division) get smaller chunks until theirs does.
+    sub = reroll.SUB
+    while (len(prog.instrs) > reroll.ICACHE_INSTRUCTIONS and sub >= 16
+           and os.environ.get("PITON_REROLL", "1") != "0"
+           and reroll.applicable(frontend.generate(fn, signature, constants, name=name), sub)):
+        rerolled = _compile_tile(fn, signature, constants, name, pid_max, options, sub)
+        if len(rerolled[1].instrs) >= len(prog.instrs):
+            break
+        tile, prog, mf, lw, stats, asm = rerolled
+        sub //= 2
     prog.header = [f"{tile.name}: compiled by PIton (Triton -> VideoCore IV QPU)",
                    "uniforms: " + ", ".join(n for _, n in lw.uniforms),
                    "constants: " + ", ".join(f"{k}={v}" for k, v in constants.items())]
