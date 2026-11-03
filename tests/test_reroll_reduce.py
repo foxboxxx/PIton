@@ -124,6 +124,19 @@ def test_suite_cases_at_pi_size(monkeypatch, name, programs):
         assert default_check(case_run, k, got[k][:n], want[:n]) is None
 
 
+@pytest.mark.parametrize("name", ["row_sum", "row_max", "dense_relu", "exp", "idiv"])
+def test_other_suite_cases_unchanged(monkeypatch, name):
+    """2-D tiles reduced inside a runtime loop (row_sum, row_max: ~200 instructions),
+    a dot layer (its reduction is tl.dot in the K loop) and the elementwise
+    kernels compile exactly as without the switch."""
+    from perf.suite import CASES_BY_NAME, compile_case
+    monkeypatch.delenv("PITON_REROLL_REDUCE", raising=False)
+    off, _ = compile_case(CASES_BY_NAME[name], "pi")
+    monkeypatch.setenv("PITON_REROLL_REDUCE", "1")
+    on, _ = compile_case(CASES_BY_NAME[name], "pi")
+    assert on.words == off.words and on.uniforms == off.uniforms
+
+
 def test_softmax_special_values(monkeypatch):
     """NaN, infinities, -0 and denormals, also in the first register (which meets the
     partial's initial value): the same bits as the unrolled reductions."""
@@ -314,6 +327,62 @@ def test_value_carried_past_a_pass(monkeypatch, block, capacity, sub):
     s = np.where(pos, 1.0, np.exp(y - m)).sum(axis=1, keepdims=True)
     np.testing.assert_allclose(got["out_ptr"].reshape(rows, block), np.where(pos, -x, x * s + y),
                                rtol=1e-5, atol=1e-5)
+
+
+@piton.jit
+def int_carry_kernel(x_ptr, out_ptr, cnt_ptr, BLOCK: tl.constexpr):
+    row = tl.program_id(0)
+    offs = row * BLOCK + tl.arange(0, BLOCK)
+    x = tl.load(x_ptr + offs)
+    mx = tl.max(x, axis=0)
+    eq = x == mx
+    c = tl.sum(tl.where(eq, 1, 0), axis=0)
+    tl.store(out_ptr + offs, tl.where(eq, x * 3 + c, x - mx))
+    tl.store(cnt_ptr + row, c)
+
+
+def test_integer_row_carried_through_passes(monkeypatch):
+    """An int32 row carried through two reduction passes into the stores; the mask
+    built from it and the reduced maximum is recomputed in each pass."""
+    rows, block = 4, 256
+    x = rng.integers(-5, 5, (rows, block)).astype(np.int32)
+    x[0, 0] = np.iinfo(np.int32).min
+    x[1, :] = np.iinfo(np.int32).min
+    values = {"x_ptr": x.ravel(), "out_ptr": np.zeros(rows * block, np.int32), "cnt_ptr": np.zeros(rows, np.int32)}
+    sig = {"x_ptr": "*i32", "out_ptr": "*i32", "cnt_ptr": "*i32"}
+    ck, got = on_and_off(monkeypatch, int_carry_kernel, sig, {"BLOCK": block}, (rows,), values, icache=100)
+    assert ck.stats["rerolled"] and ck.stats["reroll_carry"] == 1
+    assert ck.asm["ttir_rerolled"].count("tt.load") == 1
+    mx = x.max(axis=1, keepdims=True)
+    c = (x == mx).sum(axis=1, keepdims=True).astype(np.int32)
+    with np.errstate(over="ignore"):
+        want = np.where(x == mx, x * 3 + c, x - mx)
+    np.testing.assert_array_equal(got["out_ptr"].reshape(rows, block), want)
+    np.testing.assert_array_equal(got["cnt_ptr"], c.ravel())
+
+
+@piton.jit
+def gather_reduce_kernel(x_ptr, idx_ptr, out_ptr, BLOCK: tl.constexpr):
+    row = tl.program_id(0)
+    offs = row * BLOCK + tl.arange(0, BLOCK)
+    idx = tl.load(idx_ptr + offs)
+    v = tl.load(x_ptr + idx)
+    tl.store(out_ptr + offs, v - tl.min(v, axis=0) + tl.max(idx, axis=0))
+
+
+def test_gathered_row(monkeypatch):
+    """Pointers computed from a loaded index row: the gathered values are carried
+    from the reduction pass to the store pass."""
+    rows, block = 3, 256
+    table = rng.standard_normal(1000).astype(np.float32)
+    idx = rng.integers(0, 1000, rows * block).astype(np.int32)
+    values = {"x_ptr": table, "idx_ptr": idx, "out_ptr": np.zeros(rows * block, np.float32)}
+    sig = {"x_ptr": "*fp32", "idx_ptr": "*i32", "out_ptr": "*fp32"}
+    ck, got = on_and_off(monkeypatch, gather_reduce_kernel, sig, {"BLOCK": block}, (rows,), values, icache=100)
+    assert ck.stats["rerolled"] and ck.asm["ttir_rerolled"].count("tt.load") == 2
+    v = table[idx].reshape(rows, block)
+    want = v - v.min(axis=1, keepdims=True) + idx.reshape(rows, block).max(axis=1, keepdims=True)
+    np.testing.assert_allclose(got["out_ptr"].reshape(rows, block), want, rtol=1e-6, atol=1e-6)
 
 
 def test_recompute_fallback(monkeypatch):
