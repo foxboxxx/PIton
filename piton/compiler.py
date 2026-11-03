@@ -149,13 +149,18 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
     try:
         tile, prog, mf, lw, stats, asm = _compile_tile(fn, signature, constants, name, pid_max, options)
     except RegAllocError as e:
-        if not multipass:
+        # a row or tile too large for the registers: chunked passes, or loads
+        # that need no permutation temporaries, may still fit
+        if not (multipass or tiles and reroll.transposed_loads(generate())):
             raise
-        prog, unrolled_error = None, e      # a row too long for the registers: chunked passes may fit
-    if (tiles and prog is not None and len(prog.instrs) > reroll.ICACHE_INSTRUCTIONS
+        prog, unrolled_error = None, e
+    if (tiles and (prog is None or len(prog.instrs) > reroll.ICACHE_INSTRUCTIONS)
             and reroll.transposed_loads(generate())):
-        candidate = _compile_tile(fn, signature, constants, name, pid_max, options, transposed=True)
-        if len(candidate[1].instrs) < len(prog.instrs):
+        try:
+            candidate = _compile_tile(fn, signature, constants, name, pid_max, options, transposed=True)
+        except RegAllocError:
+            candidate = None
+        if candidate is not None and (prog is None or len(candidate[1].instrs) < len(prog.instrs)):
             tile, prog, mf, lw, stats, asm = candidate
     if multipass:
         if prog is None or len(prog.instrs) > reroll.ICACHE_INSTRUCTIONS:
@@ -180,9 +185,7 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
                     break
             if best is not None and (prog is None or len(best[1].instrs) < len(prog.instrs)):
                 tile, prog, mf, lw, stats, asm = best
-        if prog is None:
-            raise unrolled_error
-    else:
+    elif prog is not None:
         # A straight-line program larger than the instruction cache stalls on
         # every cache line (reroll.py); a loop over 64-element chunks fits, and
         # heavier bodies (exact division) get smaller chunks until theirs does.
@@ -195,6 +198,8 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
                 break
             tile, prog, mf, lw, stats, asm = rerolled
             sub //= 2
+    if prog is None:
+        raise unrolled_error
     prog.header = [f"{tile.name}: compiled by PIton (Triton -> VideoCore IV QPU)",
                    "uniforms: " + ", ".join(n for _, n in lw.uniforms),
                    "constants: " + ", ".join(f"{k}={v}" for k, v in constants.items())]
