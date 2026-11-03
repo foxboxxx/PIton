@@ -28,9 +28,11 @@ free up.  Stores go through this QPU's private VPM rows and the VDW DMA.
 from __future__ import annotations
 
 import math
+import os
 import struct
 from collections import deque
 from dataclasses import dataclass, field
+from fractions import Fraction
 from typing import Optional, Union
 
 import numpy as np
@@ -54,6 +56,20 @@ VPM_ROWS_PER_QPU = 4
 
 def _f2u(x: float) -> int:
     return f2u(float(np.float32(x)))
+
+
+# last Newton constant of _div_recip: 2 - 4 * 2**-23, so R stays below 1/b
+_DIV_LAST = 0x40000000 - 4
+
+
+def _recip_down(b: int) -> float:
+    """Largest float32 r with r * b <= 1 (b >= 1)."""
+    r = np.float32(1.0 / b)
+    while Fraction(float(r)) * b > 1:
+        r = np.nextafter(r, np.float32(0))
+    while Fraction(float(np.nextafter(r, np.float32(2)))) * b <= 1:
+        r = np.nextafter(r, np.float32(2))
+    return float(r)
 
 
 # ---------------------------------------------------------------------------
@@ -264,6 +280,10 @@ class Lowering:
         self.loop_cmp_wide = False
         self.row_gap_fits = None
         self.divcache = {}
+        # PITON_FAST_IDIV=1: branch-free division (_udivmod_fast), // and % of the
+        # same operands share one division within a region (div_epoch)
+        self.fast_idiv = os.environ.get("PITON_FAST_IDIV", "0") != "0"
+        self.div_epoch = 0
         self.in_pipelined_body = False
         self.use_counts = {}
         for o in fn.walk():
@@ -287,6 +307,7 @@ class Lowering:
         """Start out-of-line code (placed after the program's end): returns the
         state end_cold() restores."""
         saved = (self.block_sink, self.cur)
+        self.div_epoch += 1
         self.block_sink = []
         self.cur = mir.Block(label, loop_depth=self.loop_depth)
         self.block_sink.append(self.cur)
@@ -298,6 +319,7 @@ class Lowering:
             b.cold = True
         self.cold_blocks.extend(self.block_sink)
         self.block_sink, self.cur = saved
+        self.div_epoch += 1
 
     def emit(self, inst: MInst) -> MInst:
         self.cur.insts.append(inst)
@@ -384,12 +406,14 @@ class Lowering:
         if key in self.vcache:
             return self.vcache[key]
         if opname in ("divs", "rems", "divu", "remu"):
-            # valid while no block was started since (the division ends in its own block)
+            # valid while no block was started since (the division ends in its own block;
+            # PITON_FAST_IDIV: while no region boundary was crossed, see idiv_shared)
             dkey = (opname[-1], repr(a), repr(b))
             ent = self.divcache.get(dkey)
-            if ent is None or ent[2] is not self.cur:
+            here = self.div_epoch if self.fast_idiv else self.cur
+            if ent is None or (ent[2] != here if self.fast_idiv else ent[2] is not here):
                 q, r = self.idiv(self.sreg(a), self.operand(b), signed=opname.endswith("s"), ra=ra, rb=rb, cb=b)
-                ent = self.divcache[dkey] = (q, r, self.cur)
+                ent = self.divcache[dkey] = (q, r, here)
             return S(reg=ent[0] if opname.startswith("div") else ent[1])
         out = self.new("s", is_float)
         self.elementwise(opname, out, self.operand(a), self.operand(b), is_float, signed,
@@ -617,6 +641,8 @@ class Lowering:
                 self.op("shl", qs, q, Imm(_shift_imm(k)))
                 self.op("sub", r, a, qs)
                 return q, r
+        if self.fast_idiv:
+            return self._idiv_fast(a, b, signed, ra, rb, bconst)
         b_pos = (rb is not None and rb[0] > 0) or (bconst is not None and bconst > 0)
         signed_a = signed and not a_nonneg
         signed_b = signed and not b_pos
@@ -837,6 +863,234 @@ class Lowering:
             self.op("sub", r, r, bk, cond="ifz")
             self.op("add", q, q, Imm(1 << k), cond="ifz")
         return q, r
+
+    # -- PITON_FAST_IDIV ---------------------------------------------------------
+
+    def idiv_shared(self, opname, a, b, ra=None, rb=None, cb=None):
+        """Quotient or remainder register of `opname` (divs/rems/divu/remu).
+        x // y and x % y of the same registers share one division while no
+        region boundary (loop body, if branch, cold code: div_epoch) was crossed:
+        ops of one region are lowered in straight-line code whose internal
+        branches rejoin, so the first lowering point dominates the later ones."""
+        key = ("pair", opname[-1], id(a), id(b))
+        ent = self.divcache.get(key)
+        if ent is None or ent[0] is not a or ent[1] is not b or ent[4] != self.div_epoch:
+            q, r = self.idiv(a, b, signed=opname.endswith("s"), ra=ra, rb=rb, cb=cb)
+            ent = self.divcache[key] = (a, b, q, r, self.div_epoch)
+        return ent[2] if opname.startswith("div") else ent[3]
+
+    def _idiv_fast(self, a, b, signed, ra, rb, bconst):
+        """C-semantics quotient and remainder of any 32-bit operands without
+        branches: |a| / |b| (uint32 a / b for divu / remu) by _udivmod_fast, then
+        one conditional negation each for q and r."""
+        if bconst is None and rb is not None and rb[0] == rb[1] != 0 and (signed or rb[0] > 0):
+            bconst = rb[0]                     # a register known to hold one value
+        a_nonneg = ra is not None and ra[0] >= 0
+        b_pos = (rb is not None and rb[0] > 0) or (bconst is not None and bconst > 0)
+        signed_a = signed and not a_nonneg
+        signed_b = signed and not b_pos
+        if isinstance(a, Imm):
+            t = self.new("a")
+            self.op("mov", t, a)
+            a = t
+        ua = a
+        if signed_a:
+            na, ua = self.new("x"), self.new("ua")
+            self.op("sub", na, Imm(0), a)
+            self.op("max", ua, a, na)          # |INT_MIN| = 2**31 as a uint32
+        # bounds of the magnitudes, as uint32
+        if signed:
+            ua_max = max(abs(ra[0]), abs(ra[1])) if ra is not None else 1 << 31
+        else:
+            ua_max = ra[1] if ra is not None and ra[0] >= 0 else 0xFFFFFFFF
+        if bconst is not None:
+            ub_min = ub_max = abs(bconst) if signed else bconst & 0xFFFFFFFF
+        elif rb is not None and (signed or rb[0] >= 0):
+            ub_max = max(abs(rb[0]), abs(rb[1]))
+            ub_min = max(1, rb[0] if rb[0] > 0 else -rb[1] if rb[1] < 0 else 1)
+        else:
+            ub_min, ub_max = 1, 1 << 31 if signed else 0xFFFFFFFF
+        ub, rcp, bhx, ubx = self._fast_divisor(b, signed, signed_b, bconst, ub_max)
+        q, r = self._udivmod_fast(ua, ub, rcp, bhx, ubx, signed, ua_max, ub_min, ub_max)
+        # (flag writes go to scratch registers, not NOP, so that presched.py may
+        # interleave the divisions of a tile's registers)
+        if signed_a or signed_b:
+            if signed_a and signed_b:
+                self.op("xor", self.new("f"), a, b, setf=True, unit="add")
+            else:
+                self.op("mov", self.new("f"), a if signed_a else b, setf=True, unit="add")
+            self.op("sub", q, Imm(0), q, cond="ifn")
+            if signed_a:
+                if signed_b:
+                    self.op("mov", self.new("f"), a, setf=True, unit="add")
+                self.op("sub", r, Imm(0), r, cond="ifn")
+        return q, r
+
+    def _fast_divisor(self, b, signed, signed_b, bconst, ub_max):
+        """|b| (uint32 b for unsigned), its reciprocal R <= 1/|b|, (|b| >> 24) << 8
+        when |b| may be >= 2**24 and |b| ^ 2**31 when it may be > 2**31.  |b| and
+        R are shared by the divisions by the same register in one region (the
+        cheap two are not: fewer long-lived registers)."""
+        need_hi = ub_max >= 1 << 24
+        need_x = not signed and ub_max > 1 << 31
+        if bconst is not None:
+            ubc = abs(bconst) if signed else bconst & 0xFFFFFFFF
+            return (self.operand(C(ubc)), self.operand(C(_recip_down(ubc), True)),
+                    self.operand(C((ubc >> 24) << 8)) if need_hi else None,
+                    self.operand(C(ubc ^ 0x80000000)) if need_x else None)
+        key = ("fdivisor", signed, id(b))
+        ent = self.divcache.get(key)
+        if ent is not None and ent[0] is b and ent[3] == self.div_epoch:
+            ub, rcp = ent[1:3]
+        else:
+            ub = b
+            if signed_b:
+                nb, ub = self.new("x"), self.new("ub")
+                self.op("sub", nb, Imm(0), b)
+                self.op("max", ub, b, nb)
+            if isinstance(ub, Imm):
+                u2 = self.new("ub")
+                self.op("mov", u2, ub)
+                ub = u2
+            fb = self.new("fb", True)
+            self.op("itof", fb, ub)
+            # (signed |b| = 2**31 reads as -2**31: R < 0 is harmless, see _udivmod_fast)
+            if not signed and ub_max >= 1 << 31:          # u2f
+                self.op("mov", self.new("f"), ub, setf=True, unit="add")
+                self.op("fadd", fb, fb, self.const_reg(0x4F800000), cond="ifn")
+            rcp = self._div_recip(fb)
+            self.divcache[key] = (b, ub, rcp, self.div_epoch)
+        bhx = ubx = None
+        if need_hi:
+            bh, bhx = self.new("bh"), self.new("bh")
+            self.op("shr", bh, ub, self.const_reg(24))         # (ub is long-lived: no small imm)
+            self.op("mul24", bhx, bh, self.const_reg(256))
+        if need_x:
+            ubx = self.new("bx")
+            self.op("xor", ubx, ub, self.const_reg(0x80000000))
+        return ub, rcp, bhx, ubx
+
+    def _div_recip(self, fb) -> VReg:
+        """recip_core with the last Newton step aimed low (2 - 4 * 2**-23 for 2.0).
+        Checked over all 2**23 mantissas (tests/test_fast_idiv.py; the seed and the
+        steps scale exactly with the exponent): R * (fb + ulp(fb)) <= 1 - 2.5 * 2**-23
+        and R * fb >= 1 - 5.5 * 2**-23."""
+        r = self.new("nr", True)
+        self.op("sub", r, self.const_reg(0x7EF311C3), fb)
+        for i in range(3):
+            t, e, r2 = self.new("nr", True), self.new("nr", True), self.new("nr", True)
+            self.op("fmul", t, fb, r)
+            self.op("fsub", e, Imm(_f2u(2.0)) if i < 2 else self.const_reg(_DIV_LAST), t)
+            self.op("fmul", r2, r, e)
+            r = r2
+        return r
+
+    def _udivmod_fast(self, ua, ub, rcp, bhx, ubx, signed, ua_max, ub_min, ub_max):
+        """floor(ua / ub) and ua mod ub, exact for every uint32 pair (ua, ub <= 2**31
+        when `signed`), straight-line.  Error bound:
+
+        R (rcp) is below 1/ub and close: fb = ub rounded toward zero (itof; u2f
+        for unsigned ub >= 2**31, within (ub - 256, ub + 128)) so ub < fb + ulp(fb),
+        and _div_recip gives R * (fb + ulp) <= 1, R * fb >= 1 - 5.5 * 2**-23; with
+        the u2f overshoot, 1 - d <= R * ub < 1 for d = 6 * 2**-23.  A constant ub
+        has R = the largest float32 <= 1/ub (d = 2**-23).  RTZ loses less than
+        2**-23 relative per rounding and ftoi truncates (x - 1 < floor(x) <= x).
+
+        Step 1, q0 = 256 * qh: A = ua >> 8 < 2**24 is exact as a float,
+        qh = floor(RTZ(A * R)) <= A / ub, and qh > (A / ub)(1 - d - 2**-23) - 1.
+        So r1 = ua - 256 qh ub >= 0 and r1 < 256 ub + 255 + 2**32 (d + 2**-23)
+        < 256 ub + 3839, i.e. r1 / ub < 4095.  256 qh ub mod 2**32 is
+        mul24(mul24(qh, ub), 256) (only qh ub mod 2**24 is needed) and qh < 2**24.
+
+        Step 2: fr = r1 rounded toward zero (signed r1 = 2**31 reads as -2**31:
+        clear the sign; unsigned r1 >= 2**31 reads as r1 - 2**32: adding
+        2**32 - 256 lands in [r1 - 256, r1 - 128), so fr is in (r1 - 512, r1), and
+        that needs ub > 2**23 - 15).  dq = floor(RTZ(fr * R)) <= r1 / ub and
+        floor(r1 / ub) - dq < (r1 / ub)(d + 2**-22) + 512 / ub + 1
+        < 4095 * 2**-20 + 2**-13 + 1 < 2, so r2 = r1 - dq ub is in [0, 2 ub) and
+        one correction (r2 >= ub: q + 1, r2 - ub) finishes.  dq < 4095 (< 2**8
+        when ub >= 2**24), so dq ub mod 2**32 = mul24(dq, ub) + the bits of ub
+        above 24: mul24(mul24(dq, 2**16), (ub >> 24) << 8).
+
+        Short dividends (ua < 2**24) skip the shift: floor(ua / ub) - q1 <
+        2**24 (d + 2**-23) / ub + 1 gives r1 < ub + 14, an exact float, and the same
+        second step; if ub >= 2**24 then q1 = dq = 0.  One step suffices when
+        ua < 2**31 and ua < 2**20 ub_min: floor(ua / ub) - q1 < (ua / ub)(d + 2**-22)
+        + 1 < 2.  The comparison r2 >= ub is the sign of r2 - ub when ub <= 2**31
+        (r2 - ub is in [-2**31, 2**31)); else unsigned, through ^ 2**31 and min.
+
+        Signed |b| = 2**31 reads as -2**31, so R is in (-2**-31, 0): |A R| < 2**-8
+        and |fr R| < 1 make qh = dq = 0 and the correction alone gives q = (ua >= ub)."""
+        k256 = self.const_reg(256)
+        one_step = ua_max < 1 << 31 and ua_max < ub_min << 20 and (ub_max < 1 << 24 or ua_max < 1 << 24)
+        if one_step or ua_max < 1 << 24:
+            fa, fq, q = self.new("fa", True), self.new("fq", True), self.new("q")
+            self.op("itof", fa, ua)
+            self.op("fmul", fq, fa, rcp)
+            self.op("ftoi", q, fq)
+            p, r = self.new("qb"), self.new("r")
+            self.op("mul24", p, q, ub)
+            self.op("sub", r, ua, p)
+            if not one_step:
+                dq, r = self._div_step(r, ub, rcp, None, None)
+                q2 = self.new("q")
+                self.op("add", q2, q, dq)
+                q = q2
+        else:
+            a8, fa, fq, qh = self.new("a8"), self.new("fa", True), self.new("fq", True), self.new("qh")
+            self.op("shr", a8, ua, Imm(8))
+            self.op("itof", fa, a8)
+            self.op("fmul", fq, fa, rcp)
+            self.op("ftoi", qh, fq)
+            p, p8, r1 = self.new("qb"), self.new("qb"), self.new("r")
+            self.op("mul24", p, qh, ub)
+            self.op("mul24", p8, p, k256)
+            self.op("sub", r1, ua, p8)
+            fix = None if ua_max < 1 << 31 else "abs" if signed else "u2f"
+            dq, r = self._div_step(r1, ub, rcp, bhx, fix)
+            q0, q = self.new("q"), self.new("q")
+            self.op("mul24", q0, qh, k256)
+            self.op("add", q, q0, dq)
+        t = self.new("t")
+        if signed or ub_max <= 1 << 31:
+            self.op("sub", t, r, ub, setf=True)                      # r - ub >= 0
+            cond = "ifnn"
+        else:
+            k31 = self.const_reg(0x80000000)
+            x, m = self.new("t"), self.new("t")
+            self.op("xor", x, r, k31)
+            self.op("min", m, x, ubx)
+            self.op("sub", t, r, ub)
+            self.op("sub", self.new("f"), m, ubx, setf=True, unit="add")   # min == ub ^ 2**31  <=>  r >= ub
+            cond = "ifz"
+        self.op("add", q, q, Imm(1), cond=cond)
+        self.op("mov", r, t, cond=cond)
+        return q, r
+
+    def _div_step(self, r1, ub, rcp, bhx, fix):
+        """dq <= r1 / ub (within one, _udivmod_fast) and r1 - dq * ub."""
+        fr = self.new("fr", True)
+        self.op("itof", fr, r1)
+        if fix == "abs":                       # r1 = 2**31 read as -2**31
+            f2 = self.new("fr", True)
+            self.op("and", f2, fr, self.const_reg(0x7FFFFFFF))
+            fr = f2
+        elif fix == "u2f":                     # r1 >= 2**31 read as r1 - 2**32
+            self.op("mov", self.new("f"), r1, setf=True, unit="add")
+            self.op("fadd", fr, fr, self.const_reg(_f2u(2.0 ** 32 - 256)), cond="ifn")
+        fd, dq = self.new("fd", True), self.new("dq")
+        self.op("fmul", fd, fr, rcp)
+        self.op("ftoi", dq, fd)
+        pl, r2 = self.new("qb"), self.new("r")
+        self.op("mul24", pl, dq, ub)
+        self.op("sub", r2, r1, pl)
+        if bhx is not None:
+            d16, ph, r3 = self.new("qb"), self.new("qb"), self.new("r")
+            self.op("mul24", d16, dq, self.const_reg(1 << 16))
+            self.op("mul24", ph, d16, bhx)
+            self.op("sub", r3, r2, ph)
+            r2 = r3
+        return dq, r2
 
     # -- value access ------------------------------------------------------------
 
@@ -1769,6 +2023,13 @@ class Lowering:
         # Scal operands that are broadcast along the lane dimension stay cheap
         da = self.materialize(a)
         db = self.materialize(b)
+        if self.fast_idiv and kind in ("divs", "rems", "divu", "remu"):
+            # receive every operand register first: masked loads set flags, and
+            # flag users keep their order, so a load received between two divisions
+            # would keep presched.py from overlapping them
+            for j in range(nregs(res.shape)):
+                self.reg_of(da, j)
+                self.reg_of(db, j)
         regs = []
         seen = {}
         for j in range(nregs(res.shape)):
@@ -1776,6 +2037,11 @@ class Lowering:
             key = (id(x), id(y))
             if key in seen:          # rows repeated by a broadcast
                 regs.append(seen[key])
+                continue
+            if self.fast_idiv and kind in ("divs", "rems", "divu", "remu"):
+                dst = self.idiv_shared(kind, x, y, ra, rb)      # (no copy)
+                seen[key] = dst
+                regs.append(dst)
                 continue
             dst = self.new("e", is_float)
             self.elementwise(kind, dst, x, y, is_float, ra=ra, rb=rb)
@@ -3475,6 +3741,7 @@ class Lowering:
             stream.prologue(lb, inits)     # after the zero-trip guard: no speculative loads
         self.loop_depth += 1
         self.region_depth += 1
+        self.div_epoch += 1
         loop = self.new_block("loop")
         self.cur = loop
         # a store of the previous iteration may still be running
@@ -3503,6 +3770,7 @@ class Lowering:
         self.emit(MInst(kind="branch", bcond="anyn" if c == "ifn" else "anynz", target=loop.label))
         self.loop_depth -= 1
         self.region_depth -= 1
+        self.div_epoch += 1
         if stream is not None:
             # the last prefetches (clamped to this iteration) are received on the way
             # out of the loop, not on the zero-trip path, which issued none
@@ -3591,6 +3859,7 @@ class Lowering:
         self.tmu.drain()
         self.dma_wait()
         self.region_depth += 1
+        self.div_epoch += 1
         outs = []
         for r in op.results:
             if r.shape:
@@ -3615,6 +3884,7 @@ class Lowering:
         eb = mir.Block(else_lbl, loop_depth=self.loop_depth)
         self.add_block(eb)
         self.cur = eb
+        self.div_epoch += 1
         self.lower_block(op.regions[1])
         self.tmu.drain()
         self.dma_wait()
@@ -3623,6 +3893,7 @@ class Lowering:
         self.add_block(end)
         self.cur = end
         self.region_depth -= 1
+        self.div_epoch += 1
         return tuple(outs) if len(outs) != 1 else (outs[0] if outs else None)
 
     def _if_assign(self, outs, yield_op):
