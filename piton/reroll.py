@@ -81,6 +81,8 @@ def _queued_stores(tensor_ops, n: int, sub: int):
     if not stores or n > QUEUE_ELEMENTS or n // sub > QUEUE_CHUNKS:
         return None
     producer = {r: op for op in tensor_ops for r in op.results}
+    if any(st.operands[1] not in producer for st in stores):
+        return None                           # (the stored value is not a chunked tensor)
     needed = set()
     work = [v for st in stores for i, v in enumerate(st.operands) if i != 1 and v is not None]
     while work:
