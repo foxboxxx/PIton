@@ -21,7 +21,7 @@ Status: `todo`, `wip`, `accepted <commit>`, `rejected (<why>)`.
 |---|---|---|
 | A1 | shared 16-row VPM slots under semaphores: 1 KiB store DMAs (probe 917-966 vs 641 MB/s) | wip (batch 1, opt/a1-store-slots) |
 | A2 | double-buffer the slots: start the DMA, compute the next chunk, then wait | wip (with A1) |
-| A3 | store through the L2-bypassing bus alias | deferred: the ARM reads results through the L2 alias, so dirty/stale L2 lines from the NaN fill could overwrite or hide uncached writes; needs L2 maintenance first |
+| A3 | store through the L2-bypassing bus alias | rejected: with the MMU off the ARM sees GPU memory only through the L2-cached alias (cpu = bus - 0x40000000), so its NaN fill can sit dirty in L2 and later overwrite or hide uncached VDW writes, and the ARM cannot clean the VC L2; streaming kernels also gain nothing (1 MiB inputs never fit the 128 KB L2) |
 | A4 | larger BLOCK per program (fewer partial/tail DMAs) | done d1da2e0: blocks over ~512 elements now reroll instead of failing allocation; add 1.07x, mul 1.09x, fma 1.08x at BLOCK 1024 (perf/tune.py) |
 
 ## B. Load path
@@ -52,14 +52,14 @@ Status: `todo`, `wip`, `accepted <commit>`, `rejected (<why>)`.
 | D1 | reroll row reductions (carry partial max/sum across chunks) | wip (batch 1, opt/d1-reroll-reduce, with D2) |
 | D2 | reroll 2-D tiles | wip (with D1) |
 | D3 | autotune the reroll threshold (450) and chunk size | rejected: SUB 64 is best (32 is 1.4x slower for exp/log/sqrt; 128 gives the same code or time) |
-| D4 | align hot loops to 32-instruction cache lines | todo |
+| D4 | align hot loops to 32-instruction cache lines | deferred: hot loops already fit the ~500-instruction cache, so alignment only affects their first iteration |
 
 ## E. Launch and runtime
 | # | change | status |
 |---|---|---|
 | E1 | persistent kernels: 12 programs loop over the grid | wip (batch 2, opt/e1-persistent) |
-| E2 | skip the L2/slice-cache flush when inputs did not change | todo |
-| E3 | prebuilt uniform streams; ARM D-cache on in the launch loop | todo |
+| E2 | skip the L2/slice-cache flush when inputs did not change | rejected for the loop: the flush is outside piton_launch's timed region, so no measured kernel changes (would only shorten full-call time) |
+| E3 | prebuilt uniform streams; ARM D-cache on in the launch loop | rejected for the loop: uniform pointers are already built before the timed launch; the issue loop (0.74 us/program) overlaps execution for every suite case |
 
 ## F. Clocks (not in the loop)
 F1 GPU clock above 250 MHz, F2 SDRAM clock: need a reboot and a stress test; excluded.
