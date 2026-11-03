@@ -90,6 +90,7 @@ VIEWS = {
     "whole set": (np.float32(-2.2), np.float32(-0.05 * 11.5), np.float32(0.05), 64, 24),
     "target zoom 1000": _view(TARGET, 1000, 64, 8),
     "target zoom 10": _view(TARGET, 10, 64, 8),
+    "target zoom 10000": _view(TARGET, 10000, 64, 8),
     "cardioid edge": _view((-0.1, 0.65), 300, 64, 8),         # boundary crosses the tiles
     "cardioid cusp": _view((0.25, 0.0), 2000, 64, 8),
     "bulb edge": _view((-1.0, 0.25), 300, 64, 8),
@@ -113,6 +114,20 @@ def test_level1_configurations(fast, block, unroll, tile_h, rows):
     plain = counts(fast, 0, x0, y0, step, w, h, 64, block=block, unroll=unroll, tile_h=tile_h, rows=rows)
     got = counts(fast, 1, x0, y0, step, w, h, 64, block=block, unroll=unroll, tile_h=tile_h, rows=rows)
     np.testing.assert_array_equal(got, plain)
+
+
+@pytest.mark.parametrize("block,unroll,tile_h", [(32, 16, 1), (16, 16, 2)])
+def test_level1_suite_and_demo_views(fast, block, unroll, tile_h):
+    """perf/suite.py's emulator view (zoom 1000, 64x16, 128 iterations) and the
+    patch the HDMI demo checks on boot (examples/mandelbrot_pi.py: zoom 100,
+    64x8, 256 iterations), in the configurations both use."""
+    suite = _view(TARGET, 1000, 64, 16) + (128,)
+    step = np.float32(3.5 / 100.0 / 640)
+    patch = (np.float32(TARGET[0] - 32 * float(step)), np.float32(TARGET[1] - 4 * float(step)), step, 64, 8, 256)
+    for args in (suite, patch):
+        plain = counts(fast, 0, *args, block=block, unroll=unroll, tile_h=tile_h, rows=8)
+        got = counts(fast, 1, *args, block=block, unroll=unroll, tile_h=tile_h, rows=8)
+        np.testing.assert_array_equal(got, plain)
 
 
 def test_level1_palette_render(fast):
