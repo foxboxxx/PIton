@@ -111,7 +111,19 @@ def mandelbrot_fast(out_ptr, palette_ptr, x0, y0, step, width, pitch, max_iter,
     - the check `tl.max(misses) >= 0` compiles to one flag-setting compare and
       a branch on any lane (the compiler's `fast_branches`, same switch), and
       the loop exits at the first failed check instead of testing every
-      remaining chunk."""
+      remaining chunk.
+
+    Not done (modelled with the QPU's float operations on the 640 x 480
+    views at zoom 1-10,000):
+    - periodicity checks: exact when the bits of z repeat, but on these
+      views no tile would stop sooner
+    - Mariani-Silver rectangles: not exact for iteration bands, and the
+      border pass costs more than the fills save (27-40% more work from
+      zoom 10 on, 4% less at zoom 1)
+    - refilling finished lanes or registers with new pixels: 3-15% fewer
+      iterations, about what the bookkeeping would cost
+    - checking every UNROLL // 2 iterations: 28% less loop work at zoom 1,
+      3-5% more from zoom 10 on (twice the checks for 1-3% fewer iterations)."""
     TW: tl.constexpr = 16 if BLOCK % 16 == 0 and ROWS % 2 == 0 else BLOCK
     TH: tl.constexpr = 2 if BLOCK % 16 == 0 and ROWS % 2 == 0 else TILE_H
     if TW == BLOCK:
