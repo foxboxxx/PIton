@@ -128,13 +128,21 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
         g = tuple(grid) if isinstance(grid, (tuple, list)) else (grid,)
         pid_max = tuple(max(1, int(x)) - 1 for x in g) + (0,) * (3 - len(g))
     options = {"num_stages": num_stages, "store_mutex": store_mutex}
-    tile, prog, mf, lw, stats, asm = _compile_tile(fn, signature, constants, name, pid_max, options)
+    use_reroll = os.environ.get("PITON_REROLL", "1") != "0"
+    sub = reroll.SUB
+    try:
+        tile, prog, mf, lw, stats, asm = _compile_tile(fn, signature, constants, name, pid_max, options)
+    except RegAllocError:
+        # A large block does not fit the registers as straight-line code;
+        # as a loop over chunks only one chunk is live at a time.
+        if not (use_reroll and reroll.applicable(frontend.generate(fn, signature, constants, name=name), sub)):
+            raise
+        tile, prog, mf, lw, stats, asm = _compile_tile(fn, signature, constants, name, pid_max, options, sub)
+        sub //= 2
     # A straight-line program larger than the instruction cache stalls on
     # every cache line (reroll.py); a loop over 64-element chunks fits, and
     # heavier bodies (exact division) get smaller chunks until theirs does.
-    sub = reroll.SUB
-    while (len(prog.instrs) > reroll.ICACHE_INSTRUCTIONS and sub >= 16
-           and os.environ.get("PITON_REROLL", "1") != "0"
+    while (len(prog.instrs) > reroll.ICACHE_INSTRUCTIONS and sub >= 16 and use_reroll
            and reroll.applicable(frontend.generate(fn, signature, constants, name=name), sub)):
         rerolled = _compile_tile(fn, signature, constants, name, pid_max, options, sub)
         if len(rerolled[1].instrs) >= len(prog.instrs):
