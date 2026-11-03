@@ -247,8 +247,9 @@ def main(argv=None) -> None:
     parser.add_argument("--tty")
     parser.add_argument("--timeout", type=float, default=240)
     parser.add_argument("--verbose", action="store_true")
+    # dated by the run, so a new measurement never overwrites the one the README cites
     parser.add_argument("--output", type=Path,
-                        default=ROOT / "benchmarks/results/digits-pi-2026-10-30.json")
+                        default=ROOT / f"benchmarks/results/digits-pi-{datetime.now():%Y-%m-%d}.json")
     args = parser.parse_args(argv)
     if args.repeats < 1:
         parser.error("--repeats must be positive")

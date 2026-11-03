@@ -24,7 +24,7 @@ Status:
 
 * The Triton tutorial **vector add**, **fused softmax** and **grouped matmul** (`tl.dot`, masks,
   `%`-wraparound, runtime strides, runtime or constexpr K) compile and pass against numpy in the
-  emulator (355 software tests, including small-tile reductions/transposes/dots, IEEE comparisons with
+  emulator (390 software tests, including small-tile reductions/transposes/dots, IEEE comparisons with
   NaN/inf/±0, exp/log/div/sqrt accuracy, exact 32-bit integer division, and regression tests
   for every bug found in review, plus trained NN inference, complete benchmark-log validation,
   and bounded serial cleanup); the `.qasm` we emit assembles with `vc4asm` to
@@ -62,6 +62,75 @@ The same-board CPU comparison was rechecked at 512³: the full GPU call takes 31
 The firmware confirmed ARM 700 MHz, core/V3D 250 MHz and SDRAM 400 MHz. Exact repeats and
 measurement scopes are in `benchmarks/results/final-summary-2026-10-30.json`, with the CPU log
 and complete sweep records alongside it.
+
+### Every primitive against every CPU baseline
+
+`pi/examples/primitives` measures each supported Triton operation on its own, in one boot,
+against every CPU implementation we can write for it on the same board. Measured 2026-11-03 on a
+Pi Zero W (ARM 700 MHz, V3D 250 MHz, SDRAM 400 MHz): 16 primitives against 42 CPU baselines
+(two or three each), 58 measured rows, every one checked against a reference implementation.
+Full log in `benchmarks/results/primitives-2026-11-03.log`; the "before" column is the same
+program before the instruction-cache and scheduling changes of 2026-11-02 (`perf/`), log in
+`benchmarks/results/primitives-2026-11-02.log`:
+
+| primitive | QPU | before | vs `arm-naive` | vs best CPU baseline | best CPU baseline |
+|---|---|---|---|---|---|
+| `tl.exp` | 2.21 ms | 3.52 ms | 30.2× | **24.8×** | `arm-fast` 54.8 ms |
+| softmax (max+exp+sum+div) | 1.10 ms | 1.17 ms | 20.7× | 17.2× | `arm-fast` 18.9 ms |
+| `tl.log` | 2.17 ms | 3.37 ms | 26.3× | 16.3× | `arm-fast` 35.5 ms |
+| `tl.max` (row) | 0.18 ms | 0.19 ms | 17.2× | 15.0× | `arm-unroll` 2.72 ms |
+| `tl.rsqrt` | 2.14 ms | 2.91 ms | 22.1× | 13.8× | `arm-fast` 29.5 ms |
+| `tl.dot` (matmul 256³) | 4.57 ms | 4.65 ms | **164×** | 10.5× | `arm-vfp` 47.9 ms |
+| `1.0 / x` | 2.15 ms | 3.12 ms | 9.0× | 9.0× | `arm-naive` (`vdiv`) 19.4 ms |
+| `tl.sqrt` | 2.16 ms | 2.79 ms | 23.5× | 8.4× | `arm-vfp` (`vsqrt`) 18.3 ms |
+| `tl.sum` (row) | 0.18 ms | 0.19 ms | 10.2× | 7.6× | `arm-vfp` 1.39 ms |
+| `//` and `%` (exact i32) | 8.54 ms | 13.7 ms | 17.3× | 6.5× | `arm-fast` 55.5 ms |
+| `tl.load`/`store` + `+` | 2.34 ms | 2.40 ms | 9.1× | 6.1× | `arm-vfp` 14.2 ms |
+| `x*a+y` | 2.36 ms | 2.36 ms | 8.6× | 6.0× | `arm-vfp` 14.2 ms |
+| `tl.load`/`store` + `*` | 2.37 ms | 2.37 ms | 9.0× | 6.0× | `arm-vfp` 14.2 ms |
+| `tl.where` (scaled ReLU) | 2.17 ms | 2.18 ms | 8.0× | 5.5× | `arm-unroll` 12.0 ms |
+| copy (load+store only) | 2.17 ms | 2.18 ms | 5.3× | 3.4× | `arm-vfp` 7.40 ms |
+| `tl.trans` | 1.10 ms | 1.10 ms | 2.1× | 2.1× | `arm-naive` 2.36 ms |
+
+Baselines are labelled, not merged: `arm-naive` is the obvious scalar C loop, `arm-unroll` the
+same arithmetic 4× unrolled with prefetch, `arm-vfp` a VFP11 short-vector assembly or hardware
+instruction (`vldmia`/`vmla`, `vsqrt`, `vdiv`) the naive version does not use, `arm-blocked` a
+cache-blocked or packed-panel version, and `arm-fast` a deliberately lower-precision version
+(bit-trick seeds, short polynomials, fewer Newton steps) whose measured error is reported next to
+its time. The build is freestanding, so there is no libm and no `__aeabi_idiv`: the CPU exp, log,
+sqrt, rsqrt, reciprocal and integer division are all in `pi/examples/primitives/arm_ref.c`.
+
+Things the table makes visible that the matmul-only comparison did not:
+
+* **Memory-bound work tops out around 5-9×, not 10-160×.** Elementwise kernels move 8-12 bytes
+  per element and reach only 0.95-1.34 GB/s on the QPU; `tl.dot` is the outlier precisely because
+  it reuses each loaded value O(BLOCK) times. `tl.trans` is the floor at 2.1×: pure data movement
+  with no arithmetic to hide the traffic behind.
+* **The transcendentals now cost no more than a copy.** exp, log, sqrt, rsqrt and `1.0 / x` take
+  2.14-2.21 ms against 2.17 ms for copy: all of them are limited by the single store DMA engine the
+  12 QPUs share, not by their arithmetic (`perf/README.md`). Before the instruction-cache fix they
+  took 2.8-3.5 ms, stalled on instruction fetch.
+* **Comparing against the *tuned* CPU shrinks the apparent win.** For matmul that is 164× naive
+  versus 10.5× over VFP assembly; the same gap, smaller, shows up in every elementwise row.
+* **PIton's `exp`/`log` measure accurate to ~0.2 ppm**, not special-function-unit precision —
+  they lower to ALU sequences, as the README notes above, and the benchmark confirms it against
+  an independent accurate CPU implementation.
+* **The CPU's own hardware instructions are not always the fast path.** `arm-fast` reciprocal
+  (bit-trick seed plus two Newton steps, multiplies only) is *slower* than `vdiv`, while
+  `arm-fast` rsqrt beats `vsqrt`+`vdiv` — VFP11 divide and square root are not pipelined.
+* **Cache blocking a 256×256 transpose does not pay** (`arm-blocked` 2.62 ms vs `arm-naive`
+  2.36 ms): at that size the naive column pass already keeps its working set in L1.
+
+Run it with:
+
+```bash
+cd pi/examples/primitives && make PYTHON=../../../.venv/bin/python
+```
+
+`make` compiles all 16 kernels through `piton.tools.compile` (one manifest in `build_kernels.py`
+drives both the build and `main.c`), links the bare-metal program, boots it and prints the table,
+a speedup table and one `RESULT op=... impl=...` line per row. `make RUN=0` builds without
+booting. `tests/test_primitive_kernels.py` covers the same kernels on the emulator.
 
 The following tables retain the earlier 2026-10-27 measurements for comparison:
 
@@ -223,8 +292,72 @@ It rejects incomplete logs, missing timing or numerical checks, wrong prediction
 non-finite results. Cleanup after completed serial output is bounded: the host waits at most
 five seconds after terminating the bootloader and one more second after killing it, preserving
 the completed log. The measured run's results were saved after its serial-driver cleanup
-stall cleared; a USB reconnect was confirmed. The next application is an interactive
-Mandelbrot renderer with UART zoom controls and optional GPIO buttons.
+stall cleared; a USB reconnect was confirmed.
+
+These digit-network timings were measured on 2026-10-30, before the 2026-11-02 compiler
+changes (`perf/`); the dense layer's own benchmark in `perf/` improved by about 4% since.
+
+## Interactive Mandelbrot
+
+`examples/mandelbrot_pi.py` renders the Mandelbrot set at 640×480 on the Pi's HDMI output,
+entirely on the QPUs, and is driven from the host terminal over the UART: `i`/`o` (or `+`/`-`)
+zoom, `w`/`a`/`s`/`d` or the arrow keys pan, `r` resets, space starts an automatic tour (it also
+starts after 10 s idle), `q` quits. The kernel (`examples/mandelbrot.py`) is plain Triton:
+each program iterates a tile of pixels in chunks of `UNROLL` iterations and leaves the loop as
+soon as every lane has escaped; colours come from a palette lookup, and the output is stored
+straight into the double-buffered framebuffer. Iterations grow with zoom (64 at 1×, 480 at
+10,000×); float32 limits the deepest zoom to about 11,000×.
+
+On every boot each compiled tile configuration is first checked bit for bit against the
+emulator's escape counts, then benchmarked on the board, and the fastest runs the interactive
+loop. Frame rates at five zoom levels (`--profile`, 2026-11-02, Pi Zero W):
+
+| zoom | 1× | 10× | 100× | 1,000× | 10,000× |
+|---|---|---|---|---|---|
+| before profiling | 75.0 fps | 16.1 | 14.0 | 14.8 | 7.1 |
+| now | **92.6 fps** | **23.9** | **21.2** | **23.2** | **10.9** |
+
+The V3D performance counters show the QPUs 97-99% busy, so the renderer is compute bound; the
+remaining inefficiency is register-file read-port conflicts (see `perf/README.md`). Profiles
+before and after are in `benchmarks/results/mandelbrot-profile*-2026-11-02.log`.
+
+```bash
+.venv/bin/python examples/mandelbrot_pi.py                # build, boot, interactive (needs HDMI)
+.venv/bin/python examples/mandelbrot_pi.py --bench-only   # checks + benchmarks, then exit
+.venv/bin/python examples/mandelbrot_pi.py --profile      # per-zoom frame time + V3D counters
+.venv/bin/python -m pytest tests/test_mandelbrot.py -q
+```
+
+## Performance suite and profiling
+
+`perf/` holds every kernel PIton ships in one registry (23 cases) with an emulator test for
+each, an instruction-mix analyser (`perf/analyze.py`) and a Pi profiler that reads the V3D
+performance counters (`perf/profile_pi.py`: busy, TMU stalls, instruction- and uniform-cache
+misses). What it found on 2026-11-02, and what changed (details and the experiments in
+`perf/README.md`):
+
+* **Long straight-line kernels were instruction-fetch bound.** The QPU instruction cache holds
+  about 500 instructions; exp, log, sqrt and integer division at BLOCK=256 compiled to
+  800-4,400 instructions and missed once per 32-instruction line. The new `piton/reroll.py`
+  turns such 1-D elementwise blocks into a loop over 64-element chunks (smaller if needed):
+  exp 3,041 → 1,730 µs (1.76×), log 1.69×, exp2 1.71×, integer division 1.66×, recip 1.53×,
+  rsqrt 1.47×, sqrt 1.40× in the suite.
+* **Dependence chains blocked add/mul pairing** in transcendental code. `piton/backend/presched.py`
+  interleaves independent chains before register allocation (kept only when shorter): 2-10% fewer
+  instructions, up to 1.13× on the Pi.
+* **Stores are the floor for elementwise kernels.** One VDW DMA engine serves all 12 QPUs at about
+  0.18 µs per DMA plus 0.85 ns per byte; with 4 VPM rows per QPU each DMA is 256 bytes, which caps
+  writes near 640 MB/s. Larger DMAs reach 917-966 MB/s, but only 64 VPM rows are addressable,
+  so that needs VPM space shared between QPUs (not done yet).
+* **The launcher could lose completions**: it read the 8-bit completed-program count too rarely,
+  so 256 or more short programs could finish unseen and the launch timed out. It now reads the
+  count once per batch of requests and issues a program every 0.74 µs.
+
+```bash
+.venv/bin/python -m pytest perf -q
+.venv/bin/python perf/analyze.py exp -v
+.venv/bin/python perf/profile_pi.py               # needs the Pi
+```
 
 ## Pipeline
 
@@ -246,7 +379,9 @@ Python AST ──frontend.py──▶ tile IR (TTIR-like)  ──passes.py──
 | `piton/language` | Triton language subset (`tl.*` builtins, `tensor` with Triton's broadcasting/promotion rules) |
 | `piton/frontend.py` | executes the kernel's Python AST symbolically, like Triton's `code_generator.py` |
 | `piton/ir.py`, `piton/passes.py` | tile IR + optimisation passes; `fn.dump()` prints TTIR-style text |
+| `piton/reroll.py` | rerolls 1-D elementwise blocks too large for the instruction cache into a loop over chunks |
 | `piton/backend/lower.py` | tile IR → machine IR (layouts, loads/stores, `tl.dot`, reductions, division, loops) |
+| `piton/backend/presched.py` | interleaves independent dependence chains before register allocation |
 | `piton/backend/regalloc.py` | register allocation for r0-r3 + regfiles A/B with read-port constraints |
 | `piton/backend/sched.py` | hazard-aware list scheduler / bundler, branch delay slots |
 | `piton/qpu/isa.py`, `asm.py` | instruction encoding/decoding, vc4asm-compatible text |
@@ -254,7 +389,7 @@ Python AST ──frontend.py──▶ tile IR (TTIR-like)  ──passes.py──
 | `piton/runtime/launcher.py` | `kernel[grid](...)` for numpy arrays (emulator or Pi) |
 | `piton/runtime/pi.py` | builds a bare-metal test program, boots it with the course bootloader, reads results back |
 | `piton/tools/compile.py` | AOT compiler → `.qasm` + `.c/.h` with a `*_launch()` function |
-| `pi/runtime/piton_rt.c` | mailbox GPU memory + V3D user-program queue launcher |
+| `pi/runtime/piton_rt.c` | mailbox GPU memory + V3D user-program queue launcher + V3D performance counters |
 | `tools/probes.py`, `tools/float_specials_probe.py` | hardware probes that pinned down undocumented behaviour |
 
 ## Quick start
@@ -346,9 +481,16 @@ than promoted; there is no register spilling, so very large tiles fail with `Reg
   analysis can bound `program_id` arithmetic (narrower compares, 24-bit multiplies);
   `piton.compiler.compile(..., grid=None)` and the AOT tool without `--max-grid` assume any
   int32 program id.
+* **Instruction cache.** The QPU instruction cache holds about 500 instructions. When a 1-D
+  elementwise kernel would unroll past 450, `piton/reroll.py` compiles it as a loop over
+  64-element chunks, halving the chunk while the program still does not fit and each step
+  makes it smaller.
 * **Scheduling** packs add/mul ops, signals (`ldtmu`) and small immediates into 64-bit
   instructions under the pipeline rules (2-cycle regfile latency, rotation and SFU delays,
-  3 branch delay slots, …) and fixes hazards across block boundaries.
+  3 branch delay slots, …) and fixes hazards across block boundaries. Before register
+  allocation, `presched` interleaves independent dependence chains so the scheduler has pairs to
+  pack; both versions are built and the one with fewer instructions (loop bodies weighted by
+  depth) is kept.
 
 ## Things we learned from the hardware
 
@@ -369,16 +511,25 @@ All verified with `tools/probes.py` on a Pi Zero W; the emulator models them:
 | `qpu_num` is unique 0-11; the scheduler hands programs to QPU 11, 10, …, 0 | per-QPU VPM rows `4*qpu_num` never collide |
 | SFU accuracy: `exp2` ≈ 13.8 bits, `log2` ≈ 12.8 bits; `recip`/`recipsqrt` + one Newton step ≈ 22 bits, and the exact bits are not reproducible (softmax differed from the emulator in the last bit) | exp/log use range reduction + polynomials, recip/rsqrt an integer seed + 3 Newton steps, all on the ALUs: deterministic and ≈ 2 ulp |
 | GPU reads through the uncached `0xC` bus alias are >100× slower; `0x0` hung the TMU | buffers use the mailbox's default `0x4` alias |
+| the QPU instruction cache holds about 500 instructions; longer straight-line code misses once per 32-instruction line (3.06% of fetches), and the stalls are not counted as busy (`perf/icache_experiment.py`) | large elementwise blocks are rerolled into loops (`piton/reroll.py`) |
+| one VDW DMA engine serves all 12 QPUs: about 0.18 µs per DMA plus 0.85 ns per byte (`perf/vdw_probe.py`); only 64 VPM rows are addressable, and raising VPMBASE does not add more | 4 rows per QPU (256-byte DMAs) cap stores near 640 MB/s; 5 rows were measured and were no faster |
+| the user-program queue's completed count is 8 bits | the launcher reads it once per batch of at most 15 requests, so it cannot wrap unseen |
 
 ## Layout of the repository
 
 ```
 piton/            compiler, emulator, runtime (Python)
-examples/         Triton kernels: tutorials (vector add, softmax, matmul) and test kernels
+examples/         Triton kernels: tutorials (vector add, softmax, matmul), digits, Mandelbrot, test kernels
 tests/            pytest: emulator vs numpy, vc4asm bit-exactness, hardware (PITON_HW=1)
+perf/             benchmark suite, instruction-mix analyser, Pi profiler, hardware experiments
+benchmarks/       matmul sweeps and the saved results of every hardware run
 tools/probes.py   hardware probes
 pi/runtime/       bare-metal runtime (mailbox + V3D queue)
 pi/examples/      bare-metal programs using AOT-compiled kernels
+                    matmul/     tutorial matmul vs three ARM1176 baselines
+                    digits/     the digit classifier, GPU vs ARM
+                    primitives/ every Triton primitive vs every CPU baseline
+                    mandelbrot/ the interactive HDMI Mandelbrot renderer
 ```
 
 ## Credits

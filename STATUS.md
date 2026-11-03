@@ -1,6 +1,27 @@
-# Checkpoint — where PIton stands (2026-10-30)
+# Checkpoint — where PIton stands (2026-11-03)
 
-## Done and verified
+## Added 2026-11-02/03: profiling, faster math kernels, Mandelbrot
+- **Interactive Mandelbrot** (`examples/mandelbrot.py`, `examples/mandelbrot_pi.py`,
+  `pi/examples/mandelbrot`): 640×480 on HDMI, keyboard over UART, every kernel configuration
+  checked bit for bit against the emulator on each boot. 92.6 fps at 1×, 23.9 at 10×,
+  10.9 at 10,000× (was 75.0 / 16.1 / 7.1); QPUs 97-99% busy.
+- **`perf/`**: 23-case suite (emulator tests, instruction-mix analyser, Pi profiler with the V3D
+  performance counters) and the hardware experiments behind the findings below.
+- **Instruction cache**: straight-line programs over ~500 instructions miss once per cache
+  line. `piton/reroll.py` loops large 1-D elementwise blocks over 64-element chunks:
+  exp 3,041 → 1,730 µs (1.76×), log 1.69×, idiv 1.66×, recip 1.53×, rsqrt 1.47×, sqrt 1.40×.
+- **`piton/backend/presched.py`**: interleaves dependence chains before allocation (2-10% fewer
+  instructions; up to 1.13× on the Pi).
+- **Launcher fix**: the 8-bit completed-program count could wrap unseen with 256+ short
+  programs (the launch timed out); it is now read once per batch, 0.74 µs per program.
+- **Primitives rerun** with the new compiler (`benchmarks/results/primitives-2026-11-03.log`):
+  all 58 rows checked; exp, log, sqrt, rsqrt and `1/x` now run at copy speed (2.14-2.21 ms).
+- `pytest`: **390 passed, 14 skipped** (hardware-only); `PITON_HW=1 pytest tests/test_hw.py`:
+  **10 passed** after the compiler and launcher changes.
+- The digits timings below are from 2026-10-30; a 2026-11-02 rerun (before
+  the compiler changes) is in `benchmarks/results/digits-pi-2026-11-02.{json,log}`, within 1%.
+
+## Done and verified (2026-10-30)
 - Full pipeline: Triton AST frontend → tile IR + passes → QPU lowering → register allocation →
   scheduling → `.qasm` / machine words / C launcher (`python -m piton.tools.compile`).
 - Emulator (`piton/qpu/emulator.py`) with strict hazard checks; models the measured float
@@ -71,7 +92,7 @@
 
 ## Open items
 1. Repository and push access: https://github.com/foxboxxx/PIton (`main`). This checkpoint
-   includes the completed Oct 30 compiler tuning, trained neural network and measurements.
+   adds the Nov 2 profiling work, compiler passes and Mandelbrot demo to the Oct 30 state.
 2. **Known limits** (README "Supported Triton"): masked stores whose tile index wraps past INT_MAX,
    a nested-loop int-then-float carry, no register spilling. Not fixed on purpose: an int argument
    equal to 1 is specialised and then follows Python `//`/`%` rules (as in Triton).
@@ -80,9 +101,11 @@
    BK=8 loop's 256 vector MACs in 386 instructions imply a 15.917 GFLOPS instruction ceiling.
    128 compile-only shape/layout cases are saved; larger tiles generally exceed register limits.
    A specialized 4×64×32 fits, but the completed sweep favours 8×64×8.
-4. **Next application, chosen by the user:** a Mandelbrot renderer with zoom controlled over
-   UART and optionally GPIO buttons. Small neural-network inference is complete and hardware
-   verified; further model/application work can build on the resident dense-layer pipeline.
+4. **Next performance work** (measured limits, `perf/README.md`): elementwise and math kernels
+   are bound by the shared VDW store engine (256-byte DMAs, ~640 MB/s; 1 KiB DMAs reach
+   917-966 MB/s but need VPM rows shared between QPUs under semaphores). Mandelbrot is bound by
+   register-file read ports (port-aware allocation, ~1.4× estimated). softmax and transpose
+   still miss the instruction cache (reroll does not handle reductions or 2-D tiles).
 5. `ftoi` of some huge values (e.g. −1.7e38 → 0x80000000) is not modelled; out-of-range
    float→int is undefined in Triton, everything else in `tools/float_specials_probe.py` matches.
 6. Plain `+`/`*` keep the hardware's NaN-as-inf behaviour (documented); division, comparisons,
@@ -92,6 +115,8 @@
 ```bash
 .venv/bin/python -m pytest -q --ignore=tests/test_hw.py     # emulator + vc4asm tests
 PITON_HW=1 .venv/bin/python -m pytest tests/test_hw.py      # hardware tests (Pi attached)
+.venv/bin/python perf/profile_pi.py                         # every kernel with V3D counters
+.venv/bin/python examples/mandelbrot_pi.py                  # interactive Mandelbrot (HDMI)
 .venv/bin/python tools/probes.py <probe>                    # hardware probes
 PITON_HW=1 .venv/bin/python tools/float_specials_probe.py   # float special values vs emulator
 PITON_HW=1 .venv/bin/python benchmarks/matmul_pi.py 128 512 --bk 8
