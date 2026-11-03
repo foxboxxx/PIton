@@ -109,23 +109,20 @@ def _port_aware(original, name: str, missed: list, copy_of: dict, rounds: int = 
     choice"), starting from the pairs the scheduler could not form with the
     plain allocation (`missed`, `copy_of`): each round allocates a fresh
     clone, schedules it, and adds the pairs it still missed for the next.
-    Yields (program, mir, allocator, self moves dropped); stops when
-    allocation fails or the scheduler misses nothing new."""
+    Yields (program, mir, allocator, self moves dropped); stops when an
+    attempt fails to allocate or schedule (the plain allocation then stays)
+    or the scheduler misses nothing new."""
     hints = PortHints()
-    seed = os.environ.get("PITON_PORT_SEED", "1")
-    if seed == "1":
-        hints.add(missed, copy_of)
-    for k in range(rounds):
-        if k == 1 and seed == "2":
-            hints.add(missed, copy_of)
+    hints.add(missed, copy_of)
+    for _ in range(rounds):
         mf = clone_function(original)
         try:
             alloc = allocate(mf, hints=hints)
-        except RegAllocError:
+            dropped = opt.drop_self_moves(mf)
+            missed = []
+            prog = schedule_function(mf, name, missed=missed)
+        except (RegAllocError, RuntimeError):
             return
-        dropped = opt.drop_self_moves(mf)
-        missed = []
-        prog = schedule_function(mf, name, missed=missed)
         yield prog, mf, alloc, dropped
         if not hints.add(missed, alloc.copy_of):
             return
@@ -161,8 +158,7 @@ def _build(tile, ranges, options: dict, interleave: bool):
     if original is not None:
         # The plain allocation stays unless a port-aware one schedules shorter.
         stats["port_alloc"] = 0
-        rounds = int(os.environ.get("PITON_PORT_ROUNDS", PORT_ROUNDS))
-        for attempt, (p, f, a, dropped) in enumerate(_port_aware(original, tile.name, missed, alloc.copy_of, rounds), 1):
+        for attempt, (p, f, a, dropped) in enumerate(_port_aware(original, tile.name, missed, alloc.copy_of), 1):
             if _port_better(p, f, prog, mf):
                 prog, mf, mir_alloc = p, f, f.dump()
                 stats.update(port_alloc=attempt, copies_inserted=a.copies_inserted, self_moves_dropped=dropped)

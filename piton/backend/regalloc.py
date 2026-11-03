@@ -714,24 +714,41 @@ class Allocator:
         cap = {f: max(FILE_LIMIT, int(press[f].max())) for f in press}
         other = {"A": "B", "B": "A"}
 
+        def moved_press(vs, dest):
+            """File pressure after moving vs, or None if a file they move
+            into would pass its cap."""
+            if len(vs) == 1:
+                v, = vs
+                f = dest[v]
+                if any(press[f][s:e + 1].max() >= cap[f] for s, e in segs[v]):
+                    return None
+                new_press = {g: press[g].copy() for g in ("A", "B")}
+                for s, e in segs[v]:
+                    new_press[f][s:e + 1] += 1
+                    new_press[other[f]][s:e + 1] -= 1
+                return new_press
+            moved = {f: coverage([v for v in vs if dest[v] == f]) for f in ("A", "B")}
+            new_press = {f: press[f] + moved[f] - moved[other[f]] for f in ("A", "B")}
+            if any(new_press[f].max() > cap[f] and moved[f].any() for f in ("A", "B")):
+                return None
+            return new_press
+
         def try_move(vs):
             gis = sorted({gi for v in vs for gi in by_v[v]})
             if not any(bad[gi] for gi in gis):
                 return False
             dest = {v: other[file_of[v]] for v in vs}
-            moved = {f: coverage([v for v in vs if dest[v] == f]) for f in ("A", "B")}
-            new_press = {f: press[f] + moved[f] - moved[other[f]] for f in ("A", "B")}
-            if any(new_press[f].max() > cap[f] and moved[f].any() for f in ("A", "B")):
-                return False
             before = sum(groups[gi][0] for gi in gis if bad[gi])
             for v in vs:
                 file_of[v] = dest[v]
             after = {gi: not fits(groups[gi][1]) for gi in gis}
             if sum(groups[gi][0] for gi in gis if after[gi]) < before:
-                for gi in gis:
-                    bad[gi] = after[gi]
-                press.update(new_press)
-                return True
+                new_press = moved_press(vs, dest)
+                if new_press is not None:
+                    for gi in gis:
+                        bad[gi] = after[gi]
+                    press.update(new_press)
+                    return True
             for v in vs:
                 file_of[v] = other[dest[v]]
             return False
