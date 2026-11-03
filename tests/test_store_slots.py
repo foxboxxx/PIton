@@ -26,6 +26,7 @@ from piton.runtime import launcher  # noqa: E402
 from piton.runtime.launcher import run_emulator, semaphore_programs, slot_semaphores  # noqa: E402
 from kernels import add_kernel  # noqa: E402
 from primitive_kernels import copy_kernel  # noqa: E402
+from sfu_tests import sfu_kernel  # noqa: E402
 
 rng = np.random.default_rng(23)
 SIG_COPY = {"x_ptr": "*fp32", "out_ptr": "*fp32", "n": "i32"}
@@ -100,7 +101,9 @@ def test_release_waits_and_semaphores_stay_out_of_delay_slots(slots):
 
 # -- suite kernels -----------------------------------------------------------------------
 
-AFFECTED = ["copy", "add", "mul", "fma", "scaled_relu", "transpose", "matmul_8x64x4", "matmul_8x64x8"]
+AFFECTED = ["copy", "add", "mul", "fma", "scaled_relu", "transpose", "matmul_8x64x4", "matmul_8x64x8",
+            "exp", "exp2", "log", "log2", "recip", "rsqrt", "sqrt"]     # (the last 7: rerolled loops)
+UNAFFECTED = ["idiv", "row_sum", "row_max", "dense_relu", "compute_peak"]
 
 
 @pytest.mark.parametrize("seed", [1, 2])
@@ -120,6 +123,15 @@ def test_suite_case_contended(slots, name, seed):
     for out, expected in run.expected.items():
         got = values[out][:expected.size]
         assert default_check(run, out, got, expected) is None
+
+
+@pytest.mark.parametrize("name", UNAFFECTED)
+def test_suite_cases_without_large_stores(slots, name):
+    """Stores of at most 4 rows per DMA (and idiv's 16-element rerolled chunks)
+    keep the private rows: no semaphores, nothing for the runtime to set up."""
+    from perf.suite import CASES_BY_NAME, compile_case
+    ck, _ = compile_case(CASES_BY_NAME[name], "emu")
+    assert "store_slots" not in ck.stats and not sems_in(ck) and slot_semaphores(ck.words) == ()
 
 
 # -- 1-D: ragged tails, tiny and large grids ---------------------------------------------------
@@ -219,6 +231,58 @@ def test_2d_constant_stride(slots, stride):
     np.testing.assert_array_equal(out.reshape(tiles * R, stride)[:, :L], x * np.float32(0.5))
 
 
+@piton.jit
+def tile_const_mask_k(x_ptr, out_ptr, n_rows, R: tl.constexpr, L: tl.constexpr, STRIDE: tl.constexpr):
+    rows = tl.program_id(0) * R + tl.arange(0, R)
+    cols = tl.arange(0, L)
+    x = tl.load(x_ptr + rows[:, None] * L + cols[None, :])
+    tl.store(out_ptr + rows[:, None] * STRIDE + cols[None, :], x * 0.5, mask=rows[:, None] < n_rows)
+
+
+@pytest.mark.parametrize("stride", [40, 20000])
+def test_2d_constant_stride_masked(slots, stride):
+    """A run-time number of rows; with 20000 every row is its own guarded DMA."""
+    R, L, tiles = 16, 16, 3
+    n_rows = tiles * R - 7
+    x = rng.standard_normal((tiles * R, L)).astype(np.float32)
+    out = np.full(stride * tiles * R, -1.0, np.float32)
+    ck = build(tile_const_mask_k, {"x_ptr": "*fp32", "out_ptr": "*fp32", "n_rows": "i32"},
+               {"R": R, "L": L, "STRIDE": stride}, (tiles,))
+    assert ck.stats.get("store_slots") == 1
+    launch(ck, (tiles,), {"x_ptr": x, "out_ptr": out, "n_rows": n_rows}, contended(stride + 1))
+    got = out.reshape(tiles * R, stride)
+    np.testing.assert_array_equal(got[:n_rows, :L], x[:n_rows] * np.float32(0.5))
+    np.testing.assert_array_equal(got[n_rows:], -1.0)
+    np.testing.assert_array_equal(got[:, L:], -1.0)
+
+
+@piton.jit
+def tile_neg_k(x_ptr, out_ptr, base, stride, R: tl.constexpr, L: tl.constexpr):
+    rows = tl.program_id(0) * R + tl.arange(0, R)
+    cols = tl.arange(0, L)
+    x = tl.load(x_ptr + rows[:, None] * L + cols[None, :])
+    tl.store(out_ptr + base + rows[:, None] * stride + cols[None, :], x * 2.0)
+
+
+@pytest.mark.parametrize("L", [16, 32])
+def test_2d_negative_runtime_stride(slots, L):
+    """Rows stored in reverse order: the gap does not fit the VDW stride field,
+    so the slow version stores one DMA per row from the slot."""
+    R, tiles = 16, 3
+    stride = -(L + 16)
+    base = (tiles * R - 1) * -stride
+    x = rng.standard_normal((tiles * R, L)).astype(np.float32)
+    out = np.full(base + L, -3.0, np.float32)
+    ck = build(tile_neg_k, {"x_ptr": "*fp32", "out_ptr": "*fp32", "base": "i32", "stride": "i32"},
+               {"R": R, "L": L}, (tiles,))
+    assert ck.stats.get("store_slots") == 1
+    launch(ck, (tiles,), {"x_ptr": x, "out_ptr": out, "base": base, "stride": stride}, contended(L))
+    want = np.full_like(out, -3.0)
+    for r in range(tiles * R):
+        want[base + r * stride:base + r * stride + L] = x[r] * np.float32(2.0)
+    np.testing.assert_array_equal(out, want)
+
+
 # -- scalar and scatter stores, stores in loops and branches ------------------------------------
 
 @piton.jit
@@ -285,6 +349,79 @@ def test_stores_in_loops_and_branches(slots):
         lo = p * iters * block
         scale = np.float32(2.0 if p % 2 == 0 else 0.5)
         np.testing.assert_array_equal(out[n + lo:n + lo + block], x[lo:lo + block] * scale)
+
+
+# -- rerolled loops: the block's store after the loop (reroll.py queue) -----------------------
+
+SIG_SFU = {"x_ptr": "*fp32", "out_ptr": "*fp32", "n": "i32"}
+
+
+def _sacq_count(ck):
+    return sum(1 for acquire, _ in sems_in(ck) if acquire)
+
+
+@pytest.mark.parametrize("n,extra", [(1, 0), (100, 1), (256, 0), (1000, 2), (4096 - 37, 0)])
+def test_rerolled_queue_ragged(slots, n, extra):
+    """exp over BLOCK=256 is rerolled into four 64-element chunks; with slots
+    the chunks are shifted into carried registers and the masked block is
+    stored once after the loop (one acquire per slot: one store)."""
+    ck = build(sfu_kernel, SIG_SFU, {"OP": 4, "BLOCK": 256}, (32,))
+    assert ck.stats["rerolled"] == 64 and ck.stats.get("store_slots") == 1
+    assert "piton.shift_in" in ck.asm["ttir_rerolled"] and _sacq_count(ck) == 4
+    x = rng.uniform(-8, 8, n).astype(np.float32)
+    out = np.full(n + 64, 5.0, np.float32)
+    launch(ck, (piton.cdiv(n, 256) + extra,), {"x_ptr": x, "out_ptr": out, "n": n}, contended(n + 3))
+    np.testing.assert_allclose(out[:n], np.exp(x.astype(np.float64)), rtol=4e-6, atol=1e-30)
+    np.testing.assert_array_equal(out[n:], 5.0)
+
+
+def test_reroll_without_switch_has_no_queue(monkeypatch):
+    monkeypatch.delenv("PITON_STORE_SLOTS", raising=False)
+    ck = build(sfu_kernel, SIG_SFU, {"OP": 4, "BLOCK": 256}, (32,))
+    assert ck.stats["rerolled"] == 64 and "piton.shift_in" not in ck.asm["ttir_rerolled"] and not sems_in(ck)
+
+
+@piton.jit
+def exp_where_k(x_ptr, out_ptr, n, BLOCK: tl.constexpr):
+    offs = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    x = tl.load(x_ptr + offs, mask=offs < n, other=0.0)
+    tl.store(out_ptr + offs, tl.exp(x), mask=(offs < n) & (x > 0.0))
+
+
+def test_rerolled_store_mask_from_loaded_data(slots):
+    """A mask computed from loaded data would have to be carried too: the
+    store stays in the loop (64-element chunks, private rows)."""
+    ck = build(exp_where_k, SIG_SFU, {"BLOCK": 256}, (8,))
+    assert ck.stats["rerolled"] and "piton.shift_in" not in ck.asm["ttir_rerolled"]
+    n = 1500
+    x = rng.uniform(-4, 4, n).astype(np.float32)
+    out = np.full(n, -2.0, np.float32)
+    launch(ck, (6,), {"x_ptr": x, "out_ptr": out, "n": n}, contended(2))
+    want = np.where(x > 0, np.exp(x.astype(np.float64)), -2.0)
+    np.testing.assert_allclose(out, want, rtol=4e-6, atol=1e-30)
+
+
+@piton.jit
+def exp_sqrt_k(x_ptr, e_ptr, s_ptr, n, BLOCK: tl.constexpr):
+    offs = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    m = offs < n
+    x = tl.load(x_ptr + offs, mask=m, other=1.0)
+    tl.store(e_ptr + offs, tl.exp(x), mask=m)
+    tl.store(s_ptr + offs, tl.sqrt(x * x), mask=m)
+
+
+def test_rerolled_two_stores(slots):
+    """Two stored blocks: two queues (or, when they do not fit the registers,
+    the build without slots); either way the results are right."""
+    ck = build(exp_sqrt_k, {"x_ptr": "*fp32", "e_ptr": "*fp32", "s_ptr": "*fp32", "n": "i32"},
+               {"BLOCK": 256}, (8,))
+    assert ck.stats["rerolled"]
+    n = 1800
+    x = rng.uniform(-6, 6, n).astype(np.float32)
+    e, sq = np.zeros(n, np.float32), np.zeros(n, np.float32)
+    launch(ck, (8,), {"x_ptr": x, "e_ptr": e, "s_ptr": sq, "n": n}, contended(7))
+    np.testing.assert_allclose(e, np.exp(x.astype(np.float64)), rtol=4e-6, atol=1e-30)
+    np.testing.assert_allclose(sq, np.abs(x), rtol=4e-6)
 
 
 # -- the protocol around a launch, and what the emulator catches ----------------------------
