@@ -505,3 +505,73 @@ def test_transposed_load_in_a_loop(monkeypatch):
     ck, got = on_and_off(monkeypatch, trans_in_loop_kernel, sig, {"BLOCK": block}, (1,), values, off_fails=True)
     assert "load_operand" in ck.asm["ttir_opt"]
     np.testing.assert_allclose(got["out_ptr"].reshape(block, block), x.sum(axis=0).T, rtol=1e-6, atol=1e-6)
+
+
+# -- the elementwise reroll (PITON_REROLL, with the switch on or off) ---------------------
+#
+# It emits every scalar op ahead of the chunk loop, so a scalar load after a
+# tensor store, or a scalar store after a tensor load or store, would move
+# before them (a read of stale memory, a store the block then overwrites).
+
+
+@piton.jit
+def store_then_scalar_load_kernel(x_ptr, out_ptr, first_ptr, BLOCK: tl.constexpr):
+    offs = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    tl.store(out_ptr + offs, tl.exp(tl.load(x_ptr + offs)))
+    tl.store(first_ptr + tl.program_id(0), tl.load(out_ptr + tl.program_id(0) * BLOCK))
+
+
+@piton.jit
+def store_then_scalar_store_kernel(x_ptr, out_ptr, first_ptr, BLOCK: tl.constexpr):
+    offs = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    tl.store(out_ptr + offs, tl.exp(tl.load(x_ptr + offs)))
+    tl.store(out_ptr + tl.program_id(0) * BLOCK, -1.0)          # element 0 of the block, last
+    tl.store(first_ptr + tl.program_id(0), 2.0)
+
+
+@piton.jit
+def load_then_scalar_store_kernel(x_ptr, out_ptr, first_ptr, BLOCK: tl.constexpr):
+    offs = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    x = tl.load(x_ptr + offs)
+    tl.store(x_ptr + tl.program_id(0) * BLOCK, -1.0)            # after the block was read
+    tl.store(out_ptr + offs, tl.exp(x))
+    tl.store(first_ptr + tl.program_id(0), 2.0)
+
+
+@piton.jit
+def scalar_load_first_kernel(x_ptr, out_ptr, first_ptr, BLOCK: tl.constexpr):
+    offs = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    scale = tl.load(first_ptr + tl.program_id(0))
+    tl.store(out_ptr + offs, tl.exp(tl.load(x_ptr + offs)) * scale)
+
+
+@pytest.mark.parametrize("mode", [None, "1"])
+@pytest.mark.parametrize("kernel,rerolled", [(store_then_scalar_load_kernel, False),
+                                             (store_then_scalar_store_kernel, False),
+                                             (load_then_scalar_store_kernel, False),
+                                             (scalar_load_first_kernel, True)])
+def test_elementwise_reroll_keeps_scalar_memory_order(monkeypatch, mode, kernel, rerolled):
+    rows, block = 2, 256
+    x = rng.standard_normal(rows * block).astype(np.float32)
+    first = np.full(rows, 0.5, np.float32)
+    values = {"x_ptr": x, "out_ptr": np.zeros(rows * block, np.float32), "first_ptr": first}
+    sig = {"x_ptr": "*fp32", "out_ptr": "*fp32", "first_ptr": "*fp32"}
+    ck = build(monkeypatch, kernel, sig, {"BLOCK": block}, (rows,), mode, icache=20)
+    assert bool(ck.stats["rerolled"]) == rerolled
+    got = run(ck, (rows,), values)
+    e = np.exp(x.astype(np.float64)).reshape(rows, block)
+    out = got["out_ptr"].reshape(rows, block)
+    if kernel is scalar_load_first_kernel:
+        np.testing.assert_allclose(out, e * 0.5, rtol=1e-6)
+        return
+    if kernel is store_then_scalar_load_kernel:
+        np.testing.assert_array_equal(got["first_ptr"], out[:, 0])
+    else:
+        np.testing.assert_array_equal(got["first_ptr"], [2.0, 2.0])
+    if kernel is store_then_scalar_store_kernel:
+        assert (out[:, 0] == -1.0).all()
+        out = out[:, 1:]
+        e = e[:, 1:]
+    if kernel is load_then_scalar_store_kernel:
+        assert (got["x_ptr"].reshape(rows, block)[:, 0] == -1.0).all()
+    np.testing.assert_allclose(out, e, rtol=1e-6)

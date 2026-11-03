@@ -14,10 +14,11 @@ stores (no reductions, dots, reshapes or loops):
     offs = base + arange(0, N); ...           for c in range(N // SUB):
     y = f(load(x + offs, mask)); store(...)  ->     offs = base + c*SUB + arange(0, SUB); ...
 
-Scalar ops (program id, pointer arithmetic on scalars) stay outside the loop.
-Kernels that load after a store are left alone, since chunking reorders their
-memory accesses. compile() applies it only when the unrolled program would
-not fit the instruction cache.
+Scalar ops (program id, pointer arithmetic on scalars) stay outside the loop,
+ahead of it. Kernels that load after a store, or whose scalar loads, stores
+or other side effects follow a tensor load or store they would overtake, are
+left alone, since chunking reorders their memory accesses. compile() applies
+it only when the unrolled program would not fit the instruction cache.
 
 With `reductions` (PITON_REROLL_REDUCE=1 or "rows") the kernel may also
 reduce such tensors to scalars (tl.sum / tl.max / tl.min) and splat the
@@ -105,6 +106,24 @@ def _memory_order_kept(fn: ir.Function) -> bool:
     return True
 
 
+def _scalars_hoistable(fn: ir.Function) -> bool:
+    """run() without reductions emits every scalar op before the chunk loop:
+    safe unless a scalar load follows a tensor store (it would read memory
+    before the store) or a scalar store or other side effect follows a tensor
+    load or store (it would land before them)."""
+    loaded = stored = False
+    for op in fn.body.ops:
+        if _is_tensor_op(op):
+            loaded = loaded or op.name == "tt.load"
+            stored = stored or op.name == "tt.store"
+        elif op.name == "tt.load":
+            if stored:
+                return False
+        elif op.name != "tt.return" and not passes.is_pure(op) and (loaded or stored):
+            return False
+    return True
+
+
 def _tensor_length(fn: ir.Function, reductions: bool = False):
     """N if every tensor in the kernel is 1-D of length N and rerolling is safe, else None.
     `reductions` also accepts reductions of these tensors to scalars."""
@@ -135,6 +154,8 @@ def _tensor_length(fn: ir.Function, reductions: bool = False):
     if reductions and has_reductions(fn):
         if n % LANES or not _memory_order_kept(fn):
             return None
+    elif not _scalars_hoistable(fn):
+        return None
     return n
 
 
