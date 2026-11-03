@@ -66,6 +66,9 @@ class Buffer:
     nbytes: int
     init: Optional[np.ndarray] = None      # uint32 view of initial contents
     lcg_seed: Optional[int] = None         # generate floats on the Pi instead
+    # C statement run per word on the Pi (with `uint32_t s` = lcg_seed and
+    # `unsigned i`), assigning `v.f` or `v.u`; replaces the default LCG floats
+    c_init: Optional[str] = None
     column_block: Optional[tuple[int, int]] = None  # (logical columns, packed panel width)
 
     def __post_init__(self):
@@ -85,6 +88,7 @@ class PiResult:
     outputs: dict
     times_us: list
     log: str
+    perf: list = field(default_factory=list)     # per repeat: V3D counter values
 
 
 def lcg_floats(n: int, seed: int) -> np.ndarray:
@@ -119,14 +123,18 @@ class PiRunner:
                           "pi-install, and CS240LX_2025_PATH pointing at the course repo)")
 
     def run(self, code_words, buffers: list, programs: list, outputs: list, repeats: int = 1,
-            label: str = "piton", sample: Optional[dict] = None) -> PiResult:
+            label: str = "piton", sample: Optional[dict] = None,
+            perf_events: Optional[list] = None, setup_c: str = "") -> PiResult:
         """Execute `code_words` once per entry of `programs`.
 
         buffers  -- list[Buffer]
         programs -- list of uniform lists; entries are ints or ("buf", name, byte_offset)
         outputs  -- buffer names to read back after the last repeat
+        perf_events -- V3D performance counter ids (piton_rt.h) read around each launch
+        setup_c     -- C statements run after piton_init() (hardware experiments)
         """
-        src = self._generate(code_words, buffers, programs, outputs, repeats, label, sample or {})
+        src = self._generate(code_words, buffers, programs, outputs, repeats, label, sample or {},
+                             perf_events or [], setup_c)
         workdir = tempfile.mkdtemp(prefix="piton-pi-")
         try:
             with open(os.path.join(workdir, "main.c"), "w") as f:
@@ -153,7 +161,8 @@ class PiRunner:
 
     # -- program generation ----------------------------------------------------
 
-    def _generate(self, code_words, buffers, programs, outputs, repeats, label, sample) -> str:
+    def _generate(self, code_words, buffers, programs, outputs, repeats, label, sample,
+                  perf_events=(), setup_c="") -> str:
         code32 = []
         for w in code_words:
             code32 += [w & 0xFFFFFFFF, w >> 32]
@@ -208,6 +217,8 @@ class PiRunner:
             uniform_writes.append(f"        w[base + {j}] = {expr};")
         out.append("void notmain(void) {")
         out.append("    piton_init();")
+        if setup_c:
+            out.append("    " + setup_c)
         out.append(f"    piton_buf_t m = piton_alloc({total});")
         out.append("    volatile uint32_t *w = (volatile uint32_t *)m.cpu;")
         out.append(f"    for (unsigned i = 0; i < {len(code32)}; i++) w[i] = qpu_code[i];")
@@ -216,6 +227,10 @@ class PiRunner:
             n = b.nbytes // 4
             if b.init is not None:
                 out.append(f"    for (unsigned i = 0; i < {n}; i++) w[{base} + i] = init_{b.name}[i];")
+            elif b.c_init is not None:
+                out.append(f"    {{ uint32_t s = {b.lcg_seed or 0}u; (void)s;")
+                out.append(f"      for (unsigned i = 0; i < {n}; i++) {{")
+                out.append(f"          union {{ float f; uint32_t u; }} v; {b.c_init} w[{base} + i] = v.u; }} }}")
             elif b.lcg_seed is not None:
                 out.append(f"    {{ uint32_t s = {b.lcg_seed}u; volatile float *f = (volatile float *)&w[{base}];")
                 if b.column_block is None:
@@ -239,9 +254,20 @@ class PiRunner:
         out.append("        unif_ptrs[i] = m.bus + 4u * base;")
         out.append("    }")
         out.append(f"    printk(\"PITON_START {label} qpus=%d\\n\", piton_qpu_count());")
+        if perf_events:
+            out.append(f"    static const uint8_t perf_events[] = {{{', '.join(str(e) for e in perf_events)}}};")
+            out.append(f"    uint32_t perf[{len(perf_events)}];")
         out.append(f"    for (unsigned r = 0; r < {repeats}; r++) {{")
+        if perf_events:
+            out.append(f"        piton_perf_start(perf_events, {len(perf_events)});")
         out.append(f"        uint32_t t = piton_launch(m.bus, unif_ptrs, {len(programs)});")
+        if perf_events:
+            out.append(f"        piton_perf_read(perf, {len(perf_events)});")
         out.append("        printk(\"PITON_TIME %d\\n\", t);")
+        if perf_events:
+            out.append("        printk(\"PITON_PERF\");")
+            out.append(f"        for (unsigned j = 0; j < {len(perf_events)}; j++) printk(\" %d\", perf[j]);")
+            out.append("        printk(\"\\n\");")
         out.append("    }")
         for name in outputs:
             b = next(x for x in buffers if x.name == name)
@@ -348,7 +374,8 @@ class PiRunner:
         missing = [o for o in outputs if o not in result]
         if missing:
             raise PiError(f"missing outputs {missing} in log")
-        return PiResult(result, times, log)
+        perf = [[int(x) for x in m.split()] for m in re.findall(r"PITON_PERF((?: -?\d+)+)", log)]
+        return PiResult(result, times, log, perf)
 
 
 def run_on_pi(ck, grid, values: dict, repeats: int = 1, runner: Optional[PiRunner] = None,

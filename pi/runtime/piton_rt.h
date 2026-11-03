@@ -62,4 +62,32 @@ uint32_t piton_qpu_count(void);
 uint32_t piton_clock_hz(uint32_t clock_id, int max);
 void piton_memory_split(uint32_t *arm_size, uint32_t *vc_base, uint32_t *vc_size);
 
+// Send a complete property-interface message (channel 8): `msg` must be
+// 16-byte aligned and the ARM data cache off. Returns nonzero if the firmware
+// processed it; check each tag's response bit for individual results.
+int piton_mbox_property(volatile uint32_t *msg);
+
+// V3D performance counters (Reference Guide section 10, counter ids as in
+// Linux vc4). QPU counts are summed over all QPUs in V3D clock cycles; the
+// 32-bit counters wrap after ~1.4 s of full-GPU time, so measure short spans.
+enum {
+    PITON_PCTR_QPU_IDLE = 13,           // cycles with no program
+    PITON_PCTR_QPU_VALID = 16,          // cycles executing valid instructions
+    PITON_PCTR_QPU_TMU_STALL = 17,      // cycles waiting for TMU results
+    PITON_PCTR_QPU_SCOREBOARD = 18,     // cycles waiting for the scoreboard
+    PITON_PCTR_ICACHE_HIT = 20,
+    PITON_PCTR_ICACHE_MISS = 21,
+    PITON_PCTR_UNIF_HIT = 22,
+    PITON_PCTR_UNIF_MISS = 23,
+    PITON_PCTR_TMU_QUADS = 24,
+    PITON_PCTR_TMU_MISS = 25,
+    PITON_PCTR_VDW_STALL = 26,          // cycles the VDW waited for the VPM
+    PITON_PCTR_L2_HIT = 28,
+    PITON_PCTR_L2_MISS = 29,
+};
+#define PITON_PCTR_MAX 16
+// Select up to 16 events, clear and enable their counters.
+void piton_perf_start(const uint8_t *events, unsigned n);
+void piton_perf_read(uint32_t *counts, unsigned n);
+
 #endif

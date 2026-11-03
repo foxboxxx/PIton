@@ -710,6 +710,8 @@ class QPU:
         self.last_acc_written = self.last_acc_now
         self.last_r5_written = self.last_r5_now
         self.instructions += 1
+        if self.v3d.pc_counts is not None:
+            self.v3d.pc_counts[self.pc] += 1
         self.cycle += 1
 
         if in_end_slot:
@@ -911,6 +913,9 @@ class V3D:
         self.completed = 0
         self.programs = {}
         self.finished_qpu_cycles = []
+        # Optional per-pc execution counts (a list as long as the program),
+        # filled by every QPU; perf/analyze.py uses it to weight instructions.
+        self.pc_counts = None
 
     # semaphores / mutex
     def sem_acquire(self, n):

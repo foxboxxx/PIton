@@ -49,6 +49,15 @@ static volatile uint32_t *mbox_call(uint32_t tag, uint32_t nwords, uint32_t a0, 
     return p;
 }
 
+int piton_mbox_property(volatile uint32_t *msg) {
+    dev_barrier();
+    mbox_write(8, (uint32_t)msg);
+    while (mbox_read(8) != (uint32_t)msg)
+        ;
+    dev_barrier();
+    return msg[1] == 0x80000000;
+}
+
 static uint32_t mbox_call1(uint32_t tag, uint32_t nwords, uint32_t a0, uint32_t a1, uint32_t a2) {
     return mbox_call(tag, nwords, a0, a1, a2)[5];
 }
@@ -77,6 +86,12 @@ void piton_memory_split(uint32_t *arm_size, uint32_t *vc_base, uint32_t *vc_size
 #define V3D_SRQUA    (V3D_BASE + 0x434)
 #define V3D_SRQCS    (V3D_BASE + 0x43c)
 #define V3D_DBCFG    (V3D_BASE + 0xe00)
+#define V3D_PCTRC    (V3D_BASE + 0x670)
+#define V3D_PCTRE    (V3D_BASE + 0x674)
+#define V3D_PCTR(i)  (V3D_BASE + 0x680 + 8 * (i))
+#define V3D_PCTRS(i) (V3D_BASE + 0x684 + 8 * (i))
+#define V3D_DBGE     (V3D_BASE + 0xf00)
+#define V3D_ERRSTAT  (V3D_BASE + 0xf20)
 #define V3D_DBQITE   (V3D_BASE + 0xe2c)
 #define V3D_DBQITC   (V3D_BASE + 0xe30)
 
@@ -88,6 +103,22 @@ void piton_init(void) {
     if (GET32(V3D_IDENT0) != 0x02443356)
         panic("V3D not powered (IDENT0=%x): use start.elf (not start_cd.elf) and gpu_mem>=64\n",
               GET32(V3D_IDENT0));
+}
+
+void piton_perf_start(const uint8_t *events, unsigned n) {
+    if (n > PITON_PCTR_MAX)
+        panic("at most %d performance counters\n", PITON_PCTR_MAX);
+    uint32_t mask = (1u << n) - 1;
+    PUT32(V3D_PCTRE, 0);
+    for (unsigned i = 0; i < n; i++)
+        PUT32(V3D_PCTRS(i), events[i]);
+    PUT32(V3D_PCTRC, mask);
+    PUT32(V3D_PCTRE, (1u << 31) | mask);
+}
+
+void piton_perf_read(uint32_t *counts, unsigned n) {
+    for (unsigned i = 0; i < n; i++)
+        counts[i] = GET32(V3D_PCTR(i));
 }
 
 void piton_shutdown(void) {
@@ -129,9 +160,17 @@ uint32_t piton_launch(uint32_t code, const uint32_t *unifs, uint32_t n) {
     while (done < n) {
         if (timer_get_usec() - t0 > PITON_LAUNCH_TIMEOUT_US) {
             // a hung kernel would otherwise wedge the board until a power cycle
-            printk("PANIC: QPU launch timed out (%d of %d programs finished)\n", done, n);
+            printk("PANIC: QPU launch timed out (%d of %d programs finished, %d issued; "
+                   "SRQCS=%x ERRSTAT=%x DBGE=%x)\n", done, n, issued,
+                   GET32(V3D_SRQCS), GET32(V3D_ERRSTAT), GET32(V3D_DBGE));
             clean_reboot();
         }
+        // The completed-program count is 8 bits. One status read per batch:
+        // a batch fills the free queue slots (at most 15), so fewer than
+        // 15 issued + 15 queued + 12 running programs finish between reads.
+        // Issuing until the queue filled, without reading the count, lost
+        // multiples of 256 short programs and timed out (0 of 1024 empty
+        // programs). V3D register reads are slow, so they are not per request.
         uint32_t cs = GET32(V3D_SRQCS);
         uint32_t cnt = (cs >> 16) & 0xff;
         done += (cnt - last) & 0xff;
@@ -139,7 +178,8 @@ uint32_t piton_launch(uint32_t code, const uint32_t *unifs, uint32_t n) {
         if (cs & (1 << 7))
             panic("V3D request queue overflow\n");
         // keep at most 15 queued requests (the FIFO holds 16)
-        while (issued < n && (GET32(V3D_SRQCS) & 0x3f) < 15) {
+        uint32_t queued = cs & 0x3f;
+        for (uint32_t room = queued < 15 ? 15 - queued : 0; room && issued < n; room--) {
             PUT32(V3D_SRQUA, unifs[issued]);
             PUT32(V3D_SRQPC, code);
             issued++;
