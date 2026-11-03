@@ -20,7 +20,7 @@ import piton.language as tl
 from piton import compiler
 from piton.backend.regalloc import RegAllocError
 from piton.qpu import isa
-from piton.qpu.emulator import V3D, HazardError
+from piton.qpu.emulator import HazardError
 from piton.qpu.isa import f2u
 from piton.runtime.launcher import program_ids, run_emulator, uniforms_for
 from piton.tools.compile import emit_c
@@ -62,10 +62,11 @@ def _run(ck, grid, values):
     return values, stats
 
 
-def _same_as_plain(persistent, k, kernel, sig, cons, grid, values, compile_grid=None):
-    """Compile plain and with PITON_PERSISTENT=k, run both on `grid`; every
-    array must come back bit-identical. Returns (coarsened kernel, outputs, stats)."""
-    compile_grid = grid if compile_grid is None else compile_grid
+def _same_as_plain(persistent, k, kernel, sig, cons, grid, values, compile_grid="launch"):
+    """Compile plain and with PITON_PERSISTENT=k (for `compile_grid`, by default
+    the launch grid), run both on `grid`; every array must come back
+    bit-identical. Returns (coarsened kernel, its outputs, both runs' stats)."""
+    compile_grid = grid if compile_grid == "launch" else compile_grid
     persistent(None)
     plain = compiler.compile(kernel, sig, cons, grid=compile_grid)
     assert plain.coarsen == 1
