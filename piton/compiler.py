@@ -87,7 +87,10 @@ def _compile_tile(fn, signature, constants, name, pid_max, options, chunk: int =
     tile = frontend.generate(fn, signature, constants, name=name)
     asm = {"ttir": tile.dump()}
     if chunk:
-        reroll.run(tile, chunk)
+        if options.get("store_slots"):
+            reroll.run(tile, chunk, queue=True)     # (the block's store after the loop)
+        else:
+            reroll.run(tile, chunk)
         asm["ttir_rerolled"] = tile.dump()
     ranges = passes.optimize(tile, pid_max)
     asm["ttir_opt"] = tile.dump()
@@ -99,9 +102,9 @@ def _compile_tile(fn, signature, constants, name, pid_max, options, chunk: int =
     except RegAllocError:
         if not options.get("store_slots"):
             raise
-        # the store slot's registers did not fit: the private VPM rows need fewer
-        options = dict(options, store_slots=False)
-        prog, mf, lw, stats, asm["mir"], asm["mir_alloc"] = _build(tile, ranges, options, interleave=False)
+        # the store slot's registers (or a rerolled loop's store queue) did not
+        # fit: the private VPM rows need fewer
+        return _compile_tile(fn, signature, constants, name, pid_max, dict(options, store_slots=False), chunk)
     stats["presched"] = 0
     candidate = None
     if os.environ.get("PITON_PRESCHED", "1") != "0":       # PITON_PRESCHED=0: A/B comparisons

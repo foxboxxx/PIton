@@ -2638,6 +2638,11 @@ class Lowering:
         if bounds is None:
             self.store_chunks(layout, dv, None)
             return None
+        # with a store slot, the rows of a one-DMA store are written once for both versions
+        groups = self.store_groups(layout)[0]
+        filled = self.slots and len(groups) == 1
+        if filled:
+            self.fill_rows(self.vpm_bases()[0], dv, groups[0][0])
         # versioned: unmasked fast path when the whole tile is in bounds
         self.emit(self.bounds_all_valid(bounds, shape))
         slow_label = f"store_part{self.blocks}"
@@ -2646,7 +2651,7 @@ class Lowering:
         pending = self.vdw_pending
         self.emit(MInst(kind="branch", bcond="allnz", target=slow_label))
         self.cur = self.new_block("store_full")
-        self.store_chunks(layout, dv, None)
+        self.store_chunks(layout, dv, None, filled)
         if not self.slots:                  # (slot_release waits)
             self.dma_wait()
         self.emit(MInst(kind="branch", bcond="always", target=done_label))
@@ -2655,7 +2660,7 @@ class Lowering:
         self.cur = slow
         self.vdw_pending = pending          # the branch skipped the full path's wait
         self.vdw_stride = None
-        self.store_chunks(layout, dv, bounds)
+        self.store_chunks(layout, dv, bounds, filled)
         done = mir.Block(done_label, loop_depth=self.loop_depth)
         self.add_block(done)
         self.cur = done
@@ -2731,28 +2736,37 @@ class Lowering:
         return {"kind": "2d", "ptr": ptr, "R": numel(shape[:-1]), "L": L, "row": ptr.coeffs[-2]
                 if len(shape) == 2 else ptr.coeffs[-2]}
 
-    def store_chunks(self, layout, dv: Dense, bounds):
-        vws, vdw = self.vpm_bases()
-        ptr = layout["ptr"]
+    def store_groups(self, layout):
+        """([(registers of one DMA's VPM rows, column block)], memory row stride)."""
         if layout["kind"] == "1d":
             nrows = layout["rows"]
             groups = [(list(range(g, min(g + self.dma_rows, nrows))), C(0)) for g in
                       range(0, nrows, self.dma_rows)]
-            row_stride_bytes = C(64)
-        else:
-            R, L = layout["R"], layout["L"]
-            nb = L // LANES
-            groups = []
-            for cb in range(nb):
-                for r0 in range(0, R, self.dma_rows):
-                    regs = [r * nb + cb for r in range(r0, min(r0 + self.dma_rows, R))]
-                    groups.append((regs, C(cb)))
-            row_stride_bytes = layout["row"]
+            return groups, C(64)
+        R, L = layout["R"], layout["L"]
+        nb = L // LANES
+        groups = []
+        for cb in range(nb):
+            for r0 in range(0, R, self.dma_rows):
+                regs = [r * nb + cb for r in range(r0, min(r0 + self.dma_rows, R))]
+                groups.append((regs, C(cb)))
+        return groups, layout["row"]
+
+    def fill_rows(self, vws, dv: Dense, regs):
+        """Write registers `regs` of dv to this QPU's VPM rows (setup vws), from the first."""
+        self.dma_wait()
+        self.op("mov", isa.VW_SETUP, vws)
+        for j in regs:
+            self.op("mov", isa.VPM, self.reg_of(dv, j))
+
+    def store_chunks(self, layout, dv: Dense, bounds, filled: bool = False):
+        """filled: the one DMA group's rows are already in VPM (_store_versions)."""
+        vws, vdw = self.vpm_bases()
+        ptr = layout["ptr"]
+        groups, row_stride_bytes = self.store_groups(layout)
         for regs, cb in groups:
-            self.dma_wait()
-            self.op("mov", isa.VW_SETUP, vws)
-            for j in regs:
-                self.op("mov", isa.VPM, self.reg_of(dv, j))
+            if not filled:
+                self.fill_rows(vws, dv, regs)
             # address of the first register of the chunk
             lr, off = self.affine_reg(ptr, regs[0])
             a = self.new("sa")
@@ -3415,6 +3429,21 @@ class Lowering:
 
     def op_scf_yield(self, op):
         return None
+
+    def op_piton_shift_in(self, op):
+        """A rerolled loop's store queue (reroll.py, PITON_STORE_SLOTS): the
+        carried values without their first chunk's registers, then the chunk.
+        Fresh registers, so the loop-carried copies coalesce (no staging)."""
+        acc, chunk = (self.materialize(self.get(v)) for v in op.operands)
+        res = op.results[0]
+        k = len(chunk.regs)
+        regs = []
+        for j in range(len(acc.regs)):
+            r = self.new("q", res.dtype.is_float)
+            self.op("mov", r, self.reg_of(acc, j + k) if j + k < len(acc.regs)
+                    else self.reg_of(chunk, j + k - len(acc.regs)))
+            regs.append(r)
+        return Dense(res.shape, res.dtype, regs)
 
     def carried_form(self, init, shape, dtype):
         """Loop-carried representation: (value used inside, list of (reg, source) copies)."""
