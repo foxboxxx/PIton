@@ -87,8 +87,8 @@ def fast_rows(out_ptr, palette_ptr, col, x0, y0, step, width, pitch, max_iter,
                     y = xy * 2.0 + cy
                     misses += (4.0 - (xx + yy)).to(tl.int32, bitcast=True) >> 31
                 done += UNROLL
-        # misses << 1 == 0: never escaped (0) or settled (INT_MIN)
-        color = tl.load(palette_ptr + tl.where(misses << 1 == 0, 0, done + misses))
+        # misses << 1 == 0: never escaped (0) or settled (INT_MIN); a settled lane would go negative if it escaped
+        color = tl.load(palette_ptr + tl.maximum(tl.where(misses << 1 == 0, 0, done + misses), 0))
         tl.store(out_ptr + row[:, None] * pitch + col[None, :], color, mask=col[None, :] < width)
 
 
