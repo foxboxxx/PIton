@@ -25,11 +25,14 @@ reference guide says is undefined (p37 "Summary of Instruction
 Restrictions"), e.g. reading a regfile location written by the previous
 instruction, touching r4 too early after an SFU write, rotating an
 accumulator written by the previous instruction, overflowing the TMU FIFO,
-or starting a DMA while the previous one is still running.  A VDW DMA reads
-its VPM rows while it runs, and only the QPU that started it can tell when
-it has finished (vw_wait), so a VPM write by any other QPU to rows of a DMA
-its owner has not yet waited for is a hazard too: that is the race a VPM
-area shared between QPUs (PITON_STORE_SLOTS) has to rule out.
+or starting a DMA while the previous one is still running.  The VPM is one
+memory shared by all QPUs, so two races between QPUs are hazards too; they
+are what a VPM area shared between QPUs (PITON_STORE_SLOTS) has to rule out:
+  * a VDW DMA reads its VPM rows while it runs, and only the QPU that
+    started it can tell when it has finished (vw_wait): a VPM write by any
+    other QPU to rows of a DMA its owner has not yet waited for;
+  * a VDW DMA of rows whose last write came from another QPU (the rows this
+    QPU filled were overwritten before its DMA read them).
 """
 
 from __future__ import annotations
@@ -318,6 +321,7 @@ class VPMState:
     def __init__(self, rows: int = 64):
         self.mem = np.zeros((rows, 16), dtype=np.uint32)
         self.rows = rows
+        self.writer = [None] * rows         # QPU whose write (or DMA load) each row holds
 
     def read_vec(self, horiz: bool, addr: int) -> np.ndarray:
         if horiz:
@@ -367,6 +371,11 @@ class QPU:
     def __init__(self, num: int, v3d: "V3D"):
         self.num = num
         self.v3d = v3d
+        # VPM rows of this QPU's last DMA store, reserved until the cycle its
+        # wait returned (None: not waited for yet).  The DMA does not end with
+        # the program, so this outlives reset(); V3D.run drops waited ones.
+        self.vdw_rows = frozenset()
+        self.vdw_rows_until = None
         self.reset()
 
     def reset(self):
@@ -395,8 +404,6 @@ class QPU:
         self.vdr = {"mpitch": 0, "rowlen": 16, "nrows": 1, "vpitch": 1, "vert": False, "addr": 0,
                     "pitch_ext": 0}
         self.vdw_busy_until = None
-        self.vdw_rows = frozenset()     # VPM rows of the last DMA store ...
-        self.vdw_rows_until = None      # ... reserved until this cycle (None: not waited for)
         self.vdr_busy_until = None
         self.cycle = 0
         self.instructions = 0
@@ -563,8 +570,11 @@ class QPU:
             # the DMA reads VPM while it runs (here it copied at start)
             self.hazard("VPM written while this QPU's VDW DMA may still be reading it")
         horiz, addr, stride = self.vpm_write
-        self.check_vpm_rows_free(VPMState.rows_of_write(horiz, addr), "wrote")
+        rows = VPMState.rows_of_write(horiz, addr)
+        self.check_vpm_rows_free(rows, "wrote")
         self.v3d.vpm.write_vec(horiz, addr, vec)
+        for y in rows:
+            self.v3d.vpm.writer[y] = self.num
         self.vpm_write = (horiz, (addr + stride) & 0xFF, stride)
 
     def start_vdw(self, addr: int):
@@ -589,6 +599,10 @@ class QPU:
             read.update(rows)
             self.v3d.mem.write_words(addr, row.astype(np.uint32))
             addr += 4 * d["depth"] + d["stride"]
+        for y in sorted(read):
+            w = self.v3d.vpm.writer[y]
+            if w is not None and w != self.num:
+                self.hazard(f"VDW DMA store of VPM row {y}, last written by QPU{w}")
         # copied here, but on hardware read while the DMA runs: the rows stay
         # reserved for it until this QPU's wait returns (check_vpm_rows_free)
         self.vdw_rows, self.vdw_rows_until = frozenset(read), None
@@ -615,7 +629,11 @@ class QPU:
             written = range(y, y + d["rowlen"])
         else:
             written = ((y + r * d["vpitch"]) % self.v3d.vpm.rows for r in range(d["nrows"]))
-        self.check_vpm_rows_free(frozenset(written), "VDR load into")
+        written = frozenset(written)
+        self.check_vpm_rows_free(written, "VDR load into")
+        for y in written:
+            if y < self.v3d.vpm.rows:
+                self.v3d.vpm.writer[y] = self.num
         for r in range(d["nrows"]):
             words = self.v3d.mem.read_words(addr + 4 * np.arange(d["rowlen"]))
             if d["vert"]:
@@ -1038,6 +1056,8 @@ class V3D:
         for q in self.qpus:
             q.running = False
             q.cycle = int(self.rng.integers(0, jitter + 1)) if jitter else 0
+            if q.vdw_rows_until is not None:        # waited for in an earlier run
+                q.vdw_rows = frozenset()
         self.vdw_free = 0
         total_instr = 0
         stalls = 0

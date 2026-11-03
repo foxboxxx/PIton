@@ -354,6 +354,40 @@ def test_vpm_rows_stay_reserved_until_the_dma_is_waited_for():
     np.testing.assert_array_equal(v.mem.read_array(out, (16,), np.uint32), np.arange(16))
 
 
+def test_dma_of_rows_another_qpu_overwrote():
+    """The other direction of the race: rows filled by one QPU and overwritten
+    by another before the first QPU's DMA has read them."""
+    v = V3D(num_qpus=2)
+    a, b = v.qpus
+    for q in (a, b):
+        q.program, q.pc, q.running = [(isa.Instr.nop(), None)], 0, True
+    out = v.mem.alloc(1024, 64)
+    a.write_vw_setup(0x00001A00 | 32)                       # rows 32, 33
+    a.write_vpm(np.arange(16, dtype=np.uint32))
+    a.write_vpm(np.arange(16, dtype=np.uint32))
+    b.write_vw_setup(0x00001A00 | 33)                       # no DMA reads row 33 yet: not caught here
+    b.write_vpm(np.zeros(16, np.uint32))
+    a.write_vw_setup(0x80000000 | (1 << 23) | (16 << 16) | 0x4000 | (32 << 7))
+    a.start_vdw(out)                                        # row 32 only: still a's data
+    a.wait_vdw()
+    a.write_vw_setup(0x80000000 | (2 << 23) | (16 << 16) | 0x4000 | (32 << 7))
+    with pytest.raises(HazardError, match="VPM row 33, last written by QPU1"):
+        a.start_vdw(out)
+
+
+def test_waited_reservations_end_with_their_run(slots):
+    """Reservations from a finished launch must not leak into the next one,
+    whose cycles start again at 0 (here 3 programs: QPUs 3-11 stay idle and
+    keep the state of their last program of the 48-program launch)."""
+    ck, x, values = _copy_launch(48 * 256)
+    v = contended(6)
+    launch(ck, (48,), values, v)
+    assert any(q.vdw_rows_until for q in v.qpus[3:])
+    small = {"x_ptr": x[:3 * 256], "out_ptr": np.zeros(3 * 256, np.float32), "n": 3 * 256}
+    launch(ck, (3,), small, v)
+    np.testing.assert_array_equal(small["out_ptr"], x[:3 * 256])
+
+
 # -- the Pi side -----------------------------------------------------------------------------
 
 def test_generated_launch_runs_init_kernel_fini(slots, tmp_path):
