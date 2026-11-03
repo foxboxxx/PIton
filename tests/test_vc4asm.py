@@ -63,3 +63,14 @@ def test_new_patterns_qasm():
     check(pc.compile(T.fcmp_k, {"x_ptr": "*fp32", "y_ptr": "*fp32", "o": "*i32"}, dict(C=0.0, MODE=0, BLOCK=16)))
     check(pc.compile(H._strided_store, {"x_ptr": "*fp32", "out_ptr": "*fp32", "base": "i32", "stride": "i32"},
                      dict(R=4, L=16)))
+
+
+def test_discarded_mul_result_next_to_add_setf():
+    """Port-aware allocation (PITON_PORT_ALLOC) paired a VDW wait with a flag
+    test; vc4asm encodes the discarded mul result as `never`."""
+    from piton.qpu import isa
+    ins = isa.Instr(kind="alu", add=isa.AluOp("or", isa.NOP, isa.ACC[1], isa.ACC[2]),
+                    mul=isa.AluOp("mov", isa.NOP, isa.VW_WAIT, isa.VW_WAIT), setf=True)
+    words, _ = vc4asm_assemble(isa.format_instr(ins) + "\n", verify=False)
+    assert words == [isa.encode(ins)]
+    assert (isa.encode(ins) >> 46) & 7 == isa.CONDS["never"]
