@@ -739,6 +739,11 @@ class QPU:
             self.hazard("program ended with TMU results still queued")
         if self.vpm_reads:
             self.hazard("program ended with VPM reads still pending")
+        if self.vdw_busy_until is not None:
+            # thread end does not wait for the DMA: the host would count the
+            # program complete before its stores reach memory, and the next
+            # program on this QPU writes the same VPM rows
+            self.hazard("program ended without waiting for its VDW DMA store")
         self.running = False
         self.v3d.on_finish(self)
 

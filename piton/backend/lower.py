@@ -1541,11 +1541,12 @@ class Lowering:
         self.stats.update(coarsen=k, coarsen_reload=int(bool(self.opts.get("coarsen_reload"))),
                           coarsen_hoist=int(self.opts.get("coarsen_hoist", True)))
         hw_max = -(-(self.ranges.pid_max[0] + 1) // k) - 1 if self.ranges is not None else None
-        lo, end = self.new("plo"), self.new("phi")
+        lo, end, top = self.new("plo"), self.new("phi"), self.new("phi")
         self.imul(lo, hw, self.operand(C(k)), (0, hw_max) if hw_max is not None else None, None, None, C(k))
         self.op("add", end, lo, self.operand(C(k)))
-        self.prog_end = self.new("phi")
-        self.op("min", self.prog_end, end, n)
+        self.op("min", top, end, n)
+        self.prog_last = self.new("phi")
+        self.op("sub", self.prog_last, top, Imm(1))
         # the host launches ceil(nprog0 / k) programs, so the first id is in range
         self.prog_iv = self.new("pid")
         self.op("mov", self.prog_iv, lo)
@@ -1566,8 +1567,10 @@ class Lowering:
         for kind, name, v in self.prog_uniforms:
             self.entry_uniform_insts.append(alu("mov", v, isa.UNIF))
             self.uniforms.append((kind, name))
+        # another id follows while this one is below the last; the increment
+        # comes after the compare, so it can fill a branch delay slot
+        self.op("sub", isa.NOP, self.prog_iv, self.prog_last, setf=True, unit="add")
         self.op("add", self.prog_iv, self.prog_iv, Imm(1))
-        self.op("sub", isa.NOP, self.prog_iv, self.prog_end, setf=True, unit="add")
         if self.opts.get("coarsen_reload"):
             # the next id reads the kernel's uniforms again (from the start of
             # the list) instead of keeping them in registers through the body
@@ -2617,7 +2620,10 @@ class Lowering:
         self.emit(MInst(kind="branch", bcond="allnz", target=slow_label))
         self.cur = self.new_block("store_full")
         self.store_chunks(layout, dv, None)
-        self.dma_wait()
+        if self.prog_iv is None:
+            # (coarsened: the next program id's loads overlap this DMA; the
+            # next store, or the end of the program, waits for it)
+            self.dma_wait()
         self.emit(MInst(kind="branch", bcond="always", target=done_label))
         slow = mir.Block(slow_label, loop_depth=self.loop_depth)
         self.add_block(slow)
