@@ -61,30 +61,21 @@ def known_inside(cx, cy):
 
 
 @triton.jit
-def mandelbrot_fast(out_ptr, palette_ptr, x0, y0, step, width, pitch, max_iter,
-                    BLOCK: tl.constexpr, UNROLL: tl.constexpr, ROWS: tl.constexpr,
-                    TILE_H: tl.constexpr):
-    """`mandelbrot_kernel` with the same counts and less work (PITON_MANDEL_FAST=1).
-
-    A pixel's count does not depend on when its tile stops iterating, as long
-    as the tile runs until the pixel escaped, so:
-    - lanes that known_inside() puts in the set never escape, so they do not
-      keep a tile iterating, and a tile made only of them skips its iterations
-    - misses is 0 exactly while a lane has not escaped, so the exit check reads
-      misses (escaped is no longer carried); settled lanes start at INT_MIN
-      and stay there, which keeps them out of the check
-    - the check `tl.max(misses) >= 0` compiles to one flag-setting compare and
-      a branch on any lane (the compiler's `fast_branches`, same switch), and
-      the loop exits at the first failed check instead of testing every
-      remaining chunk."""
-    col = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
-    cx = tl.broadcast_to((x0 + col.to(tl.float32) * step)[None, :], [TILE_H, BLOCK])
-    for r in range(ROWS // TILE_H):
-        row = tl.program_id(1) * ROWS + r * TILE_H + tl.arange(0, TILE_H)
-        cy = tl.broadcast_to((y0 + row.to(tl.float32) * step)[:, None], [TILE_H, BLOCK])
-        x = tl.zeros([TILE_H, BLOCK], tl.float32)
-        y = tl.zeros([TILE_H, BLOCK], tl.float32)
-        misses = known_inside(cx, cy) << 31             # INT_MIN: in the set, else 0
+def fast_rows(out_ptr, palette_ptr, col, x0, y0, step, width, pitch, max_iter,
+              UNROLL: tl.constexpr, ROWS: tl.constexpr, TH: tl.constexpr, TW: tl.constexpr):
+    """mandelbrot_fast for the columns `col` (TW of them) of the program's ROWS rows."""
+    cx = tl.broadcast_to((x0 + col.to(tl.float32) * step)[None, :], [TH, TW])
+    for r in range(ROWS // TH):
+        row = tl.program_id(1) * ROWS + r * TH + tl.arange(0, TH)
+        cy = tl.broadcast_to((y0 + row.to(tl.float32) * step)[:, None], [TH, TW])
+        x = tl.zeros([TH, TW], tl.float32)
+        y = tl.zeros([TH, TW], tl.float32)
+        if TH * TW <= 32:
+            # INT_MIN: in the set, else 0. cy * 0.0 is +0 on the QPUs: it ties the
+            # test to the row, so its parts are not hoisted and kept live
+            misses = known_inside(cx + cy * 0.0, cy) << 31
+        else:
+            misses = tl.zeros([TH, TW], tl.int32)       # larger tiles would not fit the registers
         done = 0
         for chunk in range(max_iter // UNROLL):
             if tl.max(misses) >= 0:                     # a lane is still undecided
@@ -99,6 +90,37 @@ def mandelbrot_fast(out_ptr, palette_ptr, x0, y0, step, width, pitch, max_iter,
         # misses << 1 == 0: never escaped (0) or settled (INT_MIN)
         color = tl.load(palette_ptr + tl.where(misses << 1 == 0, 0, done + misses))
         tl.store(out_ptr + row[:, None] * pitch + col[None, :], color, mask=col[None, :] < width)
+
+
+@triton.jit
+def mandelbrot_fast(out_ptr, palette_ptr, x0, y0, step, width, pitch, max_iter,
+                    BLOCK: tl.constexpr, UNROLL: tl.constexpr, ROWS: tl.constexpr,
+                    TILE_H: tl.constexpr):
+    """`mandelbrot_kernel` with the same counts and less work (PITON_MANDEL_FAST=1).
+
+    A pixel's count does not depend on when its tile stops iterating, as long
+    as the tile runs until the pixel escaped, so:
+    - tiles are 2 x 16 pixels (two registers, a column block at a time) when
+      BLOCK and ROWS allow, whatever TILE_H says: a compact tile waits less for
+      its slowest pixel than a 1 x 32 one
+    - lanes that known_inside() puts in the set never escape, so they do not
+      keep a tile iterating, and a tile made only of them skips its iterations
+    - misses is 0 exactly while a lane has not escaped, so the exit check reads
+      misses (escaped is not carried); settled lanes start at INT_MIN and stay
+      there, which keeps them out of the check
+    - the check `tl.max(misses) >= 0` compiles to one flag-setting compare and
+      a branch on any lane (the compiler's `fast_branches`, same switch), and
+      the loop exits at the first failed check instead of testing every
+      remaining chunk."""
+    TW: tl.constexpr = 16 if BLOCK % 16 == 0 and ROWS % 2 == 0 else BLOCK
+    TH: tl.constexpr = 2 if BLOCK % 16 == 0 and ROWS % 2 == 0 else TILE_H
+    if TW == BLOCK:
+        fast_rows(out_ptr, palette_ptr, tl.program_id(0) * BLOCK + tl.arange(0, BLOCK), x0, y0, step,
+                  width, pitch, max_iter, UNROLL, ROWS, TH, TW)
+    else:
+        for cb in range(BLOCK // TW):
+            fast_rows(out_ptr, palette_ptr, tl.program_id(0) * BLOCK + cb * TW + tl.arange(0, TW), x0, y0, step,
+                      width, pitch, max_iter, UNROLL, ROWS, TH, TW)
 
 
 @triton.jit
