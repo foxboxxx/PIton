@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "examples"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import piton  # noqa: E402
 import piton.language as tl  # noqa: E402
 from piton import compiler, reroll  # noqa: E402
@@ -103,6 +104,24 @@ def test_softmax_suite_case_shape(monkeypatch):
     assert ck.stats["rerolled"] == 64 and ck.stats["reroll_carry"] == 1
     assert ck.asm["ttir_opt"].count("scf.for") == 3
     assert ck.asm["ttir_opt"].count("tt.load") == 1      # the row is loaded once and carried
+
+
+@pytest.mark.parametrize("name,programs", [("softmax", 32), ("transpose", None)])
+def test_suite_cases_at_pi_size(monkeypatch, name, programs):
+    """The suite's Pi builds of the affected cases against the suite's references
+    (softmax: the first 32 of its 256 rows)."""
+    from perf.suite import CASES_BY_NAME, compile_case, default_check
+    monkeypatch.setenv("PITON_REROLL_REDUCE", "1")
+    ck, case_run = compile_case(CASES_BY_NAME[name], "pi")
+    if name == "softmax":
+        assert ck.stats["rerolled"] and len(ck.program.instrs) <= reroll.ICACHE_CAPACITY
+    else:
+        assert "load_operand" in ck.asm["ttir_opt"]
+    grid = (programs,) if programs else case_run.grid
+    got = run(ck, grid, case_run.inputs.values)
+    for k, want in case_run.expected.items():
+        n = want.size * grid[0] // case_run.grid[0]
+        assert default_check(case_run, k, got[k][:n], want[:n]) is None
 
 
 def test_softmax_special_values(monkeypatch):
