@@ -20,7 +20,7 @@ import piton.language as tl
 from piton import compiler
 from piton.backend.regalloc import RegAllocError
 from piton.qpu import isa
-from piton.qpu.emulator import HazardError
+from piton.qpu.emulator import V3D, HazardError
 from piton.qpu.isa import f2u
 from piton.runtime.launcher import program_ids, run_emulator, uniforms_for
 from piton.tools.compile import emit_c
@@ -423,6 +423,196 @@ def test_dma_running_at_thread_end_is_a_hazard(persistent):
     prog.instrs[wait] = isa.Instr.nop()
     with pytest.raises(HazardError, match="without waiting for its VDW DMA"):
         run_emulator(ck, (4,), {"x_ptr": x, "out_ptr": np.zeros(250, np.float32), "n": 250})
+
+
+def test_vpm_write_before_waiting_for_the_previous_id_is_a_hazard(persistent):
+    """Id 15 takes the masked store path while id 14's unmasked DMA is left
+    running. Without the wait at the start of that path its VPM writes overwrite
+    rows the DMA may still be reading on hardware (the engine is shared by 12
+    QPUs). The id's loads outlast the emulator's modelled DMA time, so only a
+    rule that wants a VW_WAIT since the DMA started catches it (a time check
+    accepted this program)."""
+    persistent(4)
+    ck = compiler.compile(copy_kernel, COPY_SIG, {"BLOCK": 64}, grid=(16,))
+    assert ck.coarsen == 4
+    prog = ck.program
+    part = prog.labels[next(lbl for lbl in prog.labels if lbl.startswith("store_part"))]
+    wait = next(i for i in range(part, len(prog.instrs)) if "vw_wait" in isa.format_instr(prog.instrs[i]))
+    assert isa.format_instr(prog.instrs[wait]) == "mov -, vw_wait"
+    assert not any("mov vpm," in isa.format_instr(prog.instrs[i]) for i in range(part, wait))
+    n = 16 * 64 - 5
+    x = np.arange(n, dtype=np.float32)
+    out = np.zeros(n, np.float32)
+    run_emulator(ck, (16,), {"x_ptr": x, "out_ptr": out, "n": n})
+    np.testing.assert_array_equal(out, x)
+    prog.instrs[wait] = isa.Instr.nop()
+    with pytest.raises(HazardError, match="VPM written while this QPU's VDW DMA"):
+        run_emulator(ck, (16,), {"x_ptr": x, "out_ptr": np.zeros(n, np.float32), "n": n})
+
+
+def _variants(monkeypatch, k, kernel, sig, cons, grid, values, compile_grid="launch"):
+    """_same_as_plain for each of the four coarsened builds (uniforms in
+    registers or re-read; constants hoisted out of the id loop or not) that
+    allocates."""
+    compile_grid = grid if compile_grid == "launch" else compile_grid
+    monkeypatch.delenv("PITON_PERSISTENT", raising=False)
+    want, _ = _run(compiler.compile(kernel, sig, cons, grid=compile_grid), grid, values)
+    monkeypatch.setenv("PITON_PERSISTENT", str(k))
+    real = compiler._compile_tile
+    built = 0
+    for hoist in (True, False):
+        for reload in (False, True):
+            def only(fn, signature, constants, name, pid_max, options, chunk=0, hoist=hoist, reload=reload):
+                if options.get("coarsen", 1) > 1 and (options["coarsen_hoist"], options["coarsen_reload"]) != \
+                        (hoist, reload):
+                    raise RegAllocError("forced by the test")
+                return real(fn, signature, constants, name, pid_max, options, chunk)
+            monkeypatch.setattr(compiler, "_compile_tile", only)
+            ck = compiler.compile(kernel, sig, cons, grid=compile_grid)
+            monkeypatch.setattr(compiler, "_compile_tile", real)
+            if ck.coarsen == 1:
+                continue
+            built += 1
+            got, _ = _run(ck, grid, values)
+            for name, v in want.items():
+                if isinstance(v, np.ndarray):
+                    np.testing.assert_array_equal(got[name].view(np.uint32), v.view(np.uint32),
+                                                  err_msg=f"{name}: hoist={hoist} reload={reload}")
+    assert built
+
+
+@piton.jit
+def store_first_kernel(x_ptr, a_ptr, b_ptr, n, BLOCK: tl.constexpr):
+    """A store before any load (it waits for the previous id's last DMA), then
+    two masked stores, the last one rewriting the first one's rows."""
+    pid = tl.program_id(0)
+    offs = pid * BLOCK + tl.arange(0, BLOCK)
+    m = offs < n
+    tl.store(a_ptr + offs, tl.zeros((BLOCK,), dtype=tl.float32) + pid, mask=m)
+    x = tl.load(x_ptr + offs, mask=m, other=1.0)
+    tl.store(b_ptr + offs, x * 3.0, mask=m)
+    tl.store(a_ptr + offs, x + 0.5, mask=offs < n - 3)
+
+
+@pytest.mark.parametrize("k,blocks", [(3, 7), (4, 9), (5, 11)])
+def test_store_before_loads(monkeypatch, k, blocks):
+    n = blocks * 32 - 7
+    _variants(monkeypatch, k, store_first_kernel, {"x_ptr": "*fp32", "a_ptr": "*fp32", "b_ptr": "*fp32", "n": "i32"},
+              {"BLOCK": 32}, (blocks,),
+              {"x_ptr": rng.standard_normal(n).astype(np.float32), "a_ptr": np.full(n + 32, -9.0, np.float32),
+               "b_ptr": np.full(n + 32, -9.0, np.float32), "n": n})
+
+
+@piton.jit
+def inner_store_kernel(x_ptr, out_ptr, sum_ptr, BLOCK: tl.constexpr):
+    """A run-time loop with a store inside, run 0, 1 or 2 times depending on the
+    program id, then a store after it."""
+    pid = tl.program_id(0)
+    lanes = tl.arange(0, BLOCK)
+    trips = pid % 3
+    acc = tl.zeros((BLOCK,), dtype=tl.float32)
+    for r in range(0, trips):
+        v = tl.load(x_ptr + (pid * 3 + r) * BLOCK + lanes)
+        acc += v
+        tl.store(out_ptr + (pid * 3 + r) * BLOCK + lanes, v * 2.0)
+    tl.store(sum_ptr + pid * BLOCK + lanes, acc + trips)
+
+
+@pytest.mark.parametrize("k,blocks", [(3, 7), (4, 8)])
+def test_store_loop_with_zero_trips(monkeypatch, k, blocks):
+    _variants(monkeypatch, k, inner_store_kernel, {"x_ptr": "*fp32", "out_ptr": "*fp32", "sum_ptr": "*fp32"},
+              {"BLOCK": 16}, (blocks,),
+              {"x_ptr": rng.standard_normal(blocks * 48).astype(np.float32),
+               "out_ptr": np.zeros(blocks * 48, np.float32), "sum_ptr": np.zeros(blocks * 16, np.float32)})
+
+
+@piton.jit
+def tile_store_kernel(x_ptr, out_ptr, M, N, stride_x, stride_o, BM: tl.constexpr, BN: tl.constexpr):
+    """2-D tiles with a run-time row stride and ragged edges."""
+    pid = tl.program_id(0)
+    nb = tl.cdiv(N, BN)
+    rm = (pid // nb) * BM + tl.arange(0, BM)
+    rn = (pid % nb) * BN + tl.arange(0, BN)
+    msk = (rm[:, None] < M) & (rn[None, :] < N)
+    x = tl.load(x_ptr + rm[:, None] * stride_x + rn[None, :], mask=msk, other=0.0)
+    tl.store(out_ptr + rm[:, None] * stride_o + rn[None, :], x * 2.0 + 1.0, mask=msk)
+
+
+# 0x4000 + 40: the row gaps do not fit the VDW stride field (the out-of-line one-DMA-per-row store)
+@pytest.mark.parametrize("stride_o", [40, 0x4000 + 40])
+def test_tile_store_with_runtime_row_stride(monkeypatch, stride_o):
+    M, N = 13, 37
+    grid = (4 * 3,)
+    _variants(monkeypatch, 3, tile_store_kernel,
+              {"x_ptr": "*fp32", "out_ptr": "*fp32", "M": "i32", "N": "i32", "stride_x": "i32", "stride_o": "i32"},
+              {"BM": 4, "BN": 16}, grid,
+              {"x_ptr": rng.standard_normal(M * N).astype(np.float32),
+               "out_ptr": np.full((M - 1) * stride_o + N + 16, -3.0, np.float32), "M": M, "N": N,
+               "stride_x": N, "stride_o": stride_o})
+
+
+@piton.jit
+def late_args_kernel(x_ptr, y_ptr, out_ptr, side_ptr, n_iter, scale, BLOCK: tl.constexpr):
+    """Arguments used only after a top-level loop (re-read from the uniform list)
+    on a 2-D grid, with program_id(1) read again after the loop."""
+    pid = tl.program_id(0)
+    row = tl.program_id(1)
+    lanes = tl.arange(0, BLOCK)
+    acc = tl.zeros((BLOCK,), dtype=tl.float32)
+    for i in range(0, n_iter):
+        acc += tl.load(x_ptr + i * BLOCK + lanes) * (pid + 1)
+    base = (row * tl.num_programs(0) + pid) * BLOCK
+    tl.store(out_ptr + base + lanes, acc * scale + tl.load(y_ptr + base + lanes))
+    tl.store(side_ptr + row * tl.num_programs(0) + pid, tl.program_id(1) * 1000 + pid)
+
+
+@pytest.mark.parametrize("k,grid", [(3, (7, 2)), (2, (5, 3))])
+def test_arguments_reread_after_a_loop(monkeypatch, k, grid):
+    gx, gy = grid
+    _variants(monkeypatch, k, late_args_kernel,
+              {"x_ptr": "*fp32", "y_ptr": "*fp32", "out_ptr": "*fp32", "side_ptr": "*i32", "n_iter": "i32",
+               "scale": "fp32"}, {"BLOCK": 16}, grid,
+              {"x_ptr": rng.standard_normal(48).astype(np.float32),
+               "y_ptr": rng.standard_normal(gx * gy * 16).astype(np.float32),
+               "out_ptr": np.zeros(gx * gy * 16, np.float32), "side_ptr": np.zeros(gx * gy, np.int32),
+               "n_iter": 3, "scale": 0.75})
+
+
+@piton.jit
+def id_slot_kernel(out_ptr, BLOCK: tl.constexpr):
+    pid = tl.program_id(0)
+    tl.store(out_ptr + (pid % 1021) * BLOCK + tl.arange(0, BLOCK), tl.zeros((BLOCK,), dtype=tl.int32) + pid)
+
+
+@pytest.mark.parametrize("k", [3, 4])
+@pytest.mark.parametrize("G", [(1 << 24) + 77, (1 << 27) + 5])
+def test_first_id_beyond_24_bits(persistent, k, G):
+    """pid0 * k past the 24-bit multiplier range (a few hardware programs of a
+    huge grid, including the partial last one)."""
+    persistent(k)
+    ck = compiler.compile(id_slot_kernel, {"out_ptr": "*i32"}, {"BLOCK": 16}, grid=(G,))
+    assert ck.coarsen == k
+    hx = -(-G // k)
+    expect, hws = {}, []
+    for hw in (0, (1 << 24) // k, (1 << 24) // k + 1, hx - 2, hx - 1):
+        ids = range(hw * k, min(hw * k + k, G))
+        if not any(p % 1021 in expect for p in ids):
+            hws.append(hw)
+            expect.update((p % 1021, p) for p in ids)
+    v = V3D(num_qpus=4, strict=True)
+    out = v.mem.alloc(1021 * 16 * 4, 64)
+    zero, scratch = v.mem.alloc(64, 64), v.mem.alloc(64, 64)
+    unifs = []
+    for hw in hws:
+        a = v.mem.alloc(4 * len(ck.uniforms), 16)
+        v.mem.write_words(a, np.array(uniforms_for(ck, {"out_ptr": np.zeros(1, np.int32)}, {"out_ptr": out},
+                                                   (hw, 0, 0), (G, 1, 1), zero, scratch, a), dtype=np.uint32))
+        unifs.append(a)
+    v.run(v.load(ck.words), unifs)
+    got = v.mem.read_array(out, (1021, 16), np.int32)
+    assert len(hws) >= 4
+    for slot, p in expect.items():
+        assert np.all(got[slot] == p), (slot, p)
 
 
 STUB_RUNTIME = r"""

@@ -17,9 +17,10 @@ reference guide says is undefined (p37 "Summary of Instruction
 Restrictions"), e.g. reading a regfile location written by the previous
 instruction, touching r4 too early after an SFU write, rotating an
 accumulator written by the previous instruction, overflowing the TMU FIFO,
-or starting a DMA while the previous one is still running. It also rejects a
-thread end before the program waited for its last VDW store (PIton's
-contract with the host, which counts the program as complete there).
+or starting a DMA while the previous one is still running. VPM writes after
+a VDW DMA start need a VW_WAIT first, however long ago the DMA started. It
+also rejects a thread end before the program waited for its last VDW store
+(PIton's contract with the host, which counts the program as complete there).
 """
 
 from __future__ import annotations
@@ -521,9 +522,15 @@ class QPU:
             raise EmulatorError(f"unsupported vw_setup value 0x{v:08x}")
 
     def write_vpm(self, vec: np.ndarray):
-        if self.vdw_busy_until is not None and self.cycle < self.vdw_busy_until:
-            # the DMA reads VPM while it runs (here it copied at start)
-            self.hazard("VPM written while this QPU's VDW DMA may still be reading it")
+        if self.vdw_busy_until is not None:
+            # The DMA reads VPM while it runs (here it copied at start). Its
+            # modelled duration proves nothing on hardware, where the DMA
+            # engine is shared and other QPUs' stores queue in front of it:
+            # only a VW_WAIT since the DMA started frees the rows. (A coarsened
+            # program's next id computes long enough to outlast any modelled
+            # DMA, so a time check would accept a missing wait there.)
+            self.hazard("VPM written while this QPU's VDW DMA may still be reading it "
+                        "(no VW_WAIT since it started)")
         horiz, addr, stride = self.vpm_write
         self.v3d.vpm.write_vec(horiz, addr, vec)
         self.vpm_write = (horiz, (addr + stride) & 0xFF, stride)
