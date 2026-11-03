@@ -52,7 +52,13 @@ add/mul pair that could share an instruction did.
    softmax 61%. Rerolled kernels are back to mostly dependences (exp 69%): a
    64-element chunk has 4 independent chains instead of 16. Next step:
    port-aware allocation (decide A/B/accumulator with the likely pairs in view).
-   Estimated ~1.4x on Mandelbrot's loop.
+   Estimated ~1.4x on Mandelbrot's loop. `PITON_PORT_ALLOC=1` (regalloc.py,
+   "Port-aware file choice"; off by default) reallocates with the pairs the
+   scheduler missed in view and keeps the result when it schedules shorter:
+   executed instructions mandel_32x16 -20.7%, mandel_16x16x2 -24.5% (loop
+   309 -> 238 instructions, 7.4 per 16-pixel iteration), transpose -8.9%,
+   softmax -8.0%, exp -6.8%, exp2 -5.8%, recip -4.4%, dense_relu -3.1%,
+   idiv -2.7%; nothing gets longer, and the same TMU and VDW traffic.
 3. **Elementwise address and mask arithmetic.** Each 16-element load takes ~6
    instructions: an element index and a byte address both advance per register,
    and every register is compared and masked even when the whole block is in
@@ -62,6 +68,9 @@ add/mul pair that could share an instruction did.
    2.2 ms), so expect little wall-clock gain.
 4. **Allocator copies:** ~32 per elementwise or transcendental kernel (3-7% of
    instructions) where both operands of an op landed in the same file.
+   `PITON_PORT_ALLOC=1` weighs each conflict by how often it runs (copies
+   move out of loops): exp 8 -> 1, transpose 30 -> 4, matmul 8x64x8 22 -> 13;
+   add/mul/fma/rsqrt keep theirs, which pair for free there.
 5. **matmul is at its structure bound** (pack 0.88-0.89): the A broadcast into
    r5 needs the mul unit once per four MACs, and the hardware run is limited by
    the B stream through the TMU, not by issue.
