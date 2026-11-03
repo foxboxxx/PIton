@@ -183,6 +183,15 @@ def test_level1_does_less_work(fast):
 
 
 def test_switch_values(monkeypatch):
+    words = {}
+    for value in (None, "", "0", "1"):
+        if value is None:
+            monkeypatch.delenv("PITON_MANDEL_FAST", raising=False)
+        else:
+            monkeypatch.setenv("PITON_MANDEL_FAST", value)
+        words[value] = compiler.compile(mandelbrot.mandelbrot_kernel, mandelbrot.SIGNATURE,
+                                        dict(BLOCK=32, UNROLL=8, ROWS=8, TILE_H=1), grid=(2, 2)).words
+    assert words[""] == words[None] == words["0"] != words["1"]
     monkeypatch.setenv("PITON_MANDEL_FAST", "")
     assert mandelbrot.fast_level() == 0
     monkeypatch.setenv("PITON_MANDEL_FAST", "1")
@@ -234,7 +243,7 @@ IMIN, IMAX = -2 ** 31, 2 ** 31 - 1
 
 @pytest.mark.parametrize("red", [0, 1])
 @pytest.mark.parametrize("op", range(6))
-@pytest.mark.parametrize("block", [16, 32, 48])
+@pytest.mark.parametrize("block", [8, 16, 32, 64])
 def test_lane_conditions_match_reductions(monkeypatch, red, op, block):
     rows = [np.full(block, IMIN), np.full(block, IMAX), np.arange(block) - 5, -np.arange(block),
             np.where(np.arange(block) == block - 1, IMAX, IMIN), np.where(np.arange(block) == 3, IMIN, 7)]

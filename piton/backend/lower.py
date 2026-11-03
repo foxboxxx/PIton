@@ -38,7 +38,7 @@ import numpy as np
 from .. import ir
 from ..ir import Value
 from ..language.core import CompilationError
-from ..passes import RangeAnalysis
+from ..passes import RangeAnalysis, is_pure
 from ..qpu import isa
 from ..qpu.isa import Imm, f2u, is_small_imm
 from . import mir
@@ -3555,9 +3555,7 @@ class Lowering:
                 return None
         varying = {body.args[0].id}
         for o in ops[:-2]:
-            if o.regions or not (o.name.startswith(("arith.", "math.")) or o.name in (
-                    "tt.splat", "tt.broadcast", "tt.expand_dims", "tt.make_range", "tt.reshape",
-                    "tt.trans", "tt.reduce", "tt.addptr", "tt.bitcast")):
+            if not is_pure(o):
                 return None
             if any(x is not None and x.id in varying for x in o.operands):
                 varying.update(r.id for r in o.results)
