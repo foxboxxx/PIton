@@ -87,9 +87,9 @@ def _is_tensor_op(op) -> bool:
 
 
 def _memory_order_kept(fn: ir.Function) -> bool:
-    """The reduction loops reload their inputs and scalar stores move after the
-    last loop: safe when no load follows a store and no tensor store follows a
-    scalar one (and no other op has side effects)."""
+    """The store loop interleaves the chunks' loads and stores and scalar stores
+    move after the last loop: safe when no load follows a store and no tensor
+    store follows a scalar one (and no other op has side effects)."""
     stored = scalar_stored = False
     for op in fn.body.ops:
         tensor = _is_tensor_op(op)
@@ -355,8 +355,8 @@ def _run_passes(fn: ir.Function, n: int, sub: int, carry: bool = True) -> None:
                 ready.update(r.id for r in op.results)
                 pending.remove(op)
 
-    def const(value, dtype=ir.int32, builder=b):
-        return builder.create("arith.constant", [], [(dtype, ())], {"value": value}).result
+    def const(value, dtype=ir.int32):
+        return b.create("arith.constant", [], [(dtype, ())], {"value": value}).result
 
     buffers = {}                              # carried op -> its slot values before the next loop
 
