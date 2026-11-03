@@ -81,13 +81,16 @@ def _build(tile, ranges, options: dict, interleave: bool):
     return prog, mf, lw, stats, mir, mir_alloc
 
 
-def _compile_tile(fn, signature, constants, name, pid_max, options, chunk: int = 0):
+def _compile_tile(fn, signature, constants, name, pid_max, options, chunk: int = 0,
+                  reductions: bool = False, transposed: bool = False):
     """Tile IR (rerolled into `chunk`-element pieces if nonzero) through
     scheduling; picks the better of the plain and pre-scheduled builds."""
     tile = frontend.generate(fn, signature, constants, name=name)
     asm = {"ttir": tile.dump()}
+    if transposed:
+        reroll.transposed_loads(tile)
     if chunk:
-        reroll.run(tile, chunk)
+        reroll.run(tile, chunk, reductions)
         asm["ttir_rerolled"] = tile.dump()
     ranges = passes.optimize(tile, pid_max)
     asm["ttir_opt"] = tile.dump()
@@ -128,19 +131,42 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
         g = tuple(grid) if isinstance(grid, (tuple, list)) else (grid,)
         pid_max = tuple(max(1, int(x)) - 1 for x in g) + (0,) * (3 - len(g))
     options = {"num_stages": num_stages, "store_mutex": store_mutex}
-    tile, prog, mf, lw, stats, asm = _compile_tile(fn, signature, constants, name, pid_max, options)
+    # PITON_REROLL_REDUCE=1 also rerolls row reductions (softmax: a loop per
+    # pass) and turns tl.trans of a loaded tile into a gathering load (2-D
+    # tiles); "rows" / "tiles" enable only one of the two.
+    mode = os.environ.get("PITON_REROLL_REDUCE", "0")
+    reductions, transposed = mode not in ("0", "tiles"), False
+    # every pass over a rerolled reduction reloads its chunks, so smaller chunks
+    # run more instructions: keep the largest that fit the cache
+    multipass = reductions and reroll.has_reductions(frontend.generate(fn, signature, constants, name=name))
+    try:
+        tile, prog, mf, lw, stats, asm = _compile_tile(fn, signature, constants, name, pid_max, options)
+    except RegAllocError as e:
+        if not multipass:
+            raise
+        prog, unrolled_error = None, e      # a row too long to keep in registers: chunked passes may fit
+    if (mode not in ("0", "rows") and prog is not None and len(prog.instrs) > reroll.ICACHE_INSTRUCTIONS
+            and reroll.transposed_loads(frontend.generate(fn, signature, constants, name=name))):
+        candidate = _compile_tile(fn, signature, constants, name, pid_max, options, transposed=True)
+        if len(candidate[1].instrs) < len(prog.instrs):
+            tile, prog, mf, lw, stats, asm = candidate
+            transposed = True
     # A straight-line program larger than the instruction cache stalls on
     # every cache line (reroll.py); a loop over 64-element chunks fits, and
     # heavier bodies (exact division) get smaller chunks until theirs does.
     sub = reroll.SUB
-    while (len(prog.instrs) > reroll.ICACHE_INSTRUCTIONS and sub >= 16
+    while ((prog is None or len(prog.instrs) > reroll.ICACHE_INSTRUCTIONS) and sub >= 16
            and os.environ.get("PITON_REROLL", "1") != "0"
-           and reroll.applicable(frontend.generate(fn, signature, constants, name=name), sub)):
-        rerolled = _compile_tile(fn, signature, constants, name, pid_max, options, sub)
-        if len(rerolled[1].instrs) >= len(prog.instrs):
+           and reroll.applicable(frontend.generate(fn, signature, constants, name=name), sub, reductions)):
+        rerolled = _compile_tile(fn, signature, constants, name, pid_max, options, sub, reductions, transposed)
+        if prog is not None and len(rerolled[1].instrs) >= len(prog.instrs):
             break
         tile, prog, mf, lw, stats, asm = rerolled
         sub //= 2
+        if multipass and len(prog.instrs) <= reroll.ICACHE_CAPACITY:
+            break
+    if prog is None:
+        raise unrolled_error
     prog.header = [f"{tile.name}: compiled by PIton (Triton -> VideoCore IV QPU)",
                    "uniforms: " + ", ".join(n for _, n in lw.uniforms),
                    "constants: " + ", ".join(f"{k}={v}" for k, v in constants.items())]
