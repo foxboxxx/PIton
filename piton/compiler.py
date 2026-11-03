@@ -82,15 +82,16 @@ def _build(tile, ranges, options: dict, interleave: bool):
 
 
 def _compile_tile(fn, signature, constants, name, pid_max, options, chunk: int = 0,
-                  reductions: bool = False, transposed: bool = False):
-    """Tile IR (rerolled into `chunk`-element pieces if nonzero) through
+                  reductions: bool = False, carry: bool = True, transposed: bool = False):
+    """Tile IR (rerolled into `chunk`-element pieces if nonzero; `reductions`,
+    `carry`: reroll.run; `transposed`: reroll.transposed_loads) through
     scheduling; picks the better of the plain and pre-scheduled builds."""
     tile = frontend.generate(fn, signature, constants, name=name)
     asm = {"ttir": tile.dump()}
     if transposed:
         reroll.transposed_loads(tile)
     if chunk:
-        reroll.run(tile, chunk, reductions)
+        reroll.run(tile, chunk, reductions, carry)
         asm["ttir_rerolled"] = tile.dump()
     ranges = passes.optimize(tile, pid_max)
     asm["ttir_opt"] = tile.dump()
@@ -131,42 +132,67 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
         g = tuple(grid) if isinstance(grid, (tuple, list)) else (grid,)
         pid_max = tuple(max(1, int(x)) - 1 for x in g) + (0,) * (3 - len(g))
     options = {"num_stages": num_stages, "store_mutex": store_mutex}
-    # PITON_REROLL_REDUCE=1 also rerolls row reductions (softmax: a loop per
-    # pass) and turns tl.trans of a loaded tile into a gathering load (2-D
-    # tiles); "rows" / "tiles" enable only one of the two.
+    # PITON_REROLL_REDUCE=1 (default off) also rerolls 1-D kernels with row
+    # reductions (softmax: one loop per pass, reroll.py) and loads transposed
+    # 2-D tiles through transposed pointers (transpose); "rows" / "tiles"
+    # enable only one of the two.
     mode = os.environ.get("PITON_REROLL_REDUCE", "0")
-    reductions, transposed = mode not in ("0", "tiles"), False
-    # every pass over a rerolled reduction reloads its chunks, so smaller chunks
-    # run more instructions: keep the largest that fit the cache
-    multipass = reductions and reroll.has_reductions(frontend.generate(fn, signature, constants, name=name))
+    rows, tiles = mode not in ("", "0", "tiles"), mode not in ("", "0", "rows")
+    rerolling = os.environ.get("PITON_REROLL", "1") != "0"
+
+    def generate():
+        return frontend.generate(fn, signature, constants, name=name)
+    multipass = rows and rerolling and reroll.applicable(generate(), reroll.SUB // 4, True) \
+        and reroll.has_reductions(generate())
     try:
         tile, prog, mf, lw, stats, asm = _compile_tile(fn, signature, constants, name, pid_max, options)
     except RegAllocError as e:
         if not multipass:
             raise
-        prog, unrolled_error = None, e      # a row too long to keep in registers: chunked passes may fit
-    if (mode not in ("0", "rows") and prog is not None and len(prog.instrs) > reroll.ICACHE_INSTRUCTIONS
-            and reroll.transposed_loads(frontend.generate(fn, signature, constants, name=name))):
+        prog, unrolled_error = None, e      # a row too long for the registers: chunked passes may fit
+    if (tiles and prog is not None and len(prog.instrs) > reroll.ICACHE_INSTRUCTIONS
+            and reroll.transposed_loads(generate())):
         candidate = _compile_tile(fn, signature, constants, name, pid_max, options, transposed=True)
         if len(candidate[1].instrs) < len(prog.instrs):
             tile, prog, mf, lw, stats, asm = candidate
-            transposed = True
-    # A straight-line program larger than the instruction cache stalls on
-    # every cache line (reroll.py); a loop over 64-element chunks fits, and
-    # heavier bodies (exact division) get smaller chunks until theirs does.
-    sub = reroll.SUB
-    while ((prog is None or len(prog.instrs) > reroll.ICACHE_INSTRUCTIONS) and sub >= 16
-           and os.environ.get("PITON_REROLL", "1") != "0"
-           and reroll.applicable(frontend.generate(fn, signature, constants, name=name), sub, reductions)):
-        rerolled = _compile_tile(fn, signature, constants, name, pid_max, options, sub, reductions, transposed)
-        if prog is not None and len(rerolled[1].instrs) >= len(prog.instrs):
-            break
-        tile, prog, mf, lw, stats, asm = rerolled
-        sub //= 2
-        if multipass and len(prog.instrs) <= reroll.ICACHE_CAPACITY:
-            break
-    if prog is None:
-        raise unrolled_error
+    if multipass:
+        if prog is None or len(prog.instrs) > reroll.ICACHE_INSTRUCTIONS:
+            # Every chunk halving adds loop iterations and carried-slot moves to
+            # each pass: keep the largest chunks whose loops fit the cache, and
+            # recompute instead of carrying only if carrying runs out of registers.
+            best = None
+            for carry in (True, False):
+                for sub in (reroll.SUB, reroll.SUB // 2, reroll.SUB // 4):
+                    if not reroll.applicable(generate(), sub, True):
+                        continue
+                    try:
+                        cand = _compile_tile(fn, signature, constants, name, pid_max, options, sub, True, carry)
+                    except RegAllocError:
+                        continue
+                    if best is None or len(best[1].instrs) > reroll.ICACHE_CAPACITY and \
+                            len(cand[1].instrs) < len(best[1].instrs):
+                        best = cand
+                    if len(cand[1].instrs) <= reroll.ICACHE_CAPACITY:
+                        break
+                if best is not None and len(best[1].instrs) <= reroll.ICACHE_CAPACITY:
+                    break
+            if best is not None and (prog is None or len(best[1].instrs) < len(prog.instrs)):
+                tile, prog, mf, lw, stats, asm = best
+        if prog is None:
+            raise unrolled_error
+    else:
+        # A straight-line program larger than the instruction cache stalls on
+        # every cache line (reroll.py); a loop over 64-element chunks fits, and
+        # heavier bodies (exact division) get smaller chunks until theirs does.
+        sub = reroll.SUB
+        while (len(prog.instrs) > reroll.ICACHE_INSTRUCTIONS and sub >= 16
+               and rerolling
+               and reroll.applicable(generate(), sub)):
+            rerolled = _compile_tile(fn, signature, constants, name, pid_max, options, sub)
+            if len(rerolled[1].instrs) >= len(prog.instrs):
+                break
+            tile, prog, mf, lw, stats, asm = rerolled
+            sub //= 2
     prog.header = [f"{tile.name}: compiled by PIton (Triton -> VideoCore IV QPU)",
                    "uniforms: " + ", ".join(n for _, n in lw.uniforms),
                    "constants: " + ", ".join(f"{k}={v}" for k, v in constants.items())]

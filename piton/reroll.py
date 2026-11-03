@@ -59,6 +59,8 @@ ICACHE_CAPACITY = 512
 LANES = 16
 
 _TENSOR_OPS = {"tt.make_range", "tt.splat", "tt.addptr", "tt.load", "tt.store", "tt.bitcast"}
+_CARRIED_DTYPES = {"fp32", "int32", "uint32"}
+_DIVISIONS = {"arith.divf", "arith.divsi", "arith.divui", "arith.remsi", "arith.remui"}
 
 
 def _elementwise(op) -> bool:
@@ -135,16 +137,16 @@ def applicable(fn: ir.Function, sub: int = SUB, reductions: bool = False) -> boo
     return n is not None and n > sub and n % sub == 0
 
 
-def run(fn: ir.Function, sub: int = SUB, reductions: bool = False) -> bool:
+def run(fn: ir.Function, sub: int = SUB, reductions: bool = False, carry: bool = True) -> bool:
     """Rewrite `fn` in place with `sub`-element chunks; returns False (unchanged)
-    when not applicable."""
+    when not applicable. `carry`: see _run_passes."""
     n = _tensor_length(fn, reductions)
     if n is None or n <= sub or n % sub:
         return False
     if reductions and has_reductions(fn):
         if sub % LANES:
             return False
-        _run_passes(fn, n, sub)
+        _run_passes(fn, n, sub, carry)
         return True
     scalar_ops, tensor_ops = [], []
     for op in fn.body.ops:
@@ -252,14 +254,41 @@ def _identity(red: ir.Op, b: ir.Builder) -> ir.Value:
     return b.create("tt.splat", [init], [(dt, (LANES,))]).result
 
 
-def _run_passes(fn: ir.Function, n: int, sub: int) -> None:
+def _recomputed(op: ir.Op, memo: dict) -> bool:
+    """Ops that every pass needing them recomputes instead of receiving them
+    carried in registers: index arithmetic and masks (no load, math function
+    or division among their tensor operands), and values that are not 32-bit
+    numbers (masks, pointers), whose operands are carried instead."""
+    if op not in memo:
+        if op.result.dtype.name not in _CARRIED_DTYPES:
+            memo[op] = True
+        elif op.name == "tt.load" or op.name.startswith("math.") or op.name in _DIVISIONS:
+            memo[op] = False
+        else:
+            memo[op] = all(v.op is None or _recomputed(v.op, memo)
+                           for v in op.operands if v is not None and v.is_tensor)
+    return memo[op]
+
+
+def _run_passes(fn: ir.Function, n: int, sub: int, carry: bool = True) -> None:
     """Reroll a kernel with reductions: a loop per group of independent
-    reductions, carrying their 16-lane partials, then a loop for the stores."""
+    reductions, carrying their 16-lane partials, then a loop for the stores.
+
+    With `carry`, a loaded or computed chunk that a later pass needs is
+    computed once and kept in registers: a value spans n / sub loop-carried
+    chunks ("slots"); each iteration reads slot 0 and shifts the slots down
+    by one, appending its own chunk (or slot 0 again while a later pass
+    still needs the value), so after a pass the slots hold the chunks in
+    order again. A value whose last use is a pass hands its slots to a value
+    that pass produces. Without `carry` every pass recomputes its chunks
+    from the loads (fewer registers, more instructions)."""
     ops = list(fn.body.ops)
+    order = {op: i for i, op in enumerate(ops)}
     tensor_ops = [op for op in ops if _is_tensor_op(op)]
     scalar_ops = [op for op in ops if not _is_tensor_op(op)]
     reductions = [op for op in tensor_ops if _is_reduction(op)]
     stores = [op for op in tensor_ops if op.name == "tt.store"]
+    slots = n // sub
 
     deps = {}                                 # value id -> the reductions it depends on
     for op in ops:
@@ -272,6 +301,32 @@ def _run_passes(fn: ir.Function, n: int, sub: int) -> None:
             groups[-1].append(red)            # independent of the group: same loop
         else:
             groups.append([red])
+    passes_ = groups + ([stores] if stores else [])
+
+    # which ops each pass computes, and which carried values it reads
+    memo, computed_at, plan = {}, {}, []
+    for p, roots in enumerate(passes_):
+        need, reads = set(), set()
+        stack = [v for op in roots for v in op.operands if v is not None and v.is_tensor]
+        while stack:
+            v = stack.pop()
+            o = v.op
+            if o is None or o in need or o in reads:
+                continue
+            if o in computed_at:
+                reads.add(o)
+                continue
+            need.add(o)
+            stack += [x for x in o.operands if x is not None and x.is_tensor]
+        if carry:
+            for o in need:
+                if not _recomputed(o, memo):
+                    computed_at[o] = p
+        plan.append((roots, need, reads))
+    last = {}
+    for p, (_, _, reads) in enumerate(plan):
+        for o in reads:
+            last[o] = p
 
     for op in tensor_ops:                     # the originals are replaced by the loop bodies
         for v in op.operands:
@@ -290,30 +345,50 @@ def _run_passes(fn: ir.Function, n: int, sub: int) -> None:
                 ready.update(r.id for r in op.results)
                 pending.remove(op)
 
-    def const(value):
-        return b.create("arith.constant", [], [(ir.int32, ())], {"value": value}).result
+    def const(value, dtype=ir.int32, builder=b):
+        return builder.create("arith.constant", [], [(dtype, ())], {"value": value}).result
 
-    def chunk_loop(roots, inits):
-        """scf.for over the chunks: the tensor ops `roots` need, then each root
-        (a reduction folds its chunk into its partial from `inits`)."""
-        need, stack = set(), [v for op in roots for v in op.operands if v is not None and v.is_tensor]
-        while stack:
-            v = stack.pop()
-            if v.op is not None and v.op not in need:
-                need.add(v.op)
-                stack += [o for o in v.op.operands if o is not None and o.is_tensor]
-        lb, ub, step = const(0), const(n // sub), const(1)
+    buffers = {}                              # carried op -> its slot values before the next loop
+
+    def chunk_loop(p, roots, need, reads):
+        """scf.for over the chunks: the ops of pass p, then each root (a
+        reduction folds its chunk into its partial)."""
+        reds = [op for op in roots if _is_reduction(op)]
+        live = sorted((o for o in buffers if last[o] >= p), key=order.get)
+        produced = sorted((o for o in computed_at if computed_at[o] == p and o in last), key=order.get)
+        streams = []                          # (op whose slots come in or None, op shifted in or None)
+        for o in live:
+            streams.append([o, o if last[o] > p else None])
+        for o in produced:
+            free = next((s for s in streams if s[1] is None and last[s[0]] == p
+                         and s[0].result.dtype == o.result.dtype), None)
+            if free is not None:
+                free[1] = o                   # takes over the slots of a value used for the last time
+            else:
+                streams.append([None, o])
+        inits = [_identity(red, b) for red in reds]
+        for old, new in streams:
+            if old is not None:
+                inits += buffers.pop(old)
+            else:
+                zero = const(0.0 if new.result.dtype.is_float else 0, new.result.dtype)
+                inits += [b.create("tt.splat", [zero], [(new.result.dtype, (sub,))]).result] * slots
+        lb, ub, step = const(0), const(slots), const(1)
         body = ir.Block()
         chunk = ir.Value(ir.int32, (), name="chunk")
         body.args.append(chunk)
-        accs = [ir.Value(v.dtype, v.shape) for v in inits]
-        body.args += accs
+        args = [ir.Value(v.dtype, v.shape) for v in inits]
+        body.args += args
         loop = b.create("scf.for", [lb, ub, step] + inits, [(v.dtype, v.shape) for v in inits], regions=[body])
         inner = ir.Builder(body)
         size = inner.create("arith.constant", [], [(ir.int32, ())], {"value": sub}).result
         start = inner.create("arith.muli", [chunk, size], [(ir.int32, ())]).result
         start_splat = inner.create("tt.splat", [start], [(ir.int32, (sub,))]).result
         mapping = {}
+        stream_args = args[len(reds):]
+        for k, (old, new) in enumerate(streams):
+            if old is not None and old in reads:
+                mapping[old.result] = stream_args[k * slots]
         for op in tensor_ops:
             if op not in need and not (op in roots and op.name == "tt.store"):
                 continue
@@ -326,27 +401,38 @@ def _run_passes(fn: ir.Function, n: int, sub: int) -> None:
                                                        for v in op.results], dict(op.attrs))
             for old, res in zip(op.results, new.results):
                 mapping[old] = res
-        partials = []
-        for red, acc in zip([op for op in roots if _is_reduction(op)], accs):
+        yields = []
+        for red, acc in zip(reds, args):
             # (sub,) -> (sub / 16, 16), one row per register: tt.reduce with an
             # accumulator operand combines the rows into it in order
             x = mapping[red.operands[0]]
             rows = inner.create("tt.reshape", [x], [(x.dtype, (sub // LANES, LANES))]).result
-            partials.append(inner.create("tt.reduce", [rows, acc], [(x.dtype, (LANES,))], dict(red.attrs)).result)
-        inner.create("scf.yield", partials)
-        return loop.results
+            yields.append(inner.create("tt.reduce", [rows, acc], [(x.dtype, (LANES,))], dict(red.attrs)).result)
+        for k, (old, new) in enumerate(streams):
+            s = stream_args[k * slots:(k + 1) * slots]
+            # slot j <- slot j + 1; the last slot gets this chunk of the value
+            # shifted in (or slot 0 again: a full rotation; or nothing new)
+            tail = s[0] if new is old else (mapping[new.result] if new is not None else s[-1])
+            yields += s[1:] + [tail]
+        inner.create("scf.yield", yields)
+        results = loop.results[len(reds):]
+        for k, (old, new) in enumerate(streams):
+            if new is not None:
+                buffers[new] = results[k * slots:(k + 1) * slots]
+        return loop.results[:len(reds)]
 
     flush()
-    for group in groups:
-        for red, acc in zip(group, chunk_loop(group, [_identity(red, b) for red in group])):
+    for p, (roots, need, reads) in enumerate(plan):
+        if roots is stores:
+            chunk_loop(p, roots, need, reads)
+            break
+        for red, acc in zip(roots, chunk_loop(p, roots, need, reads)):
             # the partial's lanes are folded as the unrolled reduction folds its last register
             red.operands = [acc]
             acc.uses.append(red)
             fn.body.append(red)
             ready.add(red.result.id)
         flush()
-    if stores:
-        chunk_loop(stores, [])
     assert not pending, "internal: scalar ops left after rerolling"
     for op in scalar_ops:                     # scalar stores (in order), then the return
         if op.name in ("tt.store", "tt.return"):
