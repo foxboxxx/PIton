@@ -79,29 +79,56 @@ def test_reciprocal_bound_every_mantissa():
         np.testing.assert_array_equal(_recip(scaled), (bits[pick].astype(np.int64) - (e << 23)).astype(np.uint32))
 
 
-def _model(a, b, signed):
-    """lower._idiv_fast / _udivmod_fast (general path: nothing known about a, b)."""
-    a, b = np.asarray(a, np.uint32), np.asarray(b, np.uint32)
-    z = np.zeros_like(a)
-    if signed:
-        ua, ub = _a("max", a, _a("sub", z, a)), _a("max", b, _a("sub", z, b))
-        fb = _a("itof", ub)
-    else:
-        ua, ub = a, b
-        fb = np.where(ub >> 31 != 0, _a("fadd", _a("itof", ub), 0x4F800000), _a("itof", ub)).astype(np.uint32)
-    rcp = _recip(fb)
-    bhx = _m("mul24", _a("shr", ub, 24), 256)
-    qh = _a("ftoi", _m("fmul", _a("itof", _a("shr", ua, 8)), rcp))
-    r1 = _a("sub", ua, _m("mul24", _m("mul24", qh, ub), 256))
+def _step(r1, ub, rcp, bhx, fix):
+    """lower._div_step"""
     fr = _a("itof", r1)
-    if signed:
+    if fix == "abs":
         fr = _a("and", fr, 0x7FFFFFFF)
-    else:
+    elif fix == "u2f":
         fr = np.where(r1 >> 31 != 0, _a("fadd", fr, 0x4F7FFFFF), fr).astype(np.uint32)
     dq = _a("ftoi", _m("fmul", fr, rcp))
-    r2 = _a("sub", _a("sub", r1, _m("mul24", dq, ub)), _m("mul24", _m("mul24", dq, 1 << 16), bhx))
-    q = _a("add", _m("mul24", qh, 256), dq)
+    r2 = _a("sub", r1, _m("mul24", dq, ub))
+    if bhx is not None:
+        r2 = _a("sub", r2, _m("mul24", _m("mul24", dq, 1 << 16), bhx))
+    return dq, r2
+
+
+def _model(a, b, signed, ua_max=None, ub_min=1, ub_max=None, const=False, paths=None):
+    """lower._idiv_fast / _udivmod_fast with the path chosen as there from the
+    magnitude bounds ua_max >= |a|, ub_min <= |b| <= ub_max (default: nothing
+    known); const: b is a compile-time constant (every element the same value).
+    The path taken is added to `paths`."""
+    a, b = np.asarray(a, np.uint32), np.asarray(b, np.uint32)
+    z = np.zeros_like(a)
+    ua_max = (1 << 31 if signed else M32) if ua_max is None else ua_max
+    ub_max = (1 << 31 if signed else M32) if ub_max is None else ub_max
     if signed:
+        ua, ub = _a("max", a, _a("sub", z, a)), _a("max", b, _a("sub", z, b))
+    else:
+        ua, ub = a, b
+    if const:
+        rcp = np.full_like(ub, np.float32(lower._recip_down(int(ub[0]))).view(np.uint32))
+    else:
+        fb = _a("itof", ub)
+        if not signed and ub_max >= 1 << 31:
+            fb = np.where(ub >> 31 != 0, _a("fadd", fb, 0x4F800000), fb).astype(np.uint32)
+        rcp = _recip(fb)
+    bhx = _m("mul24", _a("shr", ub, 24), 256) if ub_max >= 1 << 24 else None
+    one_step = ua_max < 1 << 31 and ua_max < ub_min << 20 and (ub_max < 1 << 24 or ua_max < 1 << 24)
+    if one_step or ua_max < 1 << 24:
+        q = _a("ftoi", _m("fmul", _a("itof", ua), rcp))
+        r2 = _a("sub", ua, _m("mul24", q, ub))
+        if not one_step:
+            dq, r2 = _step(r2, ub, rcp, None, None)
+            q = _a("add", q, dq)
+    else:
+        qh = _a("ftoi", _m("fmul", _a("itof", _a("shr", ua, 8)), rcp))
+        r1 = _a("sub", ua, _m("mul24", _m("mul24", qh, ub), 256))
+        dq, r2 = _step(r1, ub, rcp, bhx, None if ua_max < 1 << 31 else "abs" if signed else "u2f")
+        q = _a("add", _m("mul24", qh, 256), dq)
+    if paths is not None:
+        paths.add("idiv_one_step" if one_step else "idiv_short" if ua_max < 1 << 24 else "idiv_full")
+    if signed or ub_max <= 1 << 31:
         ge = _a("sub", r2, ub) >> 31 == 0
     else:
         k = np.uint32(0x80000000)
@@ -163,6 +190,82 @@ def test_model_exact(signed):
     rx, ry = _random(1 << 18)
     x, y = np.concatenate([x, rx]), np.concatenate([y, ry])
     q, r = _model(x, y, signed)
+    want_q, want_r = _ref(x, y, signed)
+    bad = np.nonzero((q != want_q) | (r != want_r))[0]
+    assert bad.size == 0, [(hex(x[i]), hex(y[i])) for i in bad[:5]]
+
+
+def _ranged(n, signed, ua_max, ub_min, ub_max):
+    """Pairs with |a| <= ua_max and ub_min <= |b| <= ub_max (uint32 a, b when
+    unsigned): uniform and log-uniform sizes, the bounds, and dividends next to
+    multiples of the divisor (k b - 1, k b, k b + 1, half of them at the largest k)."""
+    ua_max = (1 << 31 if signed else M32) if ua_max is None else ua_max
+    ub_max = (1 << 31 if signed else M32) if ub_max is None else ub_max
+
+    def mags(lo, hi):
+        u = rng.integers(lo, hi + 1, n)
+        g = np.clip(rng.integers(0, 1 << 33, n) >> rng.integers(0, 34, n), lo, hi)
+        v = np.where(rng.random(n) < 0.5, u, g)
+        v[:4] = np.clip([lo, lo + 1, hi - 1, hi], lo, hi)
+        return v
+
+    ma, mb = mags(0, ua_max), mags(ub_min, ub_max)
+    kmax = ua_max // mb
+    k = np.where(rng.random(n) < 0.5, kmax, (rng.random(n) * (kmax + 1)).astype(np.int64))
+    near = np.clip(k * mb + rng.integers(-1, 2, n), 0, ua_max)
+    ma = np.where(rng.random(n) < 0.4, near, ma)
+    if signed:
+        ma = np.where(rng.random(n) < 0.5, -ma, ma)
+        mb = np.where(rng.random(n) < 0.5, -mb, mb)
+    return (ma & M32).astype(np.uint32), (mb & M32).astype(np.uint32)
+
+
+# (signed, ua_max, ub_min, ub_max, path): the bounds _idiv_fast derives from ranges
+RANGED = [
+    (True, None, 1, None, "idiv_full"),                     # nothing known
+    (False, None, 1, None, "idiv_full"),
+    (True, 2 ** 31 - 1, 2 ** 11 + 1, 2 ** 24 - 1, "idiv_one_step"),   # quotients up to 2**20
+    (False, 2 ** 31 - 1, 2 ** 11 + 1, 2 ** 24 - 1, "idiv_one_step"),
+    (True, 2 ** 20 - 1, 1, 2 ** 24 - 1, "idiv_one_step"),
+    (True, 2 ** 24 - 1, 16, 2 ** 31, "idiv_one_step"),      # exact dividend, any divisor
+    (False, 2 ** 24 - 1, 16, M32, "idiv_one_step"),
+    (True, 2 ** 24 - 1, 1, 2 ** 31, "idiv_short"),
+    (False, 2 ** 24 - 1, 1, M32, "idiv_short"),
+    (True, 2 ** 31 - 1, 1, 2 ** 31, "idiv_full"),           # no r1 = 2**31 fix
+    (True, 2 ** 31, 1, 2 ** 24 - 1, "idiv_full"),           # no high divisor bits
+    (False, M32, 1, 2 ** 31, "idiv_full"),                  # unsigned, sign comparison
+    (False, M32, 1, 2 ** 31 - 1, "idiv_full"),              # unsigned, plain itof
+    (False, 2 ** 31 - 1, 1, M32, "idiv_full"),              # unsigned, no r1 fix
+]
+
+
+@pytest.mark.parametrize("cfg", RANGED)
+def test_model_ranged_paths(cfg):
+    """Each path and variant _udivmod_fast picks from known bounds, on 2**16 pairs
+    inside the bounds (many at the largest quotient, next to a multiple)."""
+    signed, ua_max, ub_min, ub_max, path = cfg
+    x, y = _ranged(1 << 16, signed, ua_max, ub_min, ub_max)
+    paths = set()
+    q, r = _model(x, y, signed, ua_max, ub_min, ub_max, paths=paths)
+    assert paths == {path}
+    want_q, want_r = _ref(x, y, signed)
+    bad = np.nonzero((q != want_q) | (r != want_r))[0]
+    assert bad.size == 0, [(hex(x[i]), hex(y[i])) for i in bad[:5]]
+
+
+CONSTS = [(True, c, None) for c in (-1, 3, 7, -10, 1000, 2 ** 23 + 1, -(2 ** 24 - 3), 123456789,
+                                    2 ** 31 - 1, -2 ** 31 + 1, -2 ** 31)] + \
+         [(False, c, None) for c in (3, 10, 1000, 2 ** 24 + 1, 2 ** 31 - 1, 2 ** 31 + 12345, M32, 0x80000001)] + \
+         [(True, 1000, 2 ** 16 - 1), (True, -7, 2 ** 20 - 1), (False, 100003, 2 ** 31 - 1)]
+
+
+@pytest.mark.parametrize("signed,c,ua_max", CONSTS)
+def test_model_constant_divisor(signed, c, ua_max):
+    """A constant divisor uses the largest float32 <= 1 / |c| (_recip_down)."""
+    ub = abs(c) if signed else c & M32
+    x, _ = _ranged(1 << 16, signed, ua_max, ub, ub)
+    y = np.full(len(x), c & M32, np.uint32)
+    q, r = _model(x, y, signed, ua_max, ub, ub, const=True)
     want_q, want_r = _ref(x, y, signed)
     bad = np.nonzero((q != want_q) | (r != want_r))[0]
     assert bad.size == 0, [(hex(x[i]), hex(y[i])) for i in bad[:5]]
