@@ -62,8 +62,8 @@ def sample_stride(count: int) -> int:
     return stride if stride == 1 else stride | 1          # odd: avoids aliasing with tile strides
 
 
-def run_case(case, repeats: int, runner: PiRunner) -> dict:
-    ck, run = compile_case(case, "pi")
+def run_case(case, repeats: int, runner: PiRunner, compiled=None) -> dict:
+    ck, run = compiled or compile_case(case, "pi")
     values = run.inputs.values
     buffers = [buffer_for(n, run.inputs.specs[n]) for n in run.inputs.specs]
     buffers += [Buffer("__zero", 64), Buffer("__scratch", 64)]

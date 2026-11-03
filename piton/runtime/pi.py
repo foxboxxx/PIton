@@ -10,6 +10,8 @@ Environment:
   CS240LX_2025_PATH   course repo containing libpi (default makefile root)
   PITON_TTY           serial device (default: first /dev/cu.usbserial*)
   PITON_BOOTLOADER    bootloader executable (default: my-install, then pi-install)
+  PITON_POWER         0: never power-cycle the Pi (power.py; default: when the
+                      HUGE board's power switch answers)
 """
 
 from __future__ import annotations
@@ -26,11 +28,15 @@ from typing import Optional
 
 import numpy as np
 
+from . import power
+
 RUNTIME_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "pi", "runtime")
 
 
 class PiError(Exception):
-    pass
+    def __init__(self, message: str, log: str = ""):
+        super().__init__(message)
+        self.log = log              # everything the Pi printed, when it got that far
 
 
 def find_tty() -> Optional[str]:
@@ -151,7 +157,7 @@ class PiRunner:
             proc = subprocess.run(["make", "-s"], cwd=workdir, capture_output=True, text=True, env=env)
             if proc.returncode != 0 or not os.path.exists(os.path.join(workdir, "main.bin")):
                 raise PiError(f"build failed:\n{proc.stdout}\n{proc.stderr}")
-            log = self._boot(os.path.join(workdir, "main.bin"))
+            log = self._boot_recovering(os.path.join(workdir, "main.bin"))
         finally:
             if not self.keep:
                 shutil.rmtree(workdir, ignore_errors=True)
@@ -287,6 +293,25 @@ class PiRunner:
 
     # -- execution -------------------------------------------------------------
 
+    def _boot_recovering(self, binary: str) -> str:
+        """_boot, power-cycling a Pi whose bootloader is not listening (a hung
+        kernel or an interrupted upload wedges it).  A run that failed before
+        the program started is retried once; a failure after that is the
+        program's and is raised."""
+        for attempt in range(2):
+            if not os.path.exists(self.tty):         # re-enumerated after a power cycle
+                self.tty = find_tty() or self.tty
+            if power.tool() and not power.ensure_ready(self.tty):
+                raise PiError("the Pi's bootloader is not answering, even after a power cycle")
+            try:
+                return self._boot(binary)
+            except PiError as ex:
+                if attempt or "PITON_START" in ex.log or not power.tool():
+                    raise
+                if self.verbose:
+                    print("pi: boot failed before the program started; retrying", flush=True)
+        raise AssertionError("unreachable")
+
     def _boot(self, binary: str) -> str:
         import select
         proc = subprocess.Popen([self.bootloader, self.tty, binary], stdout=subprocess.PIPE,
@@ -301,7 +326,7 @@ class PiRunner:
                 if remaining <= 0:
                     log = b"".join(chunks).decode("utf-8", errors="replace")
                     raise PiError(f"timeout after {self.timeout:.0f}s waiting for the Pi "
-                                  "(kernel hung?):\n" + "\n".join(log.splitlines()[-40:]))
+                                  "(kernel hung?):\n" + "\n".join(log.splitlines()[-40:]), log)
                 ready, _, _ = select.select([proc.stdout], [], [], min(1.0, remaining))
                 if not ready:
                     if proc.poll() is not None:
@@ -351,7 +376,7 @@ class PiRunner:
                 proc.stdout.close()
         log = b"".join(chunks).decode("utf-8", errors="replace")
         if failed or "PITON_DONE" not in log:
-            raise PiError("Pi run failed:\n" + "\n".join(log.splitlines()[-40:]))
+            raise PiError("Pi run failed:\n" + "\n".join(log.splitlines()[-40:]), log)
         return log
 
     def _parse(self, log: str, buffers, outputs) -> PiResult:

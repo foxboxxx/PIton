@@ -22,3 +22,4 @@ pi/examples/primitives/arm_sgemm.[ch]
 pi/examples/primitives/arm_kernel_vfp.S
 .DS_Store
 .vscode/
+tools/pi_power

@@ -123,3 +123,59 @@ def test_unreapable_bootloader_preserves_firmware_failure(tmp_path, monkeypatch,
         runner._boot("unused")
     assert process.actions == ["terminate", ("wait", 5), "kill", ("wait", 1)]
     assert process.stdout.closed
+
+
+def recovering_runner(tmp_path, monkeypatch, failures, ready=True):
+    """A runner whose _boot raises the given PiErrors first; power.py faked out."""
+    runner = runner_for_script(tmp_path, "")
+    calls = {"boots": 0, "ready": 0}
+
+    def boot(binary):
+        calls["boots"] += 1
+        if failures:
+            raise failures.pop(0)
+        return "PITON_START x\nPITON_DONE\n"
+
+    def ensure_ready(tty):
+        calls["ready"] += 1
+        return ready
+
+    monkeypatch.setattr(runner, "_boot", boot)
+    monkeypatch.setattr(pi_runtime.power, "tool", lambda: "pi_power")
+    monkeypatch.setattr(pi_runtime.power, "ensure_ready", ensure_ready)
+    return runner, calls
+
+
+def test_boot_failure_before_start_is_retried_after_power_check(tmp_path, monkeypatch):
+    runner, calls = recovering_runner(tmp_path, monkeypatch, [PiError("no answer", "")])
+    assert "PITON_DONE" in runner._boot_recovering("unused")
+    assert calls == {"boots": 2, "ready": 2}
+
+
+def test_failure_after_program_start_is_not_retried(tmp_path, monkeypatch):
+    runner, calls = recovering_runner(tmp_path, monkeypatch, [PiError("hung", "PITON_START x\n")])
+    with pytest.raises(PiError, match="hung"):
+        runner._boot_recovering("unused")
+    assert calls["boots"] == 1
+
+
+def test_second_boot_failure_is_raised(tmp_path, monkeypatch):
+    runner, calls = recovering_runner(tmp_path, monkeypatch, [PiError("a", ""), PiError("b", "")])
+    with pytest.raises(PiError, match="b"):
+        runner._boot_recovering("unused")
+    assert calls["boots"] == 2
+
+
+def test_unrecoverable_pi_is_reported_without_booting(tmp_path, monkeypatch):
+    runner, calls = recovering_runner(tmp_path, monkeypatch, [], ready=False)
+    with pytest.raises(PiError, match="not answering"):
+        runner._boot_recovering("unused")
+    assert calls["boots"] == 0
+
+
+def test_no_power_switch_means_no_retry(tmp_path, monkeypatch):
+    runner, calls = recovering_runner(tmp_path, monkeypatch, [PiError("no answer", "")])
+    monkeypatch.setattr(pi_runtime.power, "tool", lambda: None)
+    with pytest.raises(PiError, match="no answer"):
+        runner._boot_recovering("unused")
+    assert calls == {"boots": 1, "ready": 0}
