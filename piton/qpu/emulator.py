@@ -17,7 +17,9 @@ reference guide says is undefined (p37 "Summary of Instruction
 Restrictions"), e.g. reading a regfile location written by the previous
 instruction, touching r4 too early after an SFU write, rotating an
 accumulator written by the previous instruction, overflowing the TMU FIFO,
-or starting a DMA while the previous one is still running.
+or starting a DMA while the previous one is still running. It also rejects a
+thread end before the program waited for its last VDW store (PIton's
+contract with the host, which counts the program as complete there).
 """
 
 from __future__ import annotations
