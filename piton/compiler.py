@@ -24,6 +24,10 @@ class CompiledKernel:
     constants: dict
     asm: dict = field(default_factory=dict)
     stats: dict = field(default_factory=dict)
+    # logical program ids per hardware program along axis 0 (PITON_PERSISTENT):
+    # launch ceil(grid[0] / coarsen) programs; uniform "pid0" is the hardware
+    # program's index, "nprog0" the logical grid
+    coarsen: int = 1
 
     @property
     def words(self):
@@ -109,6 +113,39 @@ def _compile_tile(fn, signature, constants, name, pid_max, options, chunk: int =
     return tile, prog, mf, lw, stats, asm
 
 
+# PITON_PERSISTENT=1 coarsens 1-D grids of at least COARSEN_MIN_GRID programs
+# (21 per QPU) by the largest power of two up to COARSEN_MAX that leaves
+# COARSEN_MIN_PROGRAMS hardware programs. The Pi BLOCK sweeps
+# (perf/results/tune-2026-11-03-*.json) ran 128-512 programs equally fast and
+# 64 (5 per QPU) 3-9% slower: the last programs leave QPUs idle.
+COARSEN_MIN_GRID = 256
+COARSEN_MIN_PROGRAMS = 128
+COARSEN_MAX = 4
+
+
+def _coarsening(tile, pid_max) -> int:
+    """Logical program ids per hardware program along axis 0 (PITON_PERSISTENT):
+    unset or 0 -> 1 (one hardware program per id), 1 -> automatic, k >= 2 -> k
+    for every grid. Kernels that never read tl.program_id(0) are not coarsened."""
+    env = os.environ.get("PITON_PERSISTENT", "0")
+    try:
+        want = int(env)
+    except ValueError:
+        raise ValueError(f"PITON_PERSISTENT={env!r}: expected 0, 1 or a factor >= 2") from None
+    if want <= 0 or not any(op.name == "tt.get_program_id" and op.attrs["axis"] == 0
+                            for op in tile.walk()):
+        return 1
+    bound = None if pid_max is None else pid_max[0] + 1
+    if want >= 2:
+        return want if bound is None else max(1, min(want, bound))
+    if bound is None or any(pid_max[1:]) or bound < COARSEN_MIN_GRID:
+        return 1
+    k = COARSEN_MAX
+    while k > 1 and bound // k < COARSEN_MIN_PROGRAMS:
+        k //= 2
+    return k
+
+
 def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stages: int = 2,
             name: Optional[str] = None, verify: bool = True, store_mutex: bool = True,
             grid=None) -> CompiledKernel:
@@ -149,12 +186,40 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
             break
         tile, prog, mf, lw, stats, asm = rerolled
         sub //= 2
+    # Each program pays a start and a final wait for its last store DMA, so with
+    # many short programs one hardware program runs several program ids in a loop
+    # (Lowering.begin_programs), chunked like the plain build. The kernel's
+    # uniforms stay in registers or are re-read for every id, whichever is
+    # shorter. Constants hoisted out of that loop stay live through every id;
+    # without hoisting a kernel needs only ~3 registers more than its plain
+    # build. If no version allocates, the plain build stays.
+    coarsen = _coarsening(tile, pid_max)
+    if coarsen > 1:
+        best = None
+        for hoist in (True, False):
+            for reload in (False, True):
+                opts = dict(options, coarsen=coarsen, coarsen_reload=reload, coarsen_hoist=hoist)
+                try:
+                    built = _compile_tile(fn, signature, constants, name, pid_max, opts, stats["rerolled"])
+                except RegAllocError:
+                    continue
+                if best is None or _weighted_length(built[1], built[2]) < _weighted_length(best[1], best[2]):
+                    best = built
+            if best is not None:
+                break
+        if best is None:
+            coarsen = 1
+        else:
+            tile, prog, mf, lw, stats, asm = best
     prog.header = [f"{tile.name}: compiled by PIton (Triton -> VideoCore IV QPU)",
                    "uniforms: " + ", ".join(n for _, n in lw.uniforms),
                    "constants: " + ", ".join(f"{k}={v}" for k, v in constants.items())]
+    if coarsen > 1:
+        prog.header.append(f"coarsened: {coarsen} program ids (axis 0) per hardware program")
     asm["qasm"] = prog.qasm()
     stats["instructions"] = len(prog.instrs)
-    ck = CompiledKernel(tile.name, prog, list(lw.uniforms), dict(signature), constants, asm, stats)
+    ck = CompiledKernel(tile.name, prog, list(lw.uniforms), dict(signature), constants, asm, stats,
+                        coarsen)
     if verify:
         prog.words()     # every instruction must encode
     return ck

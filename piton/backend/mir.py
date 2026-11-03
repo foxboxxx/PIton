@@ -153,6 +153,7 @@ class Block:
 class Function:
     name: str
     blocks: list = field(default_factory=list)
+    no_licm: set = field(default_factory=set)    # loop header labels LICM leaves alone
 
     def block(self, label) -> Block:
         for b in self.blocks:

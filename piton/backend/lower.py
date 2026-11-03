@@ -260,6 +260,7 @@ class Lowering:
         self.zero_ptr = None
         self.scratch_ptr = None
         self.unif_base = None
+        self.prog_iv = None             # coarsened launch: the logical program id 0
         self.region_depth = 0
         self.loop_cmp_wide = False
         self.row_gap_fits = None
@@ -1485,8 +1486,13 @@ class Lowering:
         # uniforms for program ids are read lazily but appended to the ABI in a
         # fixed order after the arguments
         self.lazy_ok = set()
+        coarsen = self.opts.get("coarsen", 1)
+        if coarsen > 1:
+            self.begin_programs(coarsen)
         self.lower_block(self.fn.body)
         self.tmu.drain()
+        if coarsen > 1:
+            self.end_programs()
         if self.vdw_pending or self.stats["dma_stores"]:
             self.op("mov", isa.NOP, isa.VW_WAIT)
         self.emit(MInst(ops=[], sig="thrend"))
@@ -1495,6 +1501,8 @@ class Lowering:
         return self.mf
 
     def program_id(self, axis) -> S:
+        if axis == 0 and self.prog_iv is not None:
+            return S(reg=self.prog_iv)
         if axis not in self.pid_regs:
             self.pid_regs[axis] = self.uniform("pid", f"pid{axis}")
         if self.pid_late.get(axis):
@@ -1517,6 +1525,59 @@ class Lowering:
         if axis not in self.nprog_regs:
             self.nprog_regs[axis] = self.uniform("nprog", f"nprog{axis}")
         return S(reg=self.nprog_regs[axis])
+
+    def begin_programs(self, k: int):
+        """Coarsened launch (compile(): PITON_PERSISTENT): hardware program pid0
+        runs the whole kernel once for each logical program id pid0 * k ...
+        min(pid0 * k + k, num_programs(0)) - 1. Its uniforms pid0, nprog0 (and
+        unif_base when the kernel's uniforms are re-read for every id) follow the
+        kernel's own, so the uniform indices of ArgReload stay valid."""
+        hw, n = VReg("pid0"), VReg("nprog0")
+        self.prog_uniforms = [("pid", "pid0", hw), ("nprog", "nprog0", n)]
+        if self.opts.get("coarsen_reload"):
+            self.unif_base = VReg("unif_base")
+            self.prog_uniforms.append(("self", "unif_base", self.unif_base))
+        self.nprog_regs[0] = n                  # tl.num_programs(0): the logical grid
+        self.stats.update(coarsen=k, coarsen_reload=int(bool(self.opts.get("coarsen_reload"))),
+                          coarsen_hoist=int(self.opts.get("coarsen_hoist", True)))
+        hw_max = -(-(self.ranges.pid_max[0] + 1) // k) - 1 if self.ranges is not None else None
+        lo, end = self.new("plo"), self.new("phi")
+        self.imul(lo, hw, self.operand(C(k)), (0, hw_max) if hw_max is not None else None, None, None, C(k))
+        self.op("add", end, lo, self.operand(C(k)))
+        self.prog_end = self.new("phi")
+        self.op("min", self.prog_end, end, n)
+        # the host launches ceil(nprog0 / k) programs, so the first id is in range
+        self.prog_iv = self.new("pid")
+        self.op("mov", self.prog_iv, lo)
+        self.prog_stores = any(o.name == "tt.store" for o in self.fn.walk())
+        self.loop_depth += 1
+        self.prog_loop = self.new_block("programs")
+        if not self.opts.get("coarsen_hoist", True):
+            # values hoisted out of this loop would stay live through every id
+            self.mf.no_licm.add(self.prog_loop.label)
+        self.cur = self.prog_loop
+        # the previous id's last store may still be running
+        self.vdw_pending = self.prog_stores
+
+    def end_programs(self):
+        """Branch back for the next program id; its store DMA is waited for by
+        the next id's first store (or before thread end), not here."""
+        own = list(self.entry_uniform_insts)
+        for kind, name, v in self.prog_uniforms:
+            self.entry_uniform_insts.append(alu("mov", v, isa.UNIF))
+            self.uniforms.append((kind, name))
+        self.op("add", self.prog_iv, self.prog_iv, Imm(1))
+        self.op("sub", isa.NOP, self.prog_iv, self.prog_end, setf=True, unit="add")
+        if self.opts.get("coarsen_reload"):
+            # the next id reads the kernel's uniforms again (from the start of
+            # the list) instead of keeping them in registers through the body
+            self.op("mov", isa.UNIF_ADDR, self.unif_base)
+            for ins in own:
+                self.emit(alu("mov", ins.ops[0].dst, isa.UNIF))
+        self.emit(MInst(kind="branch", bcond="anyn", target=self.prog_loop.label))
+        self.loop_depth -= 1
+        self.cur = self.new_block("programs_end")
+        self.vdw_pending = self.vdw_pending or self.prog_stores
 
     def get_zero_ptr(self) -> VReg:
         if self.zero_ptr is None:
@@ -3441,7 +3502,10 @@ class Lowering:
         body = op.regions[0]
         has_store = any(o.name == "tt.store" for o in _walk_ops(body))
         self.tmu.drain()
-        self.dma_wait()
+        if not (has_store and self.prog_iv is not None):
+            # (coarsened: the body's first store waits for the previous program
+            # id's last DMA, so the loads before it overlap that DMA)
+            self.dma_wait()
         for (form, copies, kind) in forms:
             for reg, src in copies:
                 self.copy_into(reg, src)
