@@ -994,8 +994,9 @@ class Lowering:
         ub - 256; either way ub < fb + ulp(fb).  _div_recip gives R (fb + ulp) <= 1
         and R fb >= 1 - 5.51 u (every mantissa, tests/test_fast_idiv.py), so
         1 - d <= R ub < 1 with d = 5.51 u (6.01 u with the u2f overshoot).  A constant
-        ub has R = the largest float32 <= 1/ub (d < u).  Each RTZ rounding loses less
-        than u relative, and ftoi truncates (x - 1 < floor(x) <= x).
+        ub has R = the largest float32 <= 1/ub (d < u, R ub = 1 for 2**k; R ub <= 1 is
+        all the steps below need).  Each RTZ rounding loses less than u relative, and
+        ftoi truncates (x - 1 < floor(x) <= x).
 
         Step 1, q0 = 256 qh: A = ua >> 8 < 2**24 is exact as a float, so
         qh = floor(RTZ(A R)) <= A / ub < 2**24 and qh > (A / ub)(1 - d - u) - 1.
