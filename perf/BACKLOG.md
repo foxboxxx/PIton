@@ -51,7 +51,7 @@ Status: `todo`, `wip`, `accepted <commit>`, `rejected (<why>)`.
 |---|---|---|
 | D1 | reroll row reductions (carry partial max/sum across chunks) | wip (batch 1, opt/d1-reroll-reduce, with D2) |
 | D2 | reroll 2-D tiles | wip (with D1) |
-| D3 | autotune the reroll threshold (450) and chunk size | todo |
+| D3 | autotune the reroll threshold (450) and chunk size | rejected: SUB 64 is best (32 is 1.4x slower for exp/log/sqrt; 128 gives the same code or time) |
 | D4 | align hot loops to 32-instruction cache lines | todo |
 
 ## E. Launch and runtime
@@ -79,3 +79,5 @@ outputs; H6 matmul register blocking for more A reuse.
 | 2026-11-03 | infra | power switch + auto-recovery + `perf/ab.py` (905a3f6) |
 | 2026-11-03 | baseline | 23 cases, `perf/results/pi-2026-11-03-baseline{,2}.json`; boot-to-boot noise mostly <0.5%, up to 5% (sqrt), so `ab.py` re-runs results outside +-2% (fd5b179) |
 | 2026-11-03 | A4/G1 | BLOCK sweeps: 2-input kernels 6-9% faster at BLOCK>=1024, 1-input 0-4%; suite kept at BLOCK 256 so comparisons stay fixed (d1da2e0) |
+| 2026-11-03 | G1 | mandel UNROLL: 1 -> 162.8 ms, 16 (suite) 42.4 ms, 22 41.96 ms (-1%), 32 63 ms (icache); row_sum/row_max BLOCK_M 4 -> 2: 144 -> 129 us (1.11x, 128 programs balance the 12 QPUs better) |
+| 2026-11-03 | D3 | reroll SUB sweep: no gain |

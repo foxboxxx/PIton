@@ -1,0 +1,113 @@
+[
+ {
+  "piton.reroll.SUB": 32,
+  "name": "copy",
+  "note": "",
+  "instructions": 373,
+  "programs": 1024,
+  "times_us": [
+   1676,
+   1659,
+   1651,
+   1651,
+   1654
+  ],
+  "best_us": 1651,
+  "counters": {
+   "idle": 69576,
+   "valid": 790528,
+   "tmu_stall": 105572,
+   "sb_stall": 0,
+   "icache_hit": 197632,
+   "icache_miss": 75,
+   "unif_miss": 664,
+   "tmu_quads": 262144,
+   "tmu_miss": 16384,
+   "vdw_stall": 0,
+   "l2_hit": 393,
+   "l2_miss": 16730
+  },
+  "busy": 0.15960589541691905,
+  "tmu": 0.021314758732081565,
+  "idle": 0.014047244094488189,
+  "icache_miss": 0.00037934923902542653,
+  "checked": {
+   "out_ptr": 1021
+  },
+  "errors": {}
+ },
+ {
+  "piton.reroll.SUB": 64,
+  "name": "copy",
+  "note": "",
+  "instructions": 373,
+  "programs": 1024,
+  "times_us": [
+   1667,
+   1650,
+   1655,
+   1653,
+   1650
+  ],
+  "best_us": 1650,
+  "counters": {
+   "idle": 72532,
+   "valid": 790528,
+   "tmu_stall": 94996,
+   "sb_stall": 0,
+   "icache_hit": 197632,
+   "icache_miss": 75,
+   "unif_miss": 678,
+   "tmu_quads": 262144,
+   "tmu_miss": 16384,
+   "vdw_stall": 0,
+   "l2_hit": 407,
+   "l2_miss": 16730
+  },
+  "busy": 0.15970262626262627,
+  "tmu": 0.01919111111111111,
+  "idle": 0.014652929292929292,
+  "icache_miss": 0.00037934923902542653,
+  "checked": {
+   "out_ptr": 1021
+  },
+  "errors": {}
+ },
+ {
+  "piton.reroll.SUB": 128,
+  "name": "copy",
+  "note": "",
+  "instructions": 373,
+  "programs": 1024,
+  "times_us": [
+   1673,
+   1658,
+   1651,
+   1655,
+   1654
+  ],
+  "best_us": 1651,
+  "counters": {
+   "idle": 65496,
+   "valid": 790528,
+   "tmu_stall": 103656,
+   "sb_stall": 0,
+   "icache_hit": 197632,
+   "icache_miss": 75,
+   "unif_miss": 664,
+   "tmu_quads": 262144,
+   "tmu_miss": 16384,
+   "vdw_stall": 0,
+   "l2_hit": 393,
+   "l2_miss": 16730
+  },
+  "busy": 0.15960589541691905,
+  "tmu": 0.020927922471229557,
+  "idle": 0.013223500908540279,
+  "icache_miss": 0.00037934923902542653,
+  "checked": {
+   "out_ptr": 1021
+  },
+  "errors": {}
+ }
+]
