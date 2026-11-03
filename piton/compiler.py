@@ -94,7 +94,14 @@ def _compile_tile(fn, signature, constants, name, pid_max, options, chunk: int =
     # Interleaving independent chains before allocation (presched.py) usually
     # shortens the schedule but needs more registers; keep whichever version
     # allocates and runs shorter, weighting loop bodies by their depth.
-    prog, mf, lw, stats, asm["mir"], asm["mir_alloc"] = _build(tile, ranges, options, interleave=False)
+    try:
+        prog, mf, lw, stats, asm["mir"], asm["mir_alloc"] = _build(tile, ranges, options, interleave=False)
+    except RegAllocError:
+        if not options.get("store_slots"):
+            raise
+        # the store slot's registers did not fit: the private VPM rows need fewer
+        options = dict(options, store_slots=False)
+        prog, mf, lw, stats, asm["mir"], asm["mir_alloc"] = _build(tile, ranges, options, interleave=False)
     stats["presched"] = 0
     candidate = None
     if os.environ.get("PITON_PRESCHED", "1") != "0":       # PITON_PRESCHED=0: A/B comparisons
@@ -127,7 +134,9 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
     if grid is not None:
         g = tuple(grid) if isinstance(grid, (tuple, list)) else (grid,)
         pid_max = tuple(max(1, int(x)) - 1 for x in g) + (0,) * (3 - len(g))
-    options = {"num_stages": num_stages, "store_mutex": store_mutex}
+    options = {"num_stages": num_stages, "store_mutex": store_mutex,
+               # PITON_STORE_SLOTS=1: stores through shared 16-row VPM slots (backend/lower.py)
+               "store_slots": os.environ.get("PITON_STORE_SLOTS", "0") not in ("", "0")}
     tile, prog, mf, lw, stats, asm = _compile_tile(fn, signature, constants, name, pid_max, options)
     # A straight-line program larger than the instruction cache stalls on
     # every cache line (reroll.py); a loop over 64-element chunks fits, and

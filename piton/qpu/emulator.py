@@ -12,12 +12,24 @@ and models the parts of the chip a general-purpose kernel touches:
   * semaphores, the mutex, thread end, branches with three delay slots
   * the host-side user-program request queue (V3D_SRQPC / V3D_SRQUA)
 
+The QPUs run interleaved, always advancing the one furthest behind in time,
+so semaphores, the mutex and the shared VPM see a real ordering of events.
+The 16 semaphores are 4-bit counters shared by all QPUs: an acquire at 0
+blocks until another QPU releases, and like the hardware they keep their
+counts from one `run` to the next (0 after construction, as after a reset).
+A run in which every running QPU is blocked raises `EmulatorError`
+(deadlock) instead of spinning until the cycle limit.
+
 In `strict` mode the emulator raises `HazardError` for code that the
 reference guide says is undefined (p37 "Summary of Instruction
 Restrictions"), e.g. reading a regfile location written by the previous
 instruction, touching r4 too early after an SFU write, rotating an
 accumulator written by the previous instruction, overflowing the TMU FIFO,
-or starting a DMA while the previous one is still running.
+or starting a DMA while the previous one is still running.  A VDW DMA reads
+its VPM rows while it runs, and only the QPU that started it can tell when
+it has finished (vw_wait), so a VPM write by any other QPU to rows of a DMA
+its owner has not yet waited for is a hazard too: that is the race a VPM
+area shared between QPUs (PITON_STORE_SLOTS) has to rule out.
 """
 
 from __future__ import annotations
@@ -320,6 +332,14 @@ class VPMState:
             y0, x = (addr >> 4) & 3, addr & 15
             self.mem[16 * y0:16 * y0 + 16, x] = vec
 
+    @staticmethod
+    def rows_of_write(horiz: bool, addr: int) -> frozenset:
+        """VPM rows a generic block write of one vector touches."""
+        if horiz:
+            return frozenset((addr & 63,))
+        y0 = (addr >> 4) & 3
+        return frozenset(range(16 * y0, 16 * y0 + 16))
+
 
 # ---------------------------------------------------------------------------
 # One QPU
@@ -334,6 +354,13 @@ class TimingModel:
     vdw_base: int = 12
     vdr_cycles_per_row: int = 6
     vdr_base: int = 12
+    # One VDW engine serves all QPUs (perf/store_experiment.py): with
+    # vdw_serial a DMA starts when the previous one, from any QPU, has ended.
+    vdw_serial: bool = False
+    # With V3D(seed=...): up to this many extra cycles per DMA, and per QPU
+    # before its first program, to vary how the QPUs interleave.
+    vdw_jitter: int = 0
+    start_jitter: int = 0
 
 
 class QPU:
@@ -368,6 +395,8 @@ class QPU:
         self.vdr = {"mpitch": 0, "rowlen": 16, "nrows": 1, "vpitch": 1, "vert": False, "addr": 0,
                     "pitch_ext": 0}
         self.vdw_busy_until = None
+        self.vdw_rows = frozenset()     # VPM rows of the last DMA store ...
+        self.vdw_rows_until = None      # ... reserved until this cycle (None: not waited for)
         self.vdr_busy_until = None
         self.cycle = 0
         self.instructions = 0
@@ -461,12 +490,23 @@ class QPU:
         if self.v3d.require_vpm_mutex and self.v3d.active_qpus() > 1 and self.v3d.mutex_owner != self.num:
             self.hazard(f"{what} without holding the mutex while other QPUs run")
 
+    def check_vpm_rows_free(self, rows: frozenset, what: str):
+        """No other QPU's DMA store may still read `rows`: it must have been
+        waited for, and that wait must have returned by now."""
+        for other in self.v3d.qpus:
+            if other is not self and rows & other.vdw_rows and \
+                    (other.vdw_rows_until is None or self.cycle < other.vdw_rows_until):
+                self.hazard(f"{what} VPM row {min(rows & other.vdw_rows)} while QPU{other.num}'s "
+                            "DMA store from it has not been waited for")
+
     def wait_vdw(self):
         if self.vdw_busy_until is not None:
             if self.vdw_busy_until > self.cycle:
                 self.stall_cycles += self.vdw_busy_until - self.cycle
                 self.cycle = self.vdw_busy_until
             self.vdw_busy_until = None
+        if self.vdw_rows and self.vdw_rows_until is None:
+            self.vdw_rows_until = self.cycle        # the wait returns (here: jumps) to this cycle
 
     def wait_vdr(self):
         if self.vdr_busy_until is not None:
@@ -523,6 +563,7 @@ class QPU:
             # the DMA reads VPM while it runs (here it copied at start)
             self.hazard("VPM written while this QPU's VDW DMA may still be reading it")
         horiz, addr, stride = self.vpm_write
+        self.check_vpm_rows_free(VPMState.rows_of_write(horiz, addr), "wrote")
         self.v3d.vpm.write_vec(horiz, addr, vec)
         self.vpm_write = (horiz, (addr + stride) & 0xFF, stride)
 
@@ -532,6 +573,7 @@ class QPU:
         d = dict(self.vdw, **self.v3d.vdw_stride)
         y, x = (d["vpmbase"] >> 4) & 127, d["vpmbase"] & 15
         vpm = self.v3d.vpm.mem
+        read = set()
         for u in range(d["units"]):
             if d["horiz"]:
                 # Measured on hardware (tools/probes.py vdw_long_rows): a
@@ -539,16 +581,28 @@ class QPU:
                 # X address wraps inside it, whatever BLOCKMODE says.
                 if x + d["depth"] > 16:
                     self.hazard("VDW horizontal row longer than a VPM row (wraps on hardware)")
-                row = vpm[(y + u) % self.v3d.vpm.rows, (x + np.arange(d["depth"])) % 16]
+                rows = [(y + u) % self.v3d.vpm.rows]
+                row = vpm[rows[0], (x + np.arange(d["depth"])) % 16]
             else:
                 rows = [(y + i) % self.v3d.vpm.rows for i in range(d["depth"])]
                 row = vpm[rows, (x + u) & 15]
+            read.update(rows)
             self.v3d.mem.write_words(addr, row.astype(np.uint32))
             addr += 4 * d["depth"] + d["stride"]
+        # copied here, but on hardware read while the DMA runs: the rows stay
+        # reserved for it until this QPU's wait returns (check_vpm_rows_free)
+        self.vdw_rows, self.vdw_rows_until = frozenset(read), None
         nbytes = 4 * d["units"] * d["depth"]
         self.stats["vdw_bytes"] += nbytes
         t = self.v3d.timing
-        self.vdw_busy_until = self.cycle + t.vdw_base + t.vdw_cycles_per_row * d["units"]
+        cycles = t.vdw_base + t.vdw_cycles_per_row * d["units"]
+        if t.vdw_jitter and self.v3d.rng is not None:
+            cycles += int(self.v3d.rng.integers(0, t.vdw_jitter + 1))
+        begin = self.cycle
+        if t.vdw_serial:
+            begin = max(begin, self.v3d.vdw_free)
+            self.v3d.vdw_free = begin + cycles
+        self.vdw_busy_until = begin + cycles
 
     def start_vdr(self, addr: int):
         if self.vdr_busy_until is not None:
@@ -557,6 +611,11 @@ class QPU:
         pitch = d["pitch_ext"] if d["mpitch"] == 0 else 8 << d["mpitch"]
         y, x = (d["addr"] >> 4) & 63, d["addr"] & 15
         vpm = self.v3d.vpm.mem
+        if d["vert"]:
+            written = range(y, y + d["rowlen"])
+        else:
+            written = ((y + r * d["vpitch"]) % self.v3d.vpm.rows for r in range(d["nrows"]))
+        self.check_vpm_rows_free(frozenset(written), "VDR load into")
         for r in range(d["nrows"]):
             words = self.v3d.mem.read_words(addr + 4 * np.arange(d["rowlen"]))
             if d["vert"]:
@@ -681,7 +740,7 @@ class QPU:
         elif ins.kind == "sem":
             if ins.acquire:
                 if not self.v3d.sem_acquire(ins.sema):
-                    raise _Blocked("semaphore")
+                    raise _Blocked(f"semaphore {ins.sema}")
             else:
                 self.v3d.sem_release(ins.sema)
             self.exec_ldi(ins, writes)
@@ -897,15 +956,18 @@ class V3D:
     # Pi Zero the 5th outstanding request overwrites the oldest result
     # (tools/probes.py tmu_fifo). 4 per TMU is the real limit.
     def __init__(self, num_qpus: int = 12, mem: Optional[Memory] = None, strict: bool = True,
-                 tmu_fifo_depth: int = 4, timing: Optional[TimingModel] = None):
+                 tmu_fifo_depth: int = 4, timing: Optional[TimingModel] = None,
+                 seed: Optional[int] = None):
         self.mem = mem or Memory()
         self.vpm = VPMState()
         self.strict = strict
         self.tmu_fifo_depth = tmu_fifo_depth
         self.timing = timing or TimingModel()
+        self.rng = np.random.default_rng(seed) if seed is not None else None   # timing jitter
         self.qpus = [QPU(i, self) for i in range(num_qpus)]
         self.require_vpm_mutex = True
         self.vdw_stride = {"stride": 0, "blockmode": 0}     # shared by all QPUs (measured)
+        self.vdw_free = 0                                   # TimingModel.vdw_serial
         self.sems = [0] * 16
         self.mutex_owner = None
         self.host_interrupts = 0
@@ -925,6 +987,7 @@ class V3D:
         return True
 
     def sem_release(self, n):
+        # 4-bit counter: a release at 15 is a protocol error in any program here
         if self.sems[n] >= 15:
             raise EmulatorError("semaphore overflow")
         self.sems[n] += 1
@@ -971,14 +1034,17 @@ class V3D:
         """
         pending = deque(unif_addrs)
         global_cycle = 0
+        jitter = self.timing.start_jitter if self.rng is not None else 0
         for q in self.qpus:
             q.running = False
-            q.cycle = 0
+            q.cycle = int(self.rng.integers(0, jitter + 1)) if jitter else 0
+        self.vdw_free = 0
         total_instr = 0
         stalls = 0
         stats = {"tmu_loads": 0, "vdw_bytes": 0, "vdr_bytes": 0, "fmul": 0, "fadd": 0}
         busy_cycles = [0] * len(self.qpus)
         start = {}
+        steps = 0                       # successful steps, to tell a deadlock from a wait
         while True:
             for q in self.qpus:
                 if not q.running and pending:
@@ -995,9 +1061,18 @@ class V3D:
             q = min(running, key=lambda x: x.cycle)
             try:
                 q.step()
-            except _Blocked:
+                steps += 1
+                q.blocked = None
+            except _Blocked as why:
                 q.cycle += 1
                 q.stall_cycles += 1
+                q.blocked = (steps, str(why))
+                # every running QPU blocked since the last step anyone made:
+                # nothing can release a semaphore or the mutex any more
+                if all(r.blocked is not None and r.blocked[0] == steps for r in running):
+                    raise EmulatorError("deadlock: " + ", ".join(
+                        f"QPU{r.num} waits for the {r.blocked[1]} at pc=0x{8 * r.pc:x}" for r in running)
+                        + f"; semaphores {self.sems}, mutex held by {self.mutex_owner}")
             if q.cycle > max_cycles:
                 raise EmulatorError("cycle limit exceeded (infinite loop?)")
             if not q.running:

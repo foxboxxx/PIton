@@ -23,6 +23,22 @@ requests outstanding per TMU - measured, see tools/probes.py).  Loads of a
 loop body whose addresses only depend on loop-carried pointers are software
 pipelined: requests for the next iteration are issued as soon as FIFO slots
 free up.  Stores go through this QPU's private VPM rows and the VDW DMA.
+
+Store slots (PITON_STORE_SLOTS=1)
+---------------------------------
+The single VDW engine costs ~0.18 us per DMA plus ~0.85 ns per byte, so the
+4 private rows (256-byte DMAs) cap stores at ~640 MB/s.  Kernels with a
+store of more than 4 rows instead split the 64 VPM rows into four 16-row
+slots: QPU q uses slot q & 3, guarded by hardware semaphore
+SLOT_SEMAPHORES[q & 3] (count 1 = free), and a contiguous store is one DMA
+of up to 16 rows (1 KiB).  Every tt.store acquires the slot once its values
+are in registers, fills the rows and starts its DMAs as before (the VDW
+stride register is still written under the mutex), waits for its last DMA
+and releases the slot.  Deadlock-free: a QPU holds at most one slot and
+only while storing; while holding it, it waits only for the mutex (held for
+a few instructions by QPUs that never wait for a semaphore under it) and
+for its own DMA.  The runtime sets the slot semaphores to 1 before a launch
+and back to 0 after it (runtime/launcher.py semaphore_programs).
 """
 
 from __future__ import annotations
@@ -50,6 +66,8 @@ TMU_DEPTH = 4                  # per TMU, measured on hardware
 # grows with rows per DMA, but 5 rows per QPU (60 of 64) leaves 256-float
 # stores at four DMAs and measured no faster on the Pi; 8+ would not fit.
 VPM_ROWS_PER_QPU = 4
+SLOT_ROWS = 16                         # store slots (PITON_STORE_SLOTS): 4 x 16 rows
+SLOT_SEMAPHORES = (0, 1, 2, 3)         # semaphore of slot s (count 1 while it is free)
 
 
 def _f2u(x: float) -> int:
@@ -255,8 +273,15 @@ class Lowering:
         self.vpm_block = None
         self.vdw_pending = False
         self.vdw_stride = None
+        # shared 16-row store slots: only when some store would DMA more rows
+        # at once than the 4 private ones hold
+        self.slots = bool(options.get("store_slots")) and _slot_stores(fn)
+        self.dma_rows = SLOT_ROWS if self.slots else VPM_ROWS_PER_QPU
+        self.slot_regs = None
         self.loop_depth = 0
         self.stats = {"tmu_requests": 0, "dma_stores": 0}
+        if self.slots:
+            self.stats["store_slots"] = 1
         self.zero_ptr = None
         self.scratch_ptr = None
         self.unif_base = None
@@ -1487,7 +1512,7 @@ class Lowering:
         self.lazy_ok = set()
         self.lower_block(self.fn.body)
         self.tmu.drain()
-        if self.vdw_pending or self.stats["dma_stores"]:
+        if self.vdw_pending or (self.stats["dma_stores"] and not self.slots):   # (slot stores waited)
             self.op("mov", isa.NOP, isa.VW_WAIT)
         self.emit(MInst(ops=[], sig="thrend"))
         self.mf.blocks.extend(self.cold_blocks)
@@ -2446,6 +2471,8 @@ class Lowering:
     # -- stores -----------------------------------------------------------------------
 
     def vpm_bases(self):
+        if self.slots:
+            return self.slot_bases()[1:]
         if self.vpm_setup_base is None or self.vpm_block is not self.cur:
             self.vpm_block = self.cur
             saved = self.cur
@@ -2470,7 +2497,70 @@ class Lowering:
             mask = None
         shape = op.operands[0].shape
         self.stats["dma_stores"] += 1
-        return self._store(op, ptr, val, mask, shape)
+        self._store(op, ptr, val, mask, shape)
+        if self.slots:
+            self.slot_release()
+        return None
+
+    def slot_bases(self):
+        """(slot, VPM write setup, VDW setup) of this QPU's store slot.  Computed
+        once per store, before the slot is acquired, so they reach every path."""
+        if self.slot_regs is None:
+            slot, row, vws, r7, vdw = (self.new(n) for n in ("vslot", "vrow", "vws", "vrow7", "vdw"))
+            self.op("and", slot, isa.QPU_NUM, Imm(3))
+            self.op("shl", row, slot, Imm(4))                # slot s: VPM rows 16s .. 16s + 15
+            self.op("add", vws, row, self.const_reg(0x00001A00))   # h32, stride 1
+            self.op("shl", r7, row, Imm(7))
+            self.op("add", vdw, r7, self.const_reg(0x80004000))    # VDW horiz at (row, 0)
+            self.slot_regs = (slot, vws, vdw)
+        return self.slot_regs
+
+    def slot_dispatch(self, leaf):
+        """Emit leaf(s) for this QPU's store slot s = qpu_num & 3.  sacq / srel
+        name their semaphore in the instruction, so each slot gets its own
+        copy, picked by two uniform branches on the bits of s."""
+        q = self.slot_bases()[0]
+        n = self.blocks
+        self.blocks += 4
+        hi, one, three, done = f"slot_hi{n}", f"slot1_{n + 1}", f"slot3_{n + 2}", f"slot_done{n + 3}"
+
+        def block(label):
+            b = mir.Block(label, loop_depth=self.loop_depth)
+            self.add_block(b)
+            return b
+
+        def branch_on_bit(bit, target):
+            self.op("and", isa.NOP, q, Imm(bit), setf=True, unit="add")
+            self.emit(MInst(kind="branch", bcond="allnz", target=target))
+
+        branch_on_bit(2, hi)
+        self.cur = self.new_block("slot_lo")
+        branch_on_bit(1, one)
+        for s, label in ((0, None), (1, one), (2, None), (3, three)):
+            if s == 2:
+                self.cur = block(hi)
+                branch_on_bit(1, three)
+            self.cur = block(label) if label else self.new_block(f"slot{s}_")
+            leaf(s)
+            if s != 3:
+                self.emit(MInst(kind="branch", bcond="always", target=done))
+        self.cur = block(done)
+
+    def slot_acquire(self):
+        """Wait until this QPU's store slot is free (no-op without slots)."""
+        if self.slots:
+            self.dma_wait()
+            self.slot_dispatch(lambda s: self.emit(MInst(kind="sem", acquire=True, sema=SLOT_SEMAPHORES[s])))
+
+    def slot_release(self):
+        """Wait for the store's last DMA, which reads the slot, then free it."""
+        def leaf(s):
+            self.op("mov", isa.NOP, isa.VW_WAIT)
+            self.emit(MInst(kind="sem", acquire=False, sema=SLOT_SEMAPHORES[s]))
+        self.slot_dispatch(leaf)
+        self.slot_regs = None
+        self.vdw_pending = False
+        self.vdw_stride = None
 
     def stride_word(self, stride: S):
         """VDW stride-setup word (computed outside the critical section)."""
@@ -2517,6 +2607,7 @@ class Lowering:
         dv = self.materialize(val)
         for j in range(len(dv.regs)):
             self.reg_of(dv, j)
+        self.slot_acquire()                 # (the values are ready: hold the slot only to store)
         if layout["kind"] == "2d" and layout["R"] > 1 and not layout["row"].is_const:
             # one check of the run-time row stride against the VDW stride field,
             # then a fast version and a rare one-DMA-per-row version
@@ -2556,7 +2647,8 @@ class Lowering:
         self.emit(MInst(kind="branch", bcond="allnz", target=slow_label))
         self.cur = self.new_block("store_full")
         self.store_chunks(layout, dv, None)
-        self.dma_wait()
+        if not self.slots:                  # (slot_release waits)
+            self.dma_wait()
         self.emit(MInst(kind="branch", bcond="always", target=done_label))
         slow = mir.Block(slow_label, loop_depth=self.loop_depth)
         self.add_block(slow)
@@ -2574,6 +2666,7 @@ class Lowering:
     def store_scalar(self, ptr, val, mask):
         s = ptr if isinstance(ptr, S) else self.scalar_of(ptr)
         v = val if isinstance(val, S) else self.scalar_of(val)
+        self.slot_acquire()
         vws, vdw = self.vpm_bases()
         self.dma_wait()
         self.op("mov", isa.VW_SETUP, vws)
@@ -2643,16 +2736,16 @@ class Lowering:
         ptr = layout["ptr"]
         if layout["kind"] == "1d":
             nrows = layout["rows"]
-            groups = [(list(range(g, min(g + VPM_ROWS_PER_QPU, nrows))), C(0)) for g in
-                      range(0, nrows, VPM_ROWS_PER_QPU)]
+            groups = [(list(range(g, min(g + self.dma_rows, nrows))), C(0)) for g in
+                      range(0, nrows, self.dma_rows)]
             row_stride_bytes = C(64)
         else:
             R, L = layout["R"], layout["L"]
             nb = L // LANES
             groups = []
             for cb in range(nb):
-                for r0 in range(0, R, VPM_ROWS_PER_QPU):
-                    regs = [r * nb + cb for r in range(r0, min(r0 + VPM_ROWS_PER_QPU, R))]
+                for r0 in range(0, R, self.dma_rows):
+                    regs = [r * nb + cb for r in range(r0, min(r0 + self.dma_rows, R))]
                     groups.append((regs, C(cb)))
             row_stride_bytes = layout["row"]
         for regs, cb in groups:
@@ -2955,7 +3048,8 @@ class Lowering:
         blk = self.new_block("dma")
         self.cur = blk
         # whether an earlier guarded DMA ran is only known at run time
-        self.vdw_pending = self.vdw_pending or self.stats["dma_stores"] > 0
+        # (an earlier store through a slot has waited for its DMAs)
+        self.vdw_pending = self.vdw_pending or (self.stats["dma_stores"] > 0 and not self.slots)
         body()
         self.add_block(skip)
         self.cur = skip
@@ -2966,6 +3060,7 @@ class Lowering:
         """Element-by-element DMA (slow path for non-contiguous stores)."""
         vws, vdw = self.vpm_bases()
         dv = self.materialize(val)
+        self.slot_acquire()
         n = numel(shape)
         for j in range(nregs(shape)):
             addr = self.pred_elem_operands(ptr, j)       # one register at a time
@@ -3439,7 +3534,8 @@ class Lowering:
 
     def _lower_loop(self, op, lb, ub, step, inits, forms):
         body = op.regions[0]
-        has_store = any(o.name == "tt.store" for o in _walk_ops(body))
+        # (a store through a slot has waited for its DMAs when it ends)
+        has_store = any(o.name == "tt.store" for o in _walk_ops(body)) and not self.slots
         self.tmu.drain()
         self.dma_wait()
         for (form, copies, kind) in forms:
@@ -3891,6 +3987,22 @@ def _walk_ops(block):
         yield o
         for r in o.regions:
             yield from _walk_ops(r)
+
+
+def _slot_stores(fn: ir.Function) -> bool:
+    """Some store of `fn` has more contiguous VPM rows per DMA than the 4
+    private ones: a 1-D store of more than 64 elements, or rows of 16+
+    elements with more than 4 rows per column block."""
+    for o in _walk_ops(fn.body):
+        if o.name != "tt.store":
+            continue
+        shape = o.operands[0].shape
+        if not shape or numel(shape) < LANES or (len(shape) > 1 and shape[-1] % LANES):
+            continue
+        rows = numel(shape) // LANES if len(shape) == 1 else numel(shape[:-1])
+        if rows > VPM_ROWS_PER_QPU:
+            return True
+    return False
 
 
 def _is_zero(x):
