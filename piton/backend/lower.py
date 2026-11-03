@@ -36,9 +36,16 @@ are in registers, fills the rows and starts its DMAs as before (the VDW
 stride register is still written under the mutex), waits for its last DMA
 and releases the slot.  Deadlock-free: a QPU holds at most one slot and
 only while storing; while holding it, it waits only for the mutex (held for
-a few instructions by QPUs that never wait for a semaphore under it) and
-for its own DMA.  The runtime sets the slot semaphores to 1 before a launch
-and back to 0 after it (runtime/launcher.py semaphore_programs).
+a few instructions by QPUs that never wait for a semaphore under it), for
+its own DMA and possibly its own TMU loads, none of which waits for another
+QPU; every path through a store releases what it acquired.  The slot is
+reused only after its last DMA was waited for (vw_wait right before the
+release).  The runtime sets the slot semaphores to 1 before a launch and
+back to 0 after it (runtime/launcher.py semaphore_programs).  sacq / srel
+name their semaphore in the instruction, so slot_dispatch branches to one
+of four copies.  A rerolled loop (reroll.py) carries its block's stored
+values in registers and stores them after the loop: one DMA, not one per
+64-element chunk.
 """
 
 from __future__ import annotations
