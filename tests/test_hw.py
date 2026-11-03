@@ -196,3 +196,24 @@ def test_integer_division_hw():
             q = np.array([abs(int(a)) // abs(int(b)) * (1 if (a >= 0) == (b >= 0) else -1) for a, b in zip(x, y)])
             ref = np.concatenate([q, x.astype(np.int64) - q * y]).astype(np.int64).astype(np.uint32).view(np.int32)
         np.testing.assert_array_equal(hw[2], ref)
+
+
+def test_integer_division_edges_hw():
+    """Every pair of edge values (0, +-1, INT_MIN, INT_MAX, +-2**k + -1..1) and the
+    bounded-operand and constant-divisor paths (PITON_FAST_IDIV) on the Pi."""
+    from test_fast_idiv import _edges, _ref, divmod_k, ranged_inputs, ranged_k
+    e = _edges(dense=False)
+    x, y = (g.ravel() for g in np.meshgrid(e, e))
+    x, y = x[y != 0].view(np.int32), y[y != 0].view(np.int32)
+    n = len(x)
+    for U in (0, 1):
+        emu, hw = _both(divmod_k, (piton.cdiv(n, 64),), lambda: [x.copy(), y.copy(), np.zeros(2 * n, np.int32), n],
+                        U=U, BLOCK=64)
+        np.testing.assert_array_equal(hw[2], emu[2])
+        np.testing.assert_array_equal(hw[2].view(np.uint32), np.concatenate(_ref(x, y, not U)))
+    for kind in (0, 1, 3, 5, 8):
+        xs, ys, want = ranged_inputs(kind)
+        emu, hw = _both(ranged_k, (1,), lambda: [xs.copy(), ys.copy(), np.zeros(2 * len(xs), np.int32)],
+                        KIND=kind, BLOCK=len(xs))
+        np.testing.assert_array_equal(hw[2], emu[2])
+        np.testing.assert_array_equal(hw[2].view(np.uint32), want)

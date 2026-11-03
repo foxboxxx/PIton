@@ -344,9 +344,8 @@ PATHS = ["idiv_one_step", "idiv_short", "idiv_full", "idiv_full", "idiv_full", "
          "idiv_full", "idiv_full", "idiv_full"]
 
 
-@pytest.mark.parametrize("kind", range(9))
-def test_range_specialised_paths(fast, kind):
-    n = 256
+def ranged_inputs(kind, n=256):
+    """ranged_k's inputs (random pairs and edge values) and its expected output."""
     x, y = _random(n)
     e = _edges(dense=False)[::3]
     x[:len(e)], y[:len(e)] = e, e[::-1]
@@ -355,13 +354,17 @@ def test_range_specialised_paths(fast, kind):
     a, b = {0: (xs & 0xFFFFF, ys), 1: (xs & 0xFFFFFF, ys), 2: (xs & 0x7FFFFFFF, ys),
             3: (xs, (ys & 0x7FFFFF) + 1), 4: (xs, 7), 5: (xs & 0xFFFF, 1000), 6: (xs, -10),
             7: (xs, 123456789), 8: (xs, -2 ** 31)}[kind]
-    b = np.broadcast_to(b, a.shape)
-    o = np.zeros(2 * n, np.int32)
-    ck = ranged_k[(1,)](x.view(np.int32), y.view(np.int32), o, KIND=kind, BLOCK=n)
+    q, r = _ref(a & M32, np.broadcast_to(b, a.shape) & M32, True)
+    return x.view(np.int32), y.view(np.int32), np.concatenate([q, r])
+
+
+@pytest.mark.parametrize("kind", range(9))
+def test_range_specialised_paths(fast, kind):
+    x, y, want = ranged_inputs(kind)
+    o = np.zeros(2 * len(x), np.int32)
+    ck = ranged_k[(1,)](x, y, o, KIND=kind, BLOCK=len(x))
     assert [p for p in ("idiv_one_step", "idiv_short", "idiv_full") if p in ck.stats] == [PATHS[kind]]
-    q, r = _ref(a & M32, b & M32, True)
-    np.testing.assert_array_equal(o[:n].view(np.uint32), q)
-    np.testing.assert_array_equal(o[n:].view(np.uint32), r)
+    np.testing.assert_array_equal(o.view(np.uint32), want)
 
 
 @piton.jit
