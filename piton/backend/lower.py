@@ -870,10 +870,11 @@ class Lowering:
         x // y and x % y of the same registers share one division while no
         region boundary (loop body, if branch, cold code: div_epoch) was crossed:
         ops of one region are lowered in straight-line code whose internal
-        branches rejoin, so the first lowering point dominates the later ones."""
-        key = ("pair", opname[-1], id(a), id(b))
+        branches rejoin, so the first lowering point dominates the later ones.
+        cb: b's scalar when b is uniform over the tile (it then keys the sharing)."""
+        key = ("pair", opname[-1], id(a), id(b) if cb is None else repr(cb))
         ent = self.divcache.get(key)
-        if ent is None or ent[0] is not a or ent[1] is not b or ent[4] != self.div_epoch:
+        if ent is None or ent[0] is not a or (cb is None and ent[1] is not b) or ent[4] != self.div_epoch:
             q, r = self.idiv(a, b, signed=opname.endswith("s"), ra=ra, rb=rb, cb=cb)
             ent = self.divcache[key] = (a, b, q, r, self.div_epoch)
         return ent[2] if opname.startswith("div") else ent[3]
@@ -2027,6 +2028,7 @@ class Lowering:
         # Scal operands that are broadcast along the lane dimension stay cheap
         da = self.materialize(a)
         db = self.materialize(b)
+        sb = None
         if self.fast_idiv and kind in ("divs", "rems", "divu", "remu"):
             # receive every operand register first: masked loads set flags, and
             # flag users keep their order, so a load received between two divisions
@@ -2034,6 +2036,15 @@ class Lowering:
             for j in range(nregs(res.shape)):
                 self.reg_of(da, j)
                 self.reg_of(db, j)
+            # a divisor uniform over the tile: its scalar (each op materialises its
+            # own copy of b) keys the // and % sharing, and a constant takes the
+            # shortcuts for 1 and powers of two
+            if isinstance(b, Splat):
+                sb = b.s
+            elif isinstance(b, Affine) and b.dense is None and all(c.is_const and c.const == 0 for c in b.coeffs):
+                sb = b.base
+            if sb is not None and sb.is_const and _wrap(sb.const) == 0:
+                sb = None                  # (no compile error for a constant 0 here)
         regs = []
         seen = {}
         for j in range(nregs(res.shape)):
@@ -2043,7 +2054,7 @@ class Lowering:
                 regs.append(seen[key])
                 continue
             if self.fast_idiv and kind in ("divs", "rems", "divu", "remu"):
-                dst = self.idiv_shared(kind, x, y, ra, rb)      # (no copy)
+                dst = self.idiv_shared(kind, x, y, ra, rb, sb)      # (no copy)
                 seen[key] = dst
                 regs.append(dst)
                 continue

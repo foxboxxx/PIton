@@ -377,13 +377,36 @@ def by_scalar_k(x_ptr, o_ptr, b, U: tl.constexpr, BLOCK: tl.constexpr):
 
 @pytest.mark.parametrize("signed", [True, False])
 def test_tile_by_scalar(fast, signed):
-    """A uniform run-time divisor: one reciprocal for the whole tile."""
+    """A uniform run-time divisor: one reciprocal for the whole tile, and x // b,
+    x % b one division per register."""
     x = np.concatenate([_edges(dense=False), _random(128)[0]])[:128]
     for b in (2, 3, -1, -7, 2 ** 23 + 1, 2 ** 24 - 1, 2 ** 29 + 3, 2 ** 31 - 1, -2 ** 31, -2 ** 31 + 1, 1234567891):
         o = np.zeros(2 * len(x), np.int32)
-        by_scalar_k[(1,)](x.view(np.int32), o, b, U=int(not signed), BLOCK=len(x))
+        ck = by_scalar_k[(1,)](x.view(np.int32), o, b, U=int(not signed), BLOCK=len(x))
+        assert ck.stats.get("idiv_full") == len(x) // 16
         q, r = _ref(x, np.full(len(x), b & M32, np.uint32), signed)
         np.testing.assert_array_equal(o.view(np.uint32), np.concatenate([q, r]), err_msg=str(b))
+
+
+@piton.jit
+def by_const_k(x_ptr, o_ptr, C: tl.constexpr, BLOCK: tl.constexpr):
+    offs = tl.arange(0, BLOCK)
+    x = tl.load(x_ptr + offs)
+    tl.store(o_ptr + offs, x // C)
+    tl.store(o_ptr + BLOCK + offs, x % C)
+
+
+@pytest.mark.parametrize("c", [1, 2, 8, 2 ** 30, 3, 7, -1, -8, 1000, 2 ** 24 + 1, 2 ** 31 - 1, -2 ** 31])
+def test_tile_by_constant(fast, c):
+    """x // C and x % C share one division per register; 1 and powers of two
+    take the shortcuts (no float estimate)."""
+    x = np.concatenate([_edges(dense=False), _random(128)[0]])[:128]
+    o = np.zeros(2 * len(x), np.int32)
+    ck = by_const_k[(1,)](x.view(np.int32), o, C=c, BLOCK=len(x))
+    pow2 = c > 0 and c & (c - 1) == 0
+    assert sum(ck.stats.get(p, 0) for p in ("idiv_one_step", "idiv_short", "idiv_full")) == (0 if pow2 else len(x) // 16)
+    q, r = _ref(x, np.full(len(x), c & M32, np.uint32), True)
+    np.testing.assert_array_equal(o.view(np.uint32), np.concatenate([q, r]), err_msg=str(c))
 
 
 @piton.jit
@@ -438,7 +461,7 @@ def test_division_across_regions(fast, n):
     np.testing.assert_array_equal(o.view(np.uint32), want)
 
 
-KERNELS = [divmod_k, ranged_k, by_scalar_k, scalar_k, regions_k]
+KERNELS = [divmod_k, ranged_k, by_scalar_k, by_const_k, scalar_k, regions_k]
 IDIV_SIG = {"x_ptr": "*i32", "y_ptr": "*i32", "q_ptr": "*i32", "r_ptr": "*i32", "n": "i32"}
 
 
