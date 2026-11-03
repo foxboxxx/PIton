@@ -410,10 +410,9 @@ class Lowering:
             # PITON_FAST_IDIV: while no region boundary was crossed, see idiv_shared)
             dkey = (opname[-1], repr(a), repr(b))
             ent = self.divcache.get(dkey)
-            here = self.div_epoch if self.fast_idiv else self.cur
-            if ent is None or (ent[2] != here if self.fast_idiv else ent[2] is not here):
+            if ent is None or (ent[2] != self.div_epoch if self.fast_idiv else ent[2] is not self.cur):
                 q, r = self.idiv(self.sreg(a), self.operand(b), signed=opname.endswith("s"), ra=ra, rb=rb, cb=b)
-                ent = self.divcache[dkey] = (q, r, here)
+                ent = self.divcache[dkey] = (q, r, self.div_epoch if self.fast_idiv else self.cur)
             return S(reg=ent[0] if opname.startswith("div") else ent[1])
         out = self.new("s", is_float)
         self.elementwise(opname, out, self.operand(a), self.operand(b), is_float, signed,
