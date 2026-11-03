@@ -1,0 +1,134 @@
+"""Mandelbrot escape-time renderer as a Triton kernel.
+
+Each program colours a column strip BLOCK pixels wide and ROWS rows tall, in
+tiles of TILE_H x BLOCK pixels (taller tiles escape more uniformly). PIton has
+no `break`, so iterations run in chunks of UNROLL and a tile skips the rest of
+its chunks once every pixel in it has escaped.
+
+Escaped pixels keep iterating and stop being counted. Once |z| > 2 (with
+|c| <= 2.5, as in every view here) |z| only grows, and on the QPUs it ends at
+inf and stays there: inf - inf gives the second operand and 0 * inf gives +0,
+so no NaN appears and x*x + y*y never drops back to 4 or below.
+
+    .venv/bin/python examples/mandelbrot.py            # render a preview in the emulator
+"""
+import os
+import sys
+
+import numpy as np
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+import piton as triton  # noqa: E402
+import piton.language as tl  # noqa: E402
+
+
+@triton.jit
+def mandelbrot_kernel(out_ptr, palette_ptr, x0, y0, step, width, pitch, max_iter,
+                      BLOCK: tl.constexpr, UNROLL: tl.constexpr, ROWS: tl.constexpr,
+                      TILE_H: tl.constexpr):
+    col = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    cx = tl.broadcast_to((x0 + col.to(tl.float32) * step)[None, :], [TILE_H, BLOCK])
+    # ROWS must divide the image height and be a multiple of TILE_H.
+    for r in range(ROWS // TILE_H):
+        row = tl.program_id(1) * ROWS + r * TILE_H + tl.arange(0, TILE_H)
+        cy = tl.broadcast_to((y0 + row.to(tl.float32) * step)[:, None], [TILE_H, BLOCK])
+        x = tl.zeros([TILE_H, BLOCK], tl.float32)
+        y = tl.zeros([TILE_H, BLOCK], tl.float32)
+        escaped = tl.zeros([TILE_H, BLOCK], tl.int32)   # 0 while |z|^2 <= 4, else -1
+        misses = tl.zeros([TILE_H, BLOCK], tl.int32)    # minus the iterations spent escaped
+        done = 0
+        # max_iter must be a multiple of UNROLL.
+        for chunk in range(max_iter // UNROLL):
+            if tl.max(escaped) == 0:
+                for u in tl.static_range(UNROLL):
+                    xx = x * x
+                    yy = y * y
+                    # The sign of 4 - |z|^2 (one subtract with an immediate 4.0)
+                    # is the escape test, exactly |z|^2 > 4.
+                    escaped = (4.0 - (xx + yy)).to(tl.int32, bitcast=True) >> 31
+                    misses += escaped
+                    xy = x * y
+                    x = xx - yy + cx
+                    y = xy * 2.0 + cy
+                done += UNROLL
+        # Escaped pixels count at least 1; palette[0] colours the set itself,
+        # whatever max_iter is.
+        color = tl.load(palette_ptr + tl.where(misses == 0, 0, done + misses))
+        tl.store(out_ptr + row[:, None] * pitch + col[None, :], color, mask=col[None, :] < width)
+
+
+SIGNATURE = {"out_ptr": "*u32", "palette_ptr": "*u32", "x0": "fp32", "y0": "fp32",
+             "step": "fp32", "width": "i32", "pitch": "i32", "max_iter": "i32"}
+
+# Seahorse Valley: the buttons zoom toward this point.
+TARGET = (-0.743643887037151, 0.131825904205330)
+
+
+def make_palette(max_iter: int) -> np.ndarray:
+    """0x00RRGGBB colours for counts 1..max_iter; entry 0 (the set itself) is black."""
+    t = np.arange(max_iter + 1, dtype=np.float64) / 48.0
+    r = 0.5 + 0.5 * np.cos(2 * np.pi * (t + 0.00))
+    g = 0.5 + 0.5 * np.cos(2 * np.pi * (t + 0.15))
+    b = 0.5 + 0.5 * np.cos(2 * np.pi * (t + 0.35))
+    rgb = (np.stack([r, g, b], axis=1) * 255).astype(np.uint32)
+    palette = (rgb[:, 0] << 16) | (rgb[:, 1] << 8) | rgb[:, 2]
+    palette[0] = 0
+    return palette
+
+
+def reference_counts(x0, y0, step, width, height, max_iter):
+    """Escape counts with the kernel's semantics, in float64 (numpy)."""
+    cx = x0 + np.arange(width) * step
+    cy = y0 + np.arange(height) * step
+    c = cx[None, :] + 1j * cy[:, None]
+    z = np.zeros_like(c)
+    count = np.zeros(c.shape, dtype=np.int32)
+    for _ in range(max_iter):
+        inside = z.real ** 2 + z.imag ** 2 <= 4.0
+        z = np.where(inside, z * z + c, z)
+        count += inside
+    return count
+
+
+def escape_counts(x0, y0, step, width, height, max_iter, block=32, unroll=8, tile_h=1, rows=None,
+                  device="emu"):
+    """Raw escape counts from the kernel (an identity palette)."""
+    identity = np.arange(max_iter + 1, dtype=np.uint32)
+    identity[0] = max_iter      # the kernel looks up entry 0 for points in the set
+    out = np.zeros(height * width, dtype=np.uint32)
+    rows = rows or tile_h
+    grid = (triton.cdiv(width, block), height // rows)
+    mandelbrot_kernel[grid](out, identity, np.float32(x0), np.float32(y0), np.float32(step),
+                            width, width, max_iter, BLOCK=block, UNROLL=unroll, ROWS=rows,
+                            TILE_H=tile_h, device=device)
+    return out.reshape(height, width)
+
+
+def render(x0, y0, step, width, height, max_iter, block=32, unroll=8, tile_h=1, rows=None,
+           device="emu"):
+    palette = make_palette(max_iter)
+    out = np.zeros(height * width, dtype=np.uint32)
+    rows = rows or tile_h
+    grid = (triton.cdiv(width, block), height // rows)
+    mandelbrot_kernel[grid](out, palette, np.float32(x0), np.float32(y0), np.float32(step),
+                            width, width, max_iter, BLOCK=block, UNROLL=unroll, ROWS=rows,
+                            TILE_H=tile_h, device=device)
+    return out.reshape(height, width), palette
+
+
+def write_ppm(path, image):
+    rgb = np.stack([(image >> 16) & 255, (image >> 8) & 255, image & 255], axis=-1).astype(np.uint8)
+    with open(path, "wb") as f:
+        f.write(b"P6 %d %d 255\n" % (image.shape[1], image.shape[0]))
+        f.write(rgb.tobytes())
+
+
+if __name__ == "__main__":
+    width, height, max_iter = 128, 96, 64
+    view = 3.2
+    step = view / width
+    x0, y0 = -0.6 - view / 2, -step * height / 2
+    image, _ = render(x0, y0, step, width, height, max_iter)
+    os.makedirs("build", exist_ok=True)
+    write_ppm("build/mandelbrot.ppm", image)
+    print("wrote build/mandelbrot.ppm")

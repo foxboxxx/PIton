@@ -1,0 +1,67 @@
+DEBUG:done with options: dev name=</dev/cu.usbserial-210>, pi-prog=</Users/joe/Documents/github/PIton/build/mandelbrot/main.bin>, trace=0
+opened tty port </dev/cu.usbserial-210>.
+DEBUG:/Users/joe/bin/my-install: tty-usb=</dev/cu.usbserial-210> program=</Users/joe/Documents/github/PIton/build/mandelbrot/main.bin>: about to boot
+TRACE:simple_boot: sending 29908 bytes, crc32=c14a33b
+BOOT:waiting for a start
+DEBUG:PRINT_STRING:pi sent print: <jreed [UART]: success: Received the program!>
+BOOT:bootloader: Done.
+redzone checking: init
+PIton Mandelbrot: 640x480, 12 QPUs, 3 kernels
+MANDEL_CLOCK name=arm mhz=700
+MANDEL_CLOCK name=core mhz=250
+MANDEL_CLOCK name=v3d mhz=250
+MANDEL_CLOCK name=sdram mhz=400
+MANDEL_FB bus=0x4e9a2000 pitch=2560
+MANDEL_EXACT kernel=16x8 pixels=512 iters=256 mismatched=0
+MANDEL_EXACT kernel=32x8 pixels=512 iters=256 mismatched=0
+MANDEL_EXACT kernel=64x8 pixels=512 iters=256 mismatched=0
+MANDEL_PROFILE kernel=16x8 arm=nocache zoom=1 iters=64 programs=2400 frame_us=17422 gpu_us=15580 setup_us=1663 flip_us=179 qpu_idle=5078019 qpu_valid=44801680 tmu_stall=615791 sb_stall=0 icache_hit=11200420 icache_miss=185 unif_hit=28800 unif_miss=2970 tmu_quads=307200 tmu_miss=24 vdw_stall=0 l2_hit=1617 l2_miss=1562
+MANDEL_WORK kernel=16x8 zoom=1 iters=64 inside_pixels=52554 useful_miter=4.667790 executed_miter=6.304640 lane_efficiency=0.740373
+MANDEL_PROFILE kernel=16x8 arm=nocache zoom=10 iters=160 programs=2400 frame_us=74037 gpu_us=72189 setup_us=1669 flip_us=178 qpu_idle=5715418 qpu_valid=214024816 tmu_stall=616130 sb_stall=0 icache_hit=53506204 icache_miss=457 unif_hit=28800 unif_miss=2708 tmu_quads=307200 tmu_miss=60 vdw_stall=0 l2_hit=1579 l2_miss=1646
+MANDEL_WORK kernel=16x8 zoom=10 iters=160 inside_pixels=249694 useful_miter=41.798587 executed_miter=43.791488 lane_efficiency=0.954491
+MANDEL_PROFILE kernel=16x8 arm=nocache zoom=100 iters=256 programs=2400 frame_us=85252 gpu_us=83405 setup_us=1671 flip_us=176 qpu_idle=6314463 qpu_valid=247118768 tmu_stall=616236 sb_stall=0 icache_hit=61779692 icache_miss=518 unif_hit=28800 unif_miss=3016 tmu_quads=307200 tmu_miss=96 vdw_stall=0 l2_hit=1957 l2_miss=1673
+MANDEL_WORK kernel=16x8 zoom=100 iters=256 inside_pixels=123110 useful_miter=40.036094 executed_miter=46.148224 lane_efficiency=0.867554
+MANDEL_PROFILE kernel=16x8 arm=nocache zoom=1000 iters=352 programs=2400 frame_us=78099 gpu_us=76256 setup_us=1667 flip_us=176 qpu_idle=6664607 qpu_valid=225305520 tmu_stall=616250 sb_stall=0 icache_hit=56326380 icache_miss=470 unif_hit=28800 unif_miss=3040 tmu_quads=307200 tmu_miss=132 vdw_stall=0 l2_hit=1973 l2_miss=1669
+MANDEL_WORK kernel=16x8 zoom=1000 iters=352 inside_pixels=4090 useful_miter=20.771690 executed_miter=34.335360 lane_efficiency=0.604964
+MANDEL_PROFILE kernel=16x8 arm=nocache zoom=10000 iters=480 programs=2400 frame_us=151344 gpu_us=149497 setup_us=1670 flip_us=176 qpu_idle=6508242 qpu_valid=445196160 tmu_stall=616764 sb_stall=0 icache_hit=111299040 icache_miss=836 unif_hit=28800 unif_miss=3047 tmu_quads=307200 tmu_miss=168 vdw_stall=0 l2_hit=2441 l2_miss=1609
+MANDEL_WORK kernel=16x8 zoom=10000 iters=480 inside_pixels=5583 useful_miter=45.636432 executed_miter=82.836480 lane_efficiency=0.550921
+MANDEL_PROFILE kernel=32x8 arm=nocache zoom=1 iters=64 programs=1200 frame_us=13338 gpu_us=12307 setup_us=863 flip_us=167 qpu_idle=2687673 qpu_valid=35756640 tmu_stall=270195 sb_stall=0 icache_hit=8939160 icache_miss=246 unif_hit=14400 unif_miss=1463 tmu_quads=307200 tmu_miss=24 vdw_stall=0 l2_hit=901 l2_miss=833
+MANDEL_WORK kernel=32x8 zoom=1 iters=64 inside_pixels=52554 useful_miter=4.667790 executed_miter=6.732288 lane_efficiency=0.693343
+MANDEL_PROFILE kernel=32x8 arm=nocache zoom=10 iters=160 programs=1200 frame_us=62055 gpu_us=61026 setup_us=860 flip_us=168 qpu_idle=3119194 qpu_valid=181488160 tmu_stall=270370 sb_stall=0 icache_hit=45372040 icache_miss=564 unif_hit=14400 unif_miss=1301 tmu_quads=307200 tmu_miss=60 vdw_stall=0 l2_hit=1040 l2_miss=884
+MANDEL_WORK kernel=32x8 zoom=10 iters=160 inside_pixels=249694 useful_miter=41.798587 executed_miter=44.703232 lane_efficiency=0.935023
+MANDEL_PROFILE kernel=32x8 arm=nocache zoom=100 iters=256 programs=1200 frame_us=71419 gpu_us=70390 setup_us=859 flip_us=169 qpu_idle=3975261 qpu_valid=208732960 tmu_stall=270242 sb_stall=0 icache_hit=52183240 icache_miss=649 unif_hit=14400 unif_miss=1450 tmu_quads=307200 tmu_miss=96 vdw_stall=0 l2_hit=1333 l2_miss=862
+MANDEL_WORK kernel=32x8 zoom=100 iters=256 inside_pixels=123110 useful_miter=40.036094 executed_miter=48.205312 lane_efficiency=0.830532
+MANDEL_PROFILE kernel=32x8 arm=nocache zoom=1000 iters=352 programs=1200 frame_us=67592 gpu_us=66560 setup_us=863 flip_us=168 qpu_idle=5643577 qpu_valid=195588400 tmu_stall=270247 sb_stall=0 icache_hit=48897100 icache_miss=599 unif_hit=14400 unif_miss=1502 tmu_quads=307200 tmu_miss=132 vdw_stall=0 l2_hit=1358 l2_miss=874
+MANDEL_WORK kernel=32x8 zoom=1000 iters=352 inside_pixels=4090 useful_miter=20.771690 executed_miter=39.957760 lane_efficiency=0.519841
+MANDEL_PROFILE kernel=32x8 arm=nocache zoom=10000 iters=480 programs=1200 frame_us=141403 gpu_us=140372 setup_us=861 flip_us=168 qpu_idle=5205762 qpu_valid=417451360 tmu_stall=270495 sb_stall=0 icache_hit=104362840 icache_miss=1124 unif_hit=14400 unif_miss=1512 tmu_quads=307200 tmu_miss=168 vdw_stall=0 l2_hit=1977 l2_miss=827
+MANDEL_WORK kernel=32x8 zoom=10000 iters=480 inside_pixels=5583 useful_miter=45.636432 executed_miter=98.601472 lane_efficiency=0.462837
+MANDEL_PROFILE kernel=64x8 arm=nocache zoom=1 iters=64 programs=600 frame_us=13765 gpu_us=13133 setup_us=469 flip_us=162 qpu_idle=1636082 qpu_valid=34666872 tmu_stall=122239 sb_stall=0 icache_hit=8666718 icache_miss=107967 unif_hit=7200 unif_miss=720 tmu_quads=307200 tmu_miss=24 vdw_stall=0 l2_hit=108248 l2_miss=463
+MANDEL_WORK kernel=64x8 zoom=1 iters=64 inside_pixels=52554 useful_miter=4.667790 executed_miter=7.597055 lane_efficiency=0.614421
+MANDEL_PROFILE kernel=64x8 arm=nocache zoom=10 iters=160 programs=600 frame_us=63051 gpu_us=62419 setup_us=468 flip_us=163 qpu_idle=3302586 qpu_valid=180162148 tmu_stall=176574 sb_stall=0 icache_hit=45040537 icache_miss=106040 unif_hit=7200 unif_miss=631 tmu_quads=307200 tmu_miss=60 vdw_stall=0 l2_hit=106259 l2_miss=472
+MANDEL_WORK kernel=64x8 zoom=10 iters=160 inside_pixels=249694 useful_miter=41.798587 executed_miter=45.627904 lane_efficiency=0.916075
+MANDEL_PROFILE kernel=64x8 arm=nocache zoom=100 iters=256 programs=600 frame_us=73248 gpu_us=72616 setup_us=469 flip_us=162 qpu_idle=4371634 qpu_valid=209018892 tmu_stall=40376 sb_stall=0 icache_hit=52254723 icache_miss=164986 unif_hit=7200 unif_miss=728 tmu_quads=307200 tmu_miss=96 vdw_stall=0 l2_hit=165328 l2_miss=482
+MANDEL_WORK kernel=64x8 zoom=100 iters=256 inside_pixels=123110 useful_miter=40.036094 executed_miter=51.273216 lane_efficiency=0.780838
+MANDEL_PROFILE kernel=64x8 arm=nocache zoom=1000 iters=352 programs=600 frame_us=71595 gpu_us=70960 setup_us=469 flip_us=165 qpu_idle=6559158 qpu_valid=201609688 tmu_stall=39049 sb_stall=0 icache_hit=50402422 icache_miss=171412 unif_hit=7200 unif_miss=756 tmu_quads=307200 tmu_miss=132 vdw_stall=0 l2_hit=171817 l2_miss=483
+MANDEL_WORK kernel=64x8 zoom=1000 iters=352 inside_pixels=4090 useful_miter=20.771690 executed_miter=46.849024 lane_efficiency=0.443375
+MANDEL_PROFILE kernel=64x8 arm=nocache zoom=10000 iters=480 programs=600 frame_us=159216 gpu_us=158581 setup_us=469 flip_us=165 qpu_idle=6352805 qpu_valid=464709748 tmu_stall=24143 sb_stall=0 icache_hit=116177437 icache_miss=185228 unif_hit=7200 unif_miss=751 tmu_quads=307200 tmu_miss=168 vdw_stall=0 l2_hit=185661 l2_miss=487
+MANDEL_WORK kernel=64x8 zoom=10000 iters=480 inside_pixels=5583 useful_miter=45.636432 executed_miter=116.744704 lane_efficiency=0.390907
+MANDEL_PROFILE kernel=16x8 arm=icache zoom=1 iters=64 programs=2400 frame_us=17348 gpu_us=15577 setup_us=1596 flip_us=174 qpu_idle=4886611 qpu_valid=44801680 tmu_stall=615904 sb_stall=0 icache_hit=11200420 icache_miss=173 unif_hit=28800 unif_miss=3000 tmu_quads=307200 tmu_miss=24 vdw_stall=0 l2_hit=1635 l2_miss=1562
+MANDEL_PROFILE kernel=16x8 arm=icache zoom=10 iters=160 programs=2400 frame_us=73965 gpu_us=72187 setup_us=1604 flip_us=173 qpu_idle=5527818 qpu_valid=214024816 tmu_stall=616315 sb_stall=0 icache_hit=53506204 icache_miss=457 unif_hit=28800 unif_miss=2685 tmu_quads=307200 tmu_miss=60 vdw_stall=0 l2_hit=1554 l2_miss=1648
+MANDEL_PROFILE kernel=16x8 arm=icache zoom=100 iters=256 programs=2400 frame_us=85180 gpu_us=83401 setup_us=1603 flip_us=174 qpu_idle=6113452 qpu_valid=247118768 tmu_stall=616315 sb_stall=0 icache_hit=61779692 icache_miss=495 unif_hit=28800 unif_miss=3029 tmu_quads=307200 tmu_miss=96 vdw_stall=0 l2_hit=1952 l2_miss=1667
+MANDEL_PROFILE kernel=16x8 arm=icache zoom=1000 iters=352 programs=2400 frame_us=78029 gpu_us=76252 setup_us=1601 flip_us=175 qpu_idle=6476308 qpu_valid=225305520 tmu_stall=616260 sb_stall=0 icache_hit=56326380 icache_miss=470 unif_hit=28800 unif_miss=3057 tmu_quads=307200 tmu_miss=132 vdw_stall=0 l2_hit=1993 l2_miss=1666
+MANDEL_PROFILE kernel=16x8 arm=icache zoom=10000 iters=480 programs=2400 frame_us=151266 gpu_us=149492 setup_us=1600 flip_us=173 qpu_idle=6303346 qpu_valid=445196160 tmu_stall=616741 sb_stall=0 icache_hit=111299040 icache_miss=829 unif_hit=28800 unif_miss=3048 tmu_quads=307200 tmu_miss=168 vdw_stall=0 l2_hit=2436 l2_miss=1608
+MANDEL_PROFILE kernel=32x8 arm=icache zoom=1 iters=64 programs=1200 frame_us=13288 gpu_us=12307 setup_us=818 flip_us=163 qpu_idle=2559808 qpu_valid=35756640 tmu_stall=270065 sb_stall=0 icache_hit=8939160 icache_miss=246 unif_hit=14400 unif_miss=1454 tmu_quads=307200 tmu_miss=24 vdw_stall=0 l2_hit=888 l2_miss=837
+MANDEL_PROFILE kernel=32x8 arm=icache zoom=10 iters=160 programs=1200 frame_us=62007 gpu_us=61023 setup_us=819 flip_us=164 qpu_idle=2996522 qpu_valid=181488160 tmu_stall=270165 sb_stall=0 icache_hit=45372040 icache_miss=564 unif_hit=14400 unif_miss=1310 tmu_quads=307200 tmu_miss=60 vdw_stall=0 l2_hit=1056 l2_miss=878
+MANDEL_PROFILE kernel=32x8 arm=icache zoom=100 iters=256 programs=1200 frame_us=71369 gpu_us=70388 setup_us=818 flip_us=163 qpu_idle=3856777 qpu_valid=208732960 tmu_stall=270336 sb_stall=0 icache_hit=52183240 icache_miss=632 unif_hit=14400 unif_miss=1475 tmu_quads=307200 tmu_miss=96 vdw_stall=0 l2_hit=1346 l2_miss=857
+MANDEL_PROFILE kernel=32x8 arm=icache zoom=1000 iters=352 programs=1200 frame_us=67542 gpu_us=66557 setup_us=820 flip_us=164 qpu_idle=5522481 qpu_valid=195588400 tmu_stall=270127 sb_stall=0 icache_hit=48897100 icache_miss=599 unif_hit=14400 unif_miss=1498 tmu_quads=307200 tmu_miss=132 vdw_stall=0 l2_hit=1358 l2_miss=872
+MANDEL_PROFILE kernel=32x8 arm=icache zoom=10000 iters=480 programs=1200 frame_us=141350 gpu_us=140368 setup_us=818 flip_us=164 qpu_idle=5076279 qpu_valid=417451360 tmu_stall=270266 sb_stall=0 icache_hit=104362840 icache_miss=1134 unif_hit=14400 unif_miss=1516 tmu_quads=307200 tmu_miss=168 vdw_stall=0 l2_hit=1990 l2_miss=828
+MANDEL_PROFILE kernel=64x8 arm=icache zoom=1 iters=64 programs=600 frame_us=13722 gpu_us=13139 setup_us=425 flip_us=157 qpu_idle=1501930 qpu_valid=34666872 tmu_stall=118935 sb_stall=0 icache_hit=8666718 icache_miss=109317 unif_hit=7200 unif_miss=727 tmu_quads=307200 tmu_miss=24 vdw_stall=0 l2_hit=109606 l2_miss=463
+MANDEL_PROFILE kernel=64x8 arm=icache zoom=10 iters=160 programs=600 frame_us=63002 gpu_us=62417 setup_us=426 flip_us=159 qpu_idle=3166888 qpu_valid=180162148 tmu_stall=176249 sb_stall=0 icache_hit=45040537 icache_miss=105793 unif_hit=7200 unif_miss=632 tmu_quads=307200 tmu_miss=60 vdw_stall=0 l2_hit=106015 l2_miss=471
+MANDEL_PROFILE kernel=64x8 arm=icache zoom=100 iters=256 programs=600 frame_us=73173 gpu_us=72591 setup_us=424 flip_us=157 qpu_idle=4229082 qpu_valid=209018892 tmu_stall=40534 sb_stall=0 icache_hit=52254723 icache_miss=164033 unif_hit=7200 unif_miss=723 tmu_quads=307200 tmu_miss=96 vdw_stall=0 l2_hit=164371 l2_miss=481
+MANDEL_PROFILE kernel=64x8 arm=icache zoom=1000 iters=352 programs=600 frame_us=71529 gpu_us=70944 setup_us=426 flip_us=158 qpu_idle=6426756 qpu_valid=201609688 tmu_stall=39618 sb_stall=0 icache_hit=50402422 icache_miss=170185 unif_hit=7200 unif_miss=754 tmu_quads=307200 tmu_miss=132 vdw_stall=0 l2_hit=170587 l2_miss=484
+MANDEL_PROFILE kernel=64x8 arm=icache zoom=10000 iters=480 programs=600 frame_us=159176 gpu_us=158592 setup_us=426 flip_us=157 qpu_idle=6227805 qpu_valid=464709748 tmu_stall=23809 sb_stall=0 icache_hit=116177437 icache_miss=185822 unif_hit=7200 unif_miss=757 tmu_quads=307200 tmu_miss=168 vdw_stall=0 l2_hit=186260 l2_miss=487
+MANDEL_CHECK_OK
+PITON_DONE
+DONE!!!
+
+bootloader: pi exited.  cleaning up
