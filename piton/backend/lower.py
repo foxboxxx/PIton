@@ -973,7 +973,7 @@ class Lowering:
         """recip_core with the last Newton step aimed low (2 - 4 * 2**-23 for 2.0).
         Checked over all 2**23 mantissas (tests/test_fast_idiv.py; the seed and the
         steps scale exactly with the exponent): R * (fb + ulp(fb)) <= 1 - 2.5 * 2**-23
-        and R * fb >= 1 - 5.5 * 2**-23."""
+        and R * fb >= 1 - 5.51 * 2**-23."""
         r = self.new("nr", True)
         self.op("sub", r, self.const_reg(0x7EF311C3), fb)
         for i in range(3):
@@ -986,42 +986,46 @@ class Lowering:
 
     def _udivmod_fast(self, ua, ub, rcp, bhx, ubx, signed, ua_max, ub_min, ub_max):
         """floor(ua / ub) and ua mod ub, exact for every uint32 pair (ua, ub <= 2**31
-        when `signed`), straight-line.  Error bound:
+        when `signed`), straight-line.  Error bound (u = 2**-23):
 
-        R (rcp) is below 1/ub and close: fb = ub rounded toward zero (itof; u2f
-        for unsigned ub >= 2**31, within (ub - 256, ub + 128)) so ub < fb + ulp(fb),
-        and _div_recip gives R * (fb + ulp) <= 1, R * fb >= 1 - 5.5 * 2**-23; with
-        the u2f overshoot, 1 - d <= R * ub < 1 for d = 6 * 2**-23.  A constant ub
-        has R = the largest float32 <= 1/ub (d = 2**-23).  RTZ loses less than
-        2**-23 relative per rounding and ftoi truncates (x - 1 < floor(x) <= x).
+        R (rcp) is just below 1/ub.  fb is ub rounded toward zero (itof), or for
+        unsigned ub >= 2**31 u2f, which lands in [2**31, ub + 128) and above
+        ub - 256; either way ub < fb + ulp(fb).  _div_recip gives R (fb + ulp) <= 1
+        and R fb >= 1 - 5.51 u (every mantissa, tests/test_fast_idiv.py), so
+        1 - d <= R ub < 1 with d = 5.51 u (6.01 u with the u2f overshoot).  A constant
+        ub has R = the largest float32 <= 1/ub (d < u).  Each RTZ rounding loses less
+        than u relative, and ftoi truncates (x - 1 < floor(x) <= x).
 
-        Step 1, q0 = 256 * qh: A = ua >> 8 < 2**24 is exact as a float,
-        qh = floor(RTZ(A * R)) <= A / ub, and qh > (A / ub)(1 - d - 2**-23) - 1.
-        So r1 = ua - 256 qh ub >= 0 and r1 < 256 ub + 255 + 2**32 (d + 2**-23)
-        < 256 ub + 3839, i.e. r1 / ub < 4095.  256 qh ub mod 2**32 is
-        mul24(mul24(qh, ub), 256) (only qh ub mod 2**24 is needed) and qh < 2**24.
+        Step 1, q0 = 256 qh: A = ua >> 8 < 2**24 is exact as a float, so
+        qh = floor(RTZ(A R)) <= A / ub < 2**24 and qh > (A / ub)(1 - d - u) - 1.
+        r1 = ua - 256 qh ub is >= 0 and below 255 + 2**32 (d + u) + 256 ub
+        < 256 ub + 3845: r1 / ub < 4101.  256 qh ub mod 2**32 needs only
+        qh ub mod 2**24: mul24(mul24(qh, ub), 256).
 
         Step 2: fr = r1 rounded toward zero (signed r1 = 2**31 reads as -2**31:
-        clear the sign; unsigned r1 >= 2**31 reads as r1 - 2**32: adding
-        2**32 - 256 lands in [r1 - 256, r1 - 128), so fr is in (r1 - 512, r1), and
-        that needs ub > 2**23 - 15).  dq = floor(RTZ(fr * R)) <= r1 / ub and
-        floor(r1 / ub) - dq < (r1 / ub)(d + 2**-22) + 512 / ub + 1
-        < 4095 * 2**-20 + 2**-13 + 1 < 2, so r2 = r1 - dq ub is in [0, 2 ub) and
-        one correction (r2 >= ub: q + 1, r2 - ub) finishes.  dq < 4095 (< 2**8
-        when ub >= 2**24), so dq ub mod 2**32 = mul24(dq, ub) + the bits of ub
-        above 24: mul24(mul24(dq, 2**16), (ub >> 24) << 8).
+        clear the sign; unsigned r1 >= 2**31 reads as r1 - 2**32, and adding
+        2**32 - 256 gives fr in (r1 - 512, r1), only when ub > 2**23 - 16).
+        dq = floor(RTZ(fr R)) <= r1 / ub and floor(r1 / ub) - dq
+        < (r1 / ub)(d + 2u) + 512 / ub + 1 < 4101 * 8.01 u + 2**-14 + 1 < 2, so
+        r2 = r1 - dq ub is in [0, 2 ub) and one correction (r2 >= ub: q + 1,
+        r2 - ub) finishes.  dq < 2**13, so dq ub mod 2**32 is mul24(dq, ub) plus
+        the bits of ub above 24: mul24(mul24(dq, 2**16), (ub >> 24) << 8).
 
-        Short dividends (ua < 2**24) skip the shift: floor(ua / ub) - q1 <
-        2**24 (d + 2**-23) / ub + 1 gives r1 < ub + 14, an exact float, and the same
-        second step; if ub >= 2**24 then q1 = dq = 0.  One step suffices when
-        ua < 2**31 and ua < 2**20 ub_min: floor(ua / ub) - q1 < (ua / ub)(d + 2**-22)
-        + 1 < 2.  The comparison r2 >= ub is the sign of r2 - ub when ub <= 2**31
-        (r2 - ub is in [-2**31, 2**31)); else unsigned, through ^ 2**31 and min.
+        Short dividends, ua < 2**24 (exact float), skip the shift:
+        r1 = ua - q1 ub < ua (d + u) + ub < ub + 15, an exact float, and the same
+        second step leaves r2 in [0, 2 ub); if ub >= 2**24 then q1 = dq = 0.  One
+        step suffices when ua < 2**31 and ua < 2**20 ub_min, with ub < 2**24
+        (fb exact: floor(ua / ub) - q1 < (ua / ub)(5.51 u + 2u) + 1 < 2) or ua < 2**24
+        (fa exact: < (ua / ub)(6.01 u + u) + 1 < 2).  The comparison r2 >= ub is the
+        sign of r2 - ub when ub <= 2**31 (r2 - ub is in [-2**31, 2**31)); else
+        unsigned, through ^ 2**31 and min.
 
-        Signed |b| = 2**31 reads as -2**31, so R is in (-2**-31, 0): |A R| < 2**-8
-        and |fr R| < 1 make qh = dq = 0 and the correction alone gives q = (ua >= ub)."""
-        k256 = self.const_reg(256)
+        Signed |b| = 2**31 reads as -2**31, so R is in (-2**-31, 0): |A R| < 2**-7
+        and |fr R| < 1 make qh = q1 = dq = 0, and the correction alone gives
+        q = (ua >= ub)."""
         one_step = ua_max < 1 << 31 and ua_max < ub_min << 20 and (ub_max < 1 << 24 or ua_max < 1 << 24)
+        path = "idiv_one_step" if one_step else "idiv_short" if ua_max < 1 << 24 else "idiv_full"
+        self.stats[path] = self.stats.get(path, 0) + 1            # (for tests)
         if one_step or ua_max < 1 << 24:
             fa, fq, q = self.new("fa", True), self.new("fq", True), self.new("q")
             self.op("itof", fa, ua)
@@ -1036,6 +1040,7 @@ class Lowering:
                 self.op("add", q2, q, dq)
                 q = q2
         else:
+            k256 = self.const_reg(256)
             a8, fa, fq, qh = self.new("a8"), self.new("fa", True), self.new("fq", True), self.new("qh")
             self.op("shr", a8, ua, Imm(8))
             self.op("itof", fa, a8)
