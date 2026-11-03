@@ -23,24 +23,32 @@ With `reductions` (PITON_REROLL_REDUCE=1 or "rows") the kernel may also
 reduce such tensors to scalars (tl.sum / tl.max / tl.min) and splat the
 results back, as softmax does. Each pass over the row becomes its own loop:
 
-    m = max(x)                     for c: acc_m = fold(max, acc_m, chunk of x)
-    e = exp(x - m); s = sum(e) ->  m = max(acc_m); for c: acc_s = fold(+, acc_s, chunk of e)
-    store(e / s)                   s = sum(acc_s);  for c: store(chunk of e / s)
+    m = max(x)                     for c: x[c] = load; acc_m = fold(max, acc_m, x[c])
+    e = exp(x - m); s = sum(e) ->  m = max(acc_m); for c: e[c] = exp(x[c] - m); acc_s = fold(+, acc_s, e[c])
+    store(e / s)                   s = sum(acc_s);  for c: store(e[c] / s)
 
-A loop recomputes everything its pass needs from the loads (here x is loaded
-three times and exp runs twice) and carries a 16-lane partial: each chunk's
-registers are combined into it one at a time, in the order the unrolled
-reduction combines the row's registers, and its lanes are folded after the
-loop exactly as before. The partial starts at a value whose combine with the
+A chunk a later pass needs (here x, then e) is computed once and stays in
+registers: the loops carry the row as N / SUB slots and shift them by one
+chunk per iteration (_run_passes). Index arithmetic and masks are
+recomputed in every pass. If carrying the row does not fit the registers,
+every pass recomputes its chunks from the loads instead (softmax at
+BLOCK_SIZE=1024, which does not compile unrolled either).
+
+Each reduction carries a 16-lane partial: each chunk's registers are
+combined into it one at a time, in the order the unrolled reduction
+combines the row's registers, and its lanes are folded after the loop
+exactly as before. The partial starts at a value whose combine with the
 first register gives the next combine the same operand as that register:
 +0 for float sums (+0 + x is x, except that -0, denormals and NaN come out
-as +0, +0 and an infinity, which give the next add, with the row's second
-register, the same result), the bit patterns below / above every value in
-the fmax / fmin sign-magnitude order, and the integer identities. So the
-results are bit-identical to the unrolled kernel's under the float semantics
-measured on the Pi (emulator.py). Independent reductions share a loop;
-scalar stores move after the last loop, so kernels that load after any
-store, or store a tensor after a scalar, are left alone.
+as +0, +0 and an infinity, which the next add reads exactly as it reads
+the original), the bit patterns below / above every value in the fmax /
+fmin sign-magnitude order, and the integer identities. So the results are
+bit-identical to the unrolled kernel's under the float semantics measured
+on the Pi (emulator.py). Independent reductions share a loop; scalar
+stores move after the last loop, so kernels that load after any store, or
+store a tensor after a scalar, are left alone. As for elementwise blocks,
+the store loop interleaves the chunks' stores (and any loads it still
+needs) by chunk.
 
 transposed_loads() (PITON_REROLL_REDUCE=1 or "tiles") handles the 2-D tile
 that missed the cache, transpose: tl.trans of a loaded tile becomes a load
@@ -52,9 +60,11 @@ from . import ir, passes
 
 SUB = 64                                  # 4 registers: measured best for exp (32: less overlap)
 ICACHE_INSTRUCTIONS = 450                 # unrolled programs above this miss on every line
-# 16 lines of 32 instructions: programs up to ~540 instructions (scaled_relu,
-# mandel_16x16x2) miss < 0.25 times per program on the Pi, and the misses of
-# larger ones match a direct-mapped cache of this size
+# 16 lines of 32 instructions, direct mapped (the code starts page aligned):
+# on the Pi dense_relu (726 instructions) misses 13.8 times per program, twice
+# for each line past the 512th; scaled_relu (521 before rerolling) and
+# mandel_16x16x2 (543) miss < 0.25 times. The reduction passes use the whole
+# cache, since every chunk halving adds loop iterations and slot moves.
 ICACHE_CAPACITY = 512
 LANES = 16
 
@@ -379,7 +389,8 @@ def _run_passes(fn: ir.Function, n: int, sub: int, carry: bool = True) -> None:
         body.args.append(chunk)
         args = [ir.Value(v.dtype, v.shape) for v in inits]
         body.args += args
-        loop = b.create("scf.for", [lb, ub, step] + inits, [(v.dtype, v.shape) for v in inits], regions=[body])
+        loop = b.create("scf.for", [lb, ub, step] + inits, [(v.dtype, v.shape) for v in inits],
+                        {"rerolled": True}, regions=[body])
         inner = ir.Builder(body)
         size = inner.create("arith.constant", [], [(ir.int32, ())], {"value": sub}).result
         start = inner.create("arith.muli", [chunk, size], [(ir.int32, ())]).result

@@ -110,6 +110,8 @@ def _compile_tile(fn, signature, constants, name, pid_max, options, chunk: int =
         prog, mf, lw, stats, asm["mir"], asm["mir_alloc"] = candidate
         stats["presched"] = 1
     stats["rerolled"] = chunk
+    if chunk and reductions:
+        stats["reroll_carry"] = int(carry)
     return tile, prog, mf, lw, stats, asm
 
 

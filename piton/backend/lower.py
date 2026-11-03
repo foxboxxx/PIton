@@ -3453,10 +3453,25 @@ class Lowering:
         body = op.regions[0]
         yield_op = body.ops[-1]
         forms = []
+        handed = set()
+        if op.attrs.get("rerolled"):
+            # reroll.py's pass loops hand their carried slots to the next pass:
+            # a slot used by nothing else keeps its registers (no copies)
+            uses = {}
+            for o in self.fn.walk():
+                for v in o.operands:
+                    if v is not None:
+                        uses[v.id] = uses.get(v.id, 0) + 1
+            handed = {i for i, v in enumerate(op.operands[3:]) if uses.get(v.id) == 1 and v.op is not None
+                      and v.op.name == "scf.for" and v.op.attrs.get("rerolled")}
         for i, (init, arg) in enumerate(zip(inits, body.args[1:])):
             if isinstance(init, Affine) and not self._affine_carry_ok(arg, yield_op.operands[i]):
                 init = self.materialize(init)
                 inits[i] = init
+            if i in handed and isinstance(init, Dense) and all(isinstance(r, VReg) for r in init.regs) \
+                    and len({id(r) for r in init.regs}) == len(init.regs):
+                forms.append((Dense(arg.shape, arg.dtype, list(init.regs)), [], "dense"))
+                continue
             forms.append(self.carried_form(init, arg.shape, arg.dtype))
         res = self._lower_loop(op, lb, ub, step, inits, forms)
         return tuple(res) if len(op.results) != 1 else res[0]
