@@ -45,6 +45,14 @@ def persistent(monkeypatch):
     return set_k
 
 
+def _id_uniforms():
+    """A coarsened program's uniforms after the kernel's own: its index, the
+    logical grid and, with PITON_COARSEN_RUNTIME, the launch's ids per
+    hardware program (tests/test_coarsen_runtime.py)."""
+    return [("pid", "pid0"), ("nprog", "nprog0")] + \
+        ([("coarsen", "coarsen0")] if compiler.coarsen_runtime_enabled() else [])
+
+
 def _fail_builds(monkeypatch, when):
     """Make _compile_tile raise RegAllocError for the option sets `when` accepts."""
     real = compiler._compile_tile
@@ -93,8 +101,8 @@ def test_add_runs_k_ids_per_program(persistent, blocks, k):
     assert ck.coarsen == min(k, blocks)
     # the kernel's own uniforms first, then the hardware program's index and the logical grid
     assert ck.uniforms[:4] == [("arg", n) for n in ADD_SIG]
-    assert ck.coarsen == 1 or ck.uniforms[4:] in ([("zero", "zero_ptr"), ("pid", "pid0"), ("nprog", "nprog0")],
-                               [("zero", "zero_ptr"), ("pid", "pid0"), ("nprog", "nprog0"), ("self", "unif_base")])
+    assert ck.coarsen == 1 or ck.uniforms[4:] in ([("zero", "zero_ptr")] + _id_uniforms(),
+                                                  [("zero", "zero_ptr")] + _id_uniforms() + [("self", "unif_base")])
     n = values["n_elements"]
     np.testing.assert_allclose(got["output_ptr"][:n], values["x_ptr"] + values["y_ptr"], rtol=1e-6, atol=1e-6)
     assert np.all(got["output_ptr"][n:] == 7.0)
@@ -249,7 +257,7 @@ def test_matmul_k_loop(persistent, monkeypatch, mode):
                                     "N": N, "stride_am": K, "stride_bk": N, "stride_cm": N})
     assert ck.coarsen == 3 and ck.stats["coarsen_reload"] == reload
     if reload:
-        assert ck.uniforms[-3:] == [("pid", "pid0"), ("nprog", "nprog0"), ("self", "unif_base")]
+        assert ck.uniforms[-len(_id_uniforms()) - 1:] == _id_uniforms() + [("self", "unif_base")]
     np.testing.assert_allclose(got["c_ptr"].reshape(M, N), a.astype(np.float64) @ b, rtol=1e-4, atol=1e-4)
 
 

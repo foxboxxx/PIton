@@ -424,7 +424,7 @@ class PiRunner:
 def run_on_pi(ck, grid, values: dict, repeats: int = 1, runner: Optional[PiRunner] = None,
               verbose: bool = False):
     """Launch compiled kernel `ck` on the Pi; arrays in `values` are copied back."""
-    from .launcher import program_ids
+    from .launcher import launch_coarsen, program_ids
     from ..qpu.isa import f2u
     runner = runner or PiRunner(verbose=verbose)
     buffers = []
@@ -434,7 +434,8 @@ def run_on_pi(ck, grid, values: dict, repeats: int = 1, runner: Optional[PiRunne
     buffers.append(Buffer("__zero", 64))
     buffers.append(Buffer("__scratch", 64))
     programs = []
-    for pid, g in program_ids(grid, ck.coarsen):
+    k = launch_coarsen(ck, grid)
+    for pid, g in program_ids(grid, k):
         u = []
         for kind, name in ck.uniforms:
             if kind == "arg":
@@ -449,6 +450,8 @@ def run_on_pi(ck, grid, values: dict, repeats: int = 1, runner: Optional[PiRunne
                 u.append(pid[int(name[3:])])
             elif kind == "nprog":
                 u.append(g[int(name[5:])])
+            elif kind == "coarsen":
+                u.append(k)
             elif kind == "zero":
                 u.append(("buf", "__zero", 0))
             elif kind == "scratch":
@@ -473,7 +476,7 @@ def bench_matmul_on_pi(ck, M: int, N: int, K: int, grid, args_after_ptrs: list, 
     normalized error is max absolute error / max absolute sampled reference;
     it is not the largest elementwise relative error (which blows up near 0).
     """
-    from .launcher import program_ids
+    from .launcher import launch_coarsen, program_ids
     if min(M, N, K, repeats, sample_stride) <= 0:
         raise ValueError("matmul dimensions, repeats and sample_stride must be positive")
     runner = PiRunner(verbose=verbose)
@@ -481,7 +484,8 @@ def bench_matmul_on_pi(ck, M: int, N: int, K: int, grid, args_after_ptrs: list, 
             Buffer("c", 4 * M * N), Buffer("__zero", 64), Buffer("__scratch", 64)]
     scal = dict(args_after_ptrs)
     programs = []
-    for pid, g in program_ids(grid, ck.coarsen):
+    k = launch_coarsen(ck, grid)
+    for pid, g in program_ids(grid, k):
         u = []
         for kind, name in ck.uniforms:
             if kind == "arg":
@@ -493,6 +497,8 @@ def bench_matmul_on_pi(ck, M: int, N: int, K: int, grid, args_after_ptrs: list, 
                 u.append(pid[int(name[3:])])
             elif kind == "nprog":
                 u.append(g[int(name[5:])])
+            elif kind == "coarsen":
+                u.append(k)
             elif kind == "zero":
                 u.append(("buf", "__zero", 0))
             elif kind == "scratch":

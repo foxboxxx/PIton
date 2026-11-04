@@ -79,7 +79,10 @@ def emit_c(ck, out_name: str) -> tuple:
     lines_h += [
         f"}} {sym}_args_t;", "",
         "// Launch gx*gy*gz program instances through the V3D request queue."]
-    if ck.coarsen > 1:
+    if ck.coarsen > 1 and ck.coarsen_launch is not None:
+        lines_h.append(f"// Each hardware program runs up to {ck.coarsen} consecutive x ids (PITON_PERSISTENT),")
+        lines_h.append("// as many as the launch's gx keeps busy (PITON_COARSEN_RUNTIME).")
+    elif ck.coarsen > 1:
         lines_h.append(f"// Each hardware program runs {ck.coarsen} consecutive x ids (PITON_PERSISTENT).")
     lines_h += [
         "// Returns the elapsed time in microseconds.",
@@ -95,7 +98,25 @@ def emit_c(ck, out_name: str) -> tuple:
              "static unsigned unif_capacity;", "",
              f"uint32_t {sym}_launch(const {sym}_args_t *args, unsigned gx, unsigned gy, unsigned gz) {{"]
     hx = "gx"
-    if ck.coarsen > 1:
+    if ("coarsen", "coarsen0") in ck.uniforms:
+        # the program reads its ids per hardware program (uniform coarsen0):
+        # as runtime/launcher.py launch_coarsen chooses them. Nothing divides
+        # by the variable k: the ARM1176 has no divide instruction, and a
+        # bare-metal program on libpi links no __aeabi_uidiv (only -O2 and up
+        # would see that k is one of the factors below).
+        hx = "hx"
+        factors = [ck.coarsen]
+        body.append(f"    unsigned k = {ck.coarsen};   // program ids per hardware program")
+        if ck.coarsen_launch is not None:
+            min_grid, min_programs = ck.coarsen_launch
+            while factors[-1] > 1:
+                factors.append(factors[-1] // 2)
+            body += [f"    if (gx < {min_grid}) k = 1;",
+                     f"    while (k > 1 && gx < {min_programs} * k) k /= 2;   // gx / k < {min_programs}"]
+        pick = (" : ".join(f"k == {f} ? (gx + {f - 1}) / {f}" for f in factors if f > 1) + " : gx"
+                if len(factors) > 1 else f"(gx + {ck.coarsen - 1}) / {ck.coarsen}")
+        body.append(f"    unsigned hx = {pick};   // hardware programs along x")
+    elif ck.coarsen > 1:
         hx = "hx"
         body.append(f"    unsigned hx = (gx + {ck.coarsen - 1}) / {ck.coarsen};   // hardware programs along x")
     body += [f"    unsigned n = {hx} * gy * gz;",
@@ -132,6 +153,8 @@ def emit_c(ck, out_name: str) -> tuple:
             body.append(f"        q[{j}] = {'xyz'[int(name[3:])]};")
         elif kind == "nprog":
             body.append(f"        q[{j}] = g{'xyz'[int(name[5:])]};")
+        elif kind == "coarsen":
+            body.append(f"        q[{j}] = k;")
         elif kind in ("zero", "scratch"):
             off = 0 if kind == "zero" else 2048
             body.append(f"        q[{j}] = zero_buf.bus + {off};")

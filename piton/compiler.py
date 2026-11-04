@@ -30,6 +30,12 @@ class CompiledKernel:
     # launch ceil(grid[0] / coarsen) programs; uniform "pid0" is the hardware
     # program's index, "nprog0" the logical grid
     coarsen: int = 1
+    # PITON_COARSEN_RUNTIME: the program reads its ids per hardware program
+    # from uniform "coarsen0" (1 ... coarsen), and each launch chooses them
+    # (runtime/launcher.py launch_coarsen): (COARSEN_MIN_GRID,
+    # COARSEN_MIN_PROGRAMS) as _coarsening applies them to a known grid. None:
+    # every launch runs `coarsen` ids (compile-time or forced factor).
+    coarsen_launch: Optional[tuple] = None
 
     @property
     def words(self):
@@ -258,6 +264,13 @@ COARSEN_MIN_BYTES = 4              # bytes loaded and stored per executed instru
 SLOTS_MIN_STORE_BYTES = 0.1        # bytes stored per executed instruction
 
 
+def coarsen_runtime_enabled() -> bool:
+    """PITON_COARSEN_RUNTIME=1: a coarsened program reads its ids per hardware
+    program from a uniform, so one build launches small grids with one id per
+    program (Lowering.begin_programs, CompiledKernel.coarsen_launch)."""
+    return os.environ.get("PITON_COARSEN_RUNTIME", "0") not in ("", "0")
+
+
 def _id_length(tile, prog: Program, mf, upper: bool = True) -> Optional[int]:
     """Instructions one program id executes at most: code outside loops once,
     code inside them times the trip count of every loop (None when a loop runs
@@ -364,6 +377,8 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
         # `if tl.max(x) > c` branches on the lanes of x, and a loop guarded by
         # such an if exits when it fails (examples/mandelbrot.py)
         options["fast_branches"] = True
+    if coarsen_runtime_enabled():
+        options["coarsen_runtime"] = True       # Lowering.begin_programs: the factor is a uniform
     try:
         tile, prog, lw, stats, asm, coarsen = _compile_program(fn, signature, constants, name, pid_max, options)
     except RegAllocError:
@@ -379,12 +394,18 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
     prog.header = [f"{tile.name}: compiled by PIton (Triton -> VideoCore IV QPU)",
                    "uniforms: " + ", ".join(n for _, n in lw.uniforms),
                    "constants: " + ", ".join(f"{k}={v}" for k, v in constants.items())]
-    if coarsen > 1:
+    launch = None
+    if coarsen > 1 and options.get("coarsen_runtime") and int(os.environ.get("PITON_PERSISTENT", "1")) < 2:
+        # (a forced factor, PITON_PERSISTENT=k checked by _coarsening, runs k ids in every launch)
+        launch = (COARSEN_MIN_GRID, COARSEN_MIN_PROGRAMS)
+        prog.header.append(f"coarsened: up to {coarsen} program ids (axis 0) per hardware program, "
+                           f"chosen per launch (uniform coarsen0)")
+    elif coarsen > 1:
         prog.header.append(f"coarsened: {coarsen} program ids (axis 0) per hardware program")
     asm["qasm"] = prog.qasm()
     stats["instructions"] = len(prog.instrs)
     ck = CompiledKernel(tile.name, prog, list(lw.uniforms), dict(signature), constants, asm, stats,
-                        coarsen)
+                        coarsen, launch)
     if verify:
         prog.words()     # every instruction must encode
     return ck

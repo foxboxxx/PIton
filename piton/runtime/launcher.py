@@ -64,7 +64,10 @@ def bind(fn, args, kwargs, do_not_specialize=()):
 
 
 def uniforms_for(ck: CompiledKernel, values: dict, addrs: dict, pid, grid, zero_addr, scratch_addr,
-                 self_addr=0):
+                 self_addr=0, coarsen=None):
+    """The uniform words of hardware program `pid` of a launch on `grid` (the
+    logical grid); coarsen: the launch's ids per hardware program (uniform
+    coarsen0; default launch_coarsen)."""
     out = []
     for kind, name in ck.uniforms:
         if kind == "arg":
@@ -79,6 +82,8 @@ def uniforms_for(ck: CompiledKernel, values: dict, addrs: dict, pid, grid, zero_
             out.append(pid[int(name[3:])])
         elif kind == "nprog":
             out.append(grid[int(name[5:])])
+        elif kind == "coarsen":
+            out.append(launch_coarsen(ck, grid) if coarsen is None else coarsen)
         elif kind == "zero":
             out.append(zero_addr)
         elif kind == "scratch":
@@ -90,12 +95,35 @@ def uniforms_for(ck: CompiledKernel, values: dict, addrs: dict, pid, grid, zero_
     return out
 
 
+def launch_coarsen(ck: CompiledKernel, grid) -> int:
+    """Program ids per hardware program along axis 0 for a launch of `ck` on
+    `grid`: ck.coarsen, unless each launch chooses them (PITON_COARSEN_RUNTIME,
+    ck.coarsen_launch; the program reads them from uniform coarsen0): then, as
+    compiler._coarsening chooses for a known grid, ck.coarsen for at least
+    COARSEN_MIN_GRID launched programs, halved until COARSEN_MIN_PROGRAMS
+    hardware programs remain, and 1 (the plain program's ids, one hardware
+    program each) for smaller launches. (A program without coarsen0 has its
+    factor in the code: every launch runs ck.coarsen, whatever coarsen_launch
+    says, as tools/compile.py emit_c's launcher does.)"""
+    if ck.coarsen_launch is None or ("coarsen", "coarsen0") not in ck.uniforms:
+        return ck.coarsen
+    min_grid, min_programs = ck.coarsen_launch
+    gx = (list(grid) + [1])[0]
+    if gx < min_grid:
+        return 1
+    k = ck.coarsen
+    while k > 1 and gx // k < min_programs:
+        k //= 2
+    return k
+
+
 def program_ids(grid, coarsen: int = 1):
     """(program ids, logical grid) for every hardware program of a launch.
 
     A kernel compiled with coarsen=k (ck.coarsen, PITON_PERSISTENT) runs k
     consecutive axis-0 ids per hardware program: there are ceil(gx / k) of them
-    along axis 0, each given its own index as pid0 and the logical grid."""
+    along axis 0, each given its own index as pid0 and the logical grid. (With
+    PITON_COARSEN_RUNTIME the launch's factor is launch_coarsen(ck, grid).)"""
     gx, gy, gz = (list(grid) + [1, 1, 1])[:3]
     hx = -(-gx // coarsen)
     for z in range(gz):
@@ -138,7 +166,10 @@ def semaphore_programs(sems) -> tuple:
 
 
 def run_emulator(ck: CompiledKernel, grid, values: dict, num_qpus: int = 12, strict: bool = True,
-                 v3d: Optional[V3D] = None):
+                 v3d: Optional[V3D] = None, coarsen: Optional[int] = None):
+    """coarsen: ids per hardware program, 1 ... ck.coarsen, for a kernel that
+    reads them from uniform coarsen0 (PITON_COARSEN_RUNTIME; default
+    launch_coarsen)."""
     v = v3d or V3D(num_qpus=num_qpus, strict=strict)
     words = ck.words
     sems = slot_semaphores(words)
@@ -150,9 +181,12 @@ def run_emulator(ck: CompiledKernel, grid, values: dict, num_qpus: int = 12, str
     zero = v.mem.alloc(64, 64)
     scratch = v.mem.alloc(64, 64)
     unifs = []
-    for pid, g in program_ids(grid, ck.coarsen):
+    k = launch_coarsen(ck, grid) if coarsen is None else coarsen
+    if k != ck.coarsen and not (("coarsen", "coarsen0") in ck.uniforms and 1 <= k <= ck.coarsen):
+        raise ValueError(f"{ck.name} runs {ck.coarsen} program ids per hardware program, not {k}")
+    for pid, g in program_ids(grid, k):
         a = v.mem.alloc(4 * max(len(ck.uniforms), 1), 16)
-        u = uniforms_for(ck, values, addrs, pid, g, zero, scratch, a)
+        u = uniforms_for(ck, values, addrs, pid, g, zero, scratch, a, k)
         if u:
             v.mem.write_words(a, np.array(u, dtype=np.uint32))
         unifs.append(a)
