@@ -10,6 +10,9 @@ Escaped pixels keep iterating and stop being counted. Once |z| > 2 (with
 inf and stays there: inf - inf gives the second operand and 0 * inf gives +0,
 so no NaN appears and x*x + y*y never drops back to 4 or below.
 
+PITON_MANDEL_FAST=1 (read when the kernel is compiled) builds `mandelbrot_fast`
+instead, which gives the same counts with less work; see its docstring.
+
     .venv/bin/python examples/mandelbrot.py            # render a preview in the emulator
 """
 import os
@@ -22,10 +25,123 @@ import piton as triton  # noqa: E402
 import piton.language as tl  # noqa: E402
 
 
+def fast_level() -> int:
+    """PITON_MANDEL_FAST: 0 (default) the plain kernel, 1 `mandelbrot_fast`.
+    Called inside the kernels, so it is read when they are compiled."""
+    value = os.environ.get("PITON_MANDEL_FAST", "0") or "0"
+    if value not in ("0", "1"):
+        raise ValueError(f"PITON_MANDEL_FAST={value!r}: expected 0 or 1")
+    return int(value)
+
+
+# Lanes whose c lies this far inside the main cardioid or the period-2 bulb
+# never escape (see known_inside).
+CARDIOID_SHRINK = 0.999
+BULB_RADIUS = 0.999 / 4
+BULB_R2_BITS = int(np.float32(BULB_RADIUS * BULB_RADIUS).view(np.int32))
+
+
+@triton.jit
+def known_inside(cx, cy):
+    """-1 where c is inside the main cardioid or the period-2 bulb, with a margin; else 0.
+
+    Around its cusp (1/4, 0) the main cardioid is rho <= (1 - cos theta) / 2;
+    shrunk toward the cusp by s = CARDIOID_SHRINK that is t = 2 rho^2 / s +
+    (x - 1/4) <= rho, i.e. t < 0 or t^2 < rho^2. The period-2 bulb is
+    |c + 1| < 1/4; the margins keep the multiplier of the attracting fixed
+    point (2-cycle) below ~0.999 away from the cusp. The squares are
+    non-negative floats, so they are compared as integers."""
+    xq = cx - 0.25
+    q = xq * xq + cy * cy
+    t = q * (2.0 / CARDIOID_SHRINK) + xq
+    cardioid = (t.to(tl.int32, bitcast=True) | ((t * t).to(tl.int32, bitcast=True) - q.to(tl.int32, bitcast=True))) >> 31
+    xb = cx + 1.0
+    bulb = ((xb * xb + cy * cy).to(tl.int32, bitcast=True) - BULB_R2_BITS) >> 31
+    return cardioid | bulb
+
+
+@triton.jit
+def fast_rows(out_ptr, palette_ptr, col, x0, y0, step, width, pitch, max_iter,
+              UNROLL: tl.constexpr, ROWS: tl.constexpr, TH: tl.constexpr, TW: tl.constexpr):
+    """mandelbrot_fast for the columns `col` (TW of them) of the program's ROWS rows."""
+    cx = tl.broadcast_to((x0 + col.to(tl.float32) * step)[None, :], [TH, TW])
+    for r in range(ROWS // TH):
+        row = tl.program_id(1) * ROWS + r * TH + tl.arange(0, TH)
+        cy = tl.broadcast_to((y0 + row.to(tl.float32) * step)[:, None], [TH, TW])
+        x = tl.zeros([TH, TW], tl.float32)
+        y = tl.zeros([TH, TW], tl.float32)
+        if TH * TW <= 32:
+            # INT_MIN: in the set, else 0. cy * 0.0 is +0 on the QPUs: it ties the
+            # test to the row, so its parts are not hoisted and kept live
+            misses = known_inside(cx + cy * 0.0, cy) << 31
+        else:
+            misses = tl.zeros([TH, TW], tl.int32)       # larger tiles would not fit the registers
+        done = 0
+        for chunk in range(max_iter // UNROLL):
+            if tl.max(misses) >= 0:                     # a lane is still undecided
+                for u in tl.static_range(UNROLL):
+                    xx = x * x
+                    yy = y * y
+                    xy = x * y
+                    x = xx - yy + cx
+                    y = xy * 2.0 + cy
+                    misses += (4.0 - (xx + yy)).to(tl.int32, bitcast=True) >> 31
+                done += UNROLL
+        # misses << 1 == 0: never escaped (0) or settled (INT_MIN); a settled lane would go negative if it escaped
+        color = tl.load(palette_ptr + tl.maximum(tl.where(misses << 1 == 0, 0, done + misses), 0))
+        tl.store(out_ptr + row[:, None] * pitch + col[None, :], color, mask=col[None, :] < width)
+
+
+@triton.jit
+def mandelbrot_fast(out_ptr, palette_ptr, x0, y0, step, width, pitch, max_iter,
+                    BLOCK: tl.constexpr, UNROLL: tl.constexpr, ROWS: tl.constexpr,
+                    TILE_H: tl.constexpr):
+    """`mandelbrot_kernel` with the same counts and less work (PITON_MANDEL_FAST=1).
+
+    A pixel's count does not depend on when its tile stops iterating, as long
+    as the tile runs until the pixel escaped, so:
+    - tiles are 2 x 16 pixels (two registers, a column block at a time) when
+      BLOCK and ROWS allow, whatever TILE_H says: a compact tile waits less for
+      its slowest pixel than a 1 x 32 one
+    - lanes that known_inside() puts in the set never escape, so they do not
+      keep a tile iterating, and a tile made only of them skips its iterations
+    - misses is 0 exactly while a lane has not escaped, so the exit check reads
+      misses (escaped is not carried); settled lanes start at INT_MIN and stay
+      there, which keeps them out of the check
+    - the check `tl.max(misses) >= 0` compiles to one flag-setting compare and
+      a branch on any lane (the compiler's `fast_branches`, same switch), and
+      the loop exits at the first failed check instead of testing every
+      remaining chunk.
+
+    Not done (modelled with the QPU's float operations on the 640 x 480
+    views at zoom 1-10,000):
+    - periodicity checks: exact when the bits of z repeat, but on these
+      views no tile would stop sooner
+    - Mariani-Silver rectangles: not exact for iteration bands, and the
+      border pass costs more than the fills save (27-40% more work from
+      zoom 10 on, 4% less at zoom 1)
+    - refilling finished lanes or registers with new pixels: 3-15% fewer
+      iterations, about what the bookkeeping would cost
+    - checking every UNROLL // 2 iterations: 28% less loop work at zoom 1,
+      3-5% more from zoom 10 on (twice the checks for 1-3% fewer iterations)."""
+    TW: tl.constexpr = 16 if BLOCK % 16 == 0 and ROWS % 2 == 0 else BLOCK
+    TH: tl.constexpr = 2 if BLOCK % 16 == 0 and ROWS % 2 == 0 else TILE_H
+    if TW == BLOCK:
+        fast_rows(out_ptr, palette_ptr, tl.program_id(0) * BLOCK + tl.arange(0, BLOCK), x0, y0, step,
+                  width, pitch, max_iter, UNROLL, ROWS, TH, TW)
+    else:
+        for cb in range(BLOCK // TW):
+            fast_rows(out_ptr, palette_ptr, tl.program_id(0) * BLOCK + cb * TW + tl.arange(0, TW), x0, y0, step,
+                      width, pitch, max_iter, UNROLL, ROWS, TH, TW)
+
+
 @triton.jit
 def mandelbrot_kernel(out_ptr, palette_ptr, x0, y0, step, width, pitch, max_iter,
                       BLOCK: tl.constexpr, UNROLL: tl.constexpr, ROWS: tl.constexpr,
                       TILE_H: tl.constexpr):
+    if fast_level() > 0:
+        mandelbrot_fast(out_ptr, palette_ptr, x0, y0, step, width, pitch, max_iter, BLOCK, UNROLL, ROWS, TILE_H)
+        return
     col = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
     cx = tl.broadcast_to((x0 + col.to(tl.float32) * step)[None, :], [TILE_H, BLOCK])
     # ROWS must divide the image height and be a multiple of TILE_H.
