@@ -1479,9 +1479,10 @@ class Lowering:
     def lane_cmp_operands(self, pred, a, b, j):
         """(PITON_ISSUE) x', y' for register j of a signed or equality compare of
         x = lane register + offset against a uniform y, with x' - y' == x - y
-        (mod 2**32, so the same flags): offset - (y - lane), where y - lane is
-        computed once per block (LICM hoists it), so the compare needs no add
-        per register. None where it does not apply."""
+        (mod 2**32, so the same flags): offset - (y - lane), or (lane - y) -
+        (-offset) for a constant offset (a small immediate up to 16), where
+        y - lane and lane - y are computed once per block (LICM hoists them),
+        so the compare needs no add per register. None where it does not apply."""
         if pred[0] == "u":
             return None
         for aff, uni, swap in ((a, b, False), (b, a, True)):
@@ -1491,14 +1492,20 @@ class Lowering:
             lr, off = self.affine_reg(aff, j)
             if lr is None or (off.is_const and off.const == 0):
                 x, y = (self.operand(off) if lr is None else lr), self.operand(u)
-            else:
-                key = ("lanecmp", lr.id, repr(u), self.cur.label)
+                return (y, x) if swap else (x, y)
+
+            def diff(p, q, name):
+                key = ("lanecmp", name, lr.id, repr(u), self.cur.label)
                 if key not in self.consts:
-                    ny = self.new("lc")
-                    self.op("sub", ny, self.operand(u), lr)
-                    self.consts[key] = ny
-                x, y = self.operand(off), self.consts[key]
-            return (y, x) if swap else (x, y)
+                    v = self.new("lc")
+                    self.op("sub", v, p, q)
+                    self.consts[key] = v
+                return self.consts[key]
+            if swap:
+                return diff(self.operand(u), lr, "u-l"), self.operand(off)          # (y - lane) - offset
+            if off.is_const:
+                return diff(lr, self.operand(u), "l-u"), self.operand(C(_wrap(-off.const)))
+            return self.operand(off), diff(self.operand(u), lr, "u-l")
         return None
 
     def set_flags(self, p: Pred, j: int) -> str:
