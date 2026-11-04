@@ -37,9 +37,9 @@ Status: `todo`, `wip`, `accepted <commit>`, `rejected (<why>)`.
 |---|---|---|
 | C1 | port-aware register allocation (file A / B / accumulator by likely pair) | accepted, on by default (`PITON_PORT_ALLOC=0` turns it off): mandel 1.22x / 1.27x, transpose 1.09x, softmax 1.04x |
 | C2 | remove allocator copies where both operands landed in one file | accepted with C1 (copies only where the plain allocation was not shorter) |
-| C3 | fill the 3 branch delay slots in loops (rerolled loops, Mandelbrot) | wip (batch 1, opt/c3-loop-slots, with C5) |
+| C3 | fill the 3 branch delay slots in loops (rerolled loops, Mandelbrot) | rejected: mandel 1.013x / 1.014x after C1, the rest within noise (branch int/c3-loop-slots, `PITON_LOOP_SLOTS`) |
 | C4 | software pipelining of loop bodies | todo |
-| C5 | unroll rerolled loops 2x when they still fit the icache | wip (with C3) |
+| C5 | unroll rerolled loops 2x when they still fit the icache | rejected with C3 |
 | C6 | unmasked full-block loads + one induction variable | todo |
 | C7 | MIR hoisting/CSE; pack ldtmu/ldunif signals onto ALU instructions | todo |
 | C8 | fill SFU latency with independent ops | todo |
@@ -69,7 +69,7 @@ G1 BLOCK / UNROLL / TILE_H / ROWS per kernel and Mandelbrot; G2 matmul tile swee
 compiler changes; G3 on/off matrix of all switches.
 
 ## H. Algorithms and kernels
-H1 fusion; H2 (wip, batch 2, opt/h2-mandel, with H4) Mandelbrot rectangle skipping, cardioid/bulb tests, periodicity; H3 reuse
+H1 fusion; H2 (accepted with H4, on by default, `PITON_MANDEL_FAST=0` restores the plain kernel: cardioid/bulb lanes, lane-flag exit checks, early loop exit; counts identical) Mandelbrot rectangle skipping, cardioid/bulb tests, periodicity; H3 reuse
 pixels when panning; H4 escape-check cadence, regroup live lanes; H5 opt-in u8/16-bit
 outputs; H6 matmul register blocking for more A reuse.
 
@@ -89,3 +89,5 @@ outputs; H6 matmul register blocking for more A reuse.
 | 2026-11-03 | G1 | BLOCK sweep with slots: exp 256 -> 1356 us, 512 1695, 1024 1676; sqrt 256 1175, 512 1725, 1024 1638. Blocks above 256 lose the slots (the rerolled store queue holds one 16-row slot, at most 4 chunks), so 256 stays best (`tune-2026-11-03-{exp,sqrt}-BLOCK-c1a1.json`) |
 | 2026-11-03 | C10 | branch-free exact division (`//` and `%` share one estimate, constant divisors take shortcuts), on top of C1 + A1: idiv 7836 -> 2824 us (2.775x), dense_relu 4989 -> 4354 (1.146x), matmul_8x64x8 1.048x, matmul_8x64x4 1.028x, transpose 1.024x, nothing else changes; host tests both ways (684), test_hw 11/11 (`ab-2026-11-03-fast_idiv.json`) |
 | 2026-11-03 | E1 | coarsening on top of C1 + A1 + C10. First rule (k=4 for any short id) rejected: add 1.214x, mul 1.242x, fma 1.292x, dense_relu 1.119x but recip 0.975x, rsqrt 0.966x, sqrt 0.979x, idiv 0.940x (256 programs leave an uneven last round on 12 QPUs; `ab-2026-11-03-persistent-k4-rejected.json`). Coarsening only kernels that move >= 4 bytes per executed instruction (compute bound: 1.9-2.7, memory bound: 7.7-8.9): add 1649 -> 1367 us (1.206x), mul 1.236x, fma 1800 -> 1378 (1.306x), dense_relu 4331 -> 3926 (1.103x), every other case the same code or within 1%; host tests both ways (789), test_hw 11/11 with the switch on and with k forced to 4 (`ab-2026-11-03-persistent.json`) |
+| 2026-11-03 | H2/H4 | fast Mandelbrot level 1 on top of C1 + A1 + C10 + E1: mandel_32x16 34872 -> 28141 us (1.239x), mandel_16x16x2 32531 -> 27989 (1.162x), counts identical to the plain kernel; test_hw 11/11; HDMI demo `--bench-only` on the Pi: every configuration exact, zoom 10000 frame 65.5 ms (92.8 ms on 11-02), 62-177x the ARM (`ab-2026-11-03-mandel_fast.json`, `benchmarks/results/mandelbrot-pi-2026-11-03-fast.log`) |
+| 2026-11-03 | C3/C5 | loop delay slots + 2x unroll on top of C1 + A1 + C10 + E1: rejected, mandel 1.013x / 1.014x, everything else within +-1% (`ab-2026-11-03-loop_slots-rejected.json`); C1's allocation already shortened the loops it targeted |

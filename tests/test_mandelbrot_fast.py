@@ -212,7 +212,7 @@ def test_switch_values(monkeypatch):
             monkeypatch.setenv("PITON_MANDEL_FAST", value)
         words[value] = compiler.compile(mandelbrot.mandelbrot_kernel, mandelbrot.SIGNATURE,
                                         dict(BLOCK=32, UNROLL=8, ROWS=8, TILE_H=1), grid=(2, 2)).words
-    assert words[""] == words[None] == words["0"] != words["1"]
+    assert words[""] == words["0"] != words["1"] == words[None]
     monkeypatch.setenv("PITON_MANDEL_FAST", "")
     assert mandelbrot.fast_level() == 0
     monkeypatch.setenv("PITON_MANDEL_FAST", "1")

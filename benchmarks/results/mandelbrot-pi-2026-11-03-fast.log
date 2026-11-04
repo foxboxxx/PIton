@@ -1,0 +1,19 @@
+MANDEL_CLOCK name=arm mhz=700
+MANDEL_CLOCK name=core mhz=250
+MANDEL_CLOCK name=v3d mhz=250
+MANDEL_CLOCK name=sdram mhz=400
+MANDEL_FB bus=0x4e9a2000 pitch=2560
+MANDEL_EXACT kernel=32x16 pixels=512 iters=256 mismatched=0
+MANDEL_BENCH kernel=32x16 zoom=1 iters=64 best_us=5770 fps=173
+MANDEL_BENCH kernel=32x16 zoom=100 iters=256 best_us=20450 fps=48
+MANDEL_BENCH kernel=32x16 zoom=10000 iters=480 best_us=65726 fps=15
+MANDEL_EXACT kernel=16x16x2 pixels=512 iters=256 mismatched=0
+MANDEL_BENCH kernel=16x16x2 zoom=1 iters=64 best_us=5795 fps=172
+MANDEL_BENCH kernel=16x16x2 zoom=100 iters=256 best_us=20250 fps=49
+MANDEL_BENCH kernel=16x16x2 zoom=10000 iters=480 best_us=65463 fps=15
+MANDEL_BEST kernel=16x16x2
+MANDEL_ARM zoom=1 iters=64 arm_us=400928 gpu_us=5817 speedup=68.923500 pixels_differing=92 of 307200
+MANDEL_ARM zoom=100 iters=256 arm_us=3587810 gpu_us=20260 speedup=177.088348 pixels_differing=8084 of 307200
+MANDEL_ARM zoom=10000 iters=480 arm_us=4083565 gpu_us=65463 speedup=62.379741 pixels_differing=124694 of 307200
+MANDEL_CHECK_OK
+PITON_DONE

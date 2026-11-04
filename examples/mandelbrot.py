@@ -26,9 +26,9 @@ import piton.language as tl  # noqa: E402
 
 
 def fast_level() -> int:
-    """PITON_MANDEL_FAST: 0 (default) the plain kernel, 1 `mandelbrot_fast`.
-    Called inside the kernels, so it is read when they are compiled."""
-    value = os.environ.get("PITON_MANDEL_FAST", "0") or "0"
+    """PITON_MANDEL_FAST: 1 (default) `mandelbrot_fast`, 0 or empty the plain
+    kernel. Called inside the kernels, so it is read when they are compiled."""
+    value = os.environ.get("PITON_MANDEL_FAST", "1") or "0"
     if value not in ("0", "1"):
         raise ValueError(f"PITON_MANDEL_FAST={value!r}: expected 0 or 1")
     return int(value)

@@ -342,7 +342,7 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
     options = {"num_stages": num_stages, "store_mutex": store_mutex,
                # stores through shared 16-row VPM slots (backend/lower.py); PITON_STORE_SLOTS=0: private rows
                "store_slots": os.environ.get("PITON_STORE_SLOTS", "1") not in ("", "0")}
-    if os.environ.get("PITON_MANDEL_FAST", "0") not in ("", "0"):
+    if os.environ.get("PITON_MANDEL_FAST", "1") not in ("", "0"):
         # `if tl.max(x) > c` branches on the lanes of x, and a loop guarded by
         # such an if exits when it fails (examples/mandelbrot.py)
         options["fast_branches"] = True
