@@ -347,6 +347,23 @@ def test_b_row_stride_by_iteration(monkeypatch, bm, bn, bk, mm, runtime):
     assert ck.stats["mm_dots"] == 1
 
 
+def test_build_does_not_depend_on_object_addresses(monkeypatch):
+    """The permutation of A's dense pointer part (rows `% M`) in the loop's
+    preheader orders its moves by register creation, not by id(): the Pi
+    runs the build the emulator checked.  (Sorted by address, the matmul_pi
+    512^3 build varied by several instructions from run to run.)"""
+    import builtins
+    cons = dict(K=512, stride_ak=1, stride_bn=1, stride_cn=1,
+                BLOCK_SIZE_M=8, BLOCK_SIZE_N=64, BLOCK_SIZE_K=8, GROUP_SIZE_M=4)
+    words = []
+    for order in (1, -1):
+        monkeypatch.setattr(lower, "id", lambda o, order=order: order * builtins.id(o), raising=False)
+        ck = _build(monkeypatch, "1", matmul_kernel, MATMUL_SIG, cons, (512,))
+        assert ck.stats["mm_a_blocks"] == 1
+        words.append(list(ck.words))
+    assert words[0] == words[1]
+
+
 @pytest.mark.skipif(find_vc4asm() is None, reason="vc4asm not installed")
 @pytest.mark.parametrize("name", ["matmul_8x64x8", "dense_relu"])
 def test_qasm_assembles_to_our_bits(monkeypatch, name):

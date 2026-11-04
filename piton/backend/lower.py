@@ -1529,11 +1529,13 @@ class Lowering:
         self.op("shl", isa.NOP, self.const_reg(k), isa.ELEM_NUM, setf=True, unit="add")
         return "ifn"
 
-    def permute(self, srcs, shape, dtype) -> Dense:
+    def permute(self, srcs, shape, dtype, stable=False) -> Dense:
         """Gather a tile: element f of the result is lane srcs[f][1] of register
         srcs[f][0] (None: don't care).  Each output register is built from
         rotated source registers with masked moves, so only the source and
-        result registers are live (to_scal would hold one register per element)."""
+        result registers are live (to_scal would hold one register per element).
+        stable: order the moves by the source registers' creation, not their
+        addresses, so the build is the same in every run (PITON_MM)."""
         is_float = dtype is not None and dtype.is_float
         n = numel(shape)
         regs = []
@@ -1558,7 +1560,11 @@ class Lowering:
                 regs.append(self.lane_broadcast(r, l))
                 continue
             # group by source register so its accumulator copy is short-lived
-            order = sorted(groups.items(), key=lambda kv: (kv[0][0], -len(kv[1][1])))
+            if stable:
+                order = sorted(groups.items(), key=lambda kv: (
+                    kv[1][0].id if isinstance(kv[1][0], VReg) else kv[0][0], -len(kv[1][1])))
+            else:
+                order = sorted(groups.items(), key=lambda kv: (kv[0][0], -len(kv[1][1])))
             first = max(range(len(order)), key=lambda i: len(order[i][1][1]))
             order = [order[first]] + order[:first] + order[first + 1:]
             dst = self.new("pm", is_float)
@@ -1580,7 +1586,7 @@ class Lowering:
             regs.append(dst)
         return Dense(shape, dtype, regs)
 
-    def permute_dense(self, d: Dense, shape, src_of) -> Dense:
+    def permute_dense(self, d: Dense, shape, src_of, stable=False) -> Dense:
         """permute() with sources given as flat element indices of d."""
         srcs = []
         for g in src_of:
@@ -1589,7 +1595,7 @@ class Lowering:
                 continue
             j, l = divmod(g, LANES)
             srcs.append((self.reg_of(d, j), l))
-        return self.permute(srcs, shape, d.dtype)
+        return self.permute(srcs, shape, d.dtype, stable)
 
     def row_reg(self, d: Dense, r: int, n: int) -> VReg:
         """Register holding row r of a [*, n] tile (n < 16) in lanes 0..n-1."""
@@ -4603,7 +4609,8 @@ class LoopStream:
                         m, k, w = plan.M, plan.K, plan.w
                         self.tdense[key] = lw.permute_dense(ptr.dense, (k // w, m, w),
                                                             [i * k + t * w + j for t in range(k // w)
-                                                             for i in range(m) for j in range(w)])
+                                                             for i in range(m) for j in range(w)],
+                                                            stable=True)
             elif nregs(ld.result.shape) <= 2:
                 plan = MMPlan(plan.dot, plan.a_load, plan.b_load, plan.M, plan.K, plan.NV, 0)
             else:
