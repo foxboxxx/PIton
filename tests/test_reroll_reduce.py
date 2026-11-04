@@ -852,3 +852,20 @@ def test_slot_fallback_keeps_the_rewrite(monkeypatch):
     np.testing.assert_allclose(out[:, :250], softmax_ref(x, 250), rtol=2e-5, atol=1e-8)
     ck = build(monkeypatch, transpose_kernel, TRANSPOSE, {"BLOCK_M": 16, "BLOCK_N": 16}, (9,))
     assert "load_operand" in ck.asm["ttir_opt"] and not ck.stats.get("store_slots")
+
+
+@pytest.mark.parametrize("name", ["softmax", "transpose"])
+def test_suite_pi_builds_assemble_with_vc4asm(monkeypatch, name):
+    """The Pi-size binaries the switch changes (store slots and port-aware
+    allocation on): vc4asm assembles the .qasm to the same words and its
+    verifier (-V) reports nothing; the slot protocol holds on every path."""
+    from perf.suite import CASES_BY_NAME, compile_case
+    from piton.qpu.asm import find_vc4asm, vc4asm_assemble
+    monkeypatch.setenv("PITON_REROLL_REDUCE", "1")
+    ck, _ = compile_case(CASES_BY_NAME[name], "pi")
+    assert ck.stats.get("store_slots") == 1 and protocol_errors(ck.program) == []
+    if find_vc4asm() is None:
+        pytest.skip("vc4asm not installed")
+    words, warnings = vc4asm_assemble(ck.asm["qasm"], verify=True)
+    assert words == [int(w) for w in ck.words]
+    assert not warnings, warnings[:5]
