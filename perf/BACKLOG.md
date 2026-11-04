@@ -71,7 +71,13 @@ compiler changes; G3 on/off matrix of all switches.
 ## H. Algorithms and kernels
 H1 fusion; H2 (accepted with H4, on by default, `PITON_MANDEL_FAST=0` restores the plain kernel: cardioid/bulb lanes, lane-flag exit checks, early loop exit; counts identical) Mandelbrot rectangle skipping, cardioid/bulb tests, periodicity; H3 reuse
 pixels when panning; H4 escape-check cadence, regroup live lanes; H5 opt-in u8/16-bit
-outputs; H6 matmul register blocking for more A reuse.
+outputs; H6 matmul register blocking for more A reuse (wip, opt/h6-mm-block, `PITON_MM=1`,
+off by default: the dot's k loop receives in use order, A as column blocks in two
+accumulators, B row pointers in an accumulator; emulator: k loop 8x64x8 385 -> 354
+instructions, 8x64x4 194 -> 186, dense_relu 219 -> 206, the same TMU requests; bit for bit
+the plain dot's results. A needs two registers instead of four, so 16x32x4 and 8x64x4
+digits dense tiles allocate (12 / 18 TMU requests per 128 MACs instead of 34); untested
+on the Pi).
 
 ## Log
 | date | item | result |
