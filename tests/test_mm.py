@@ -278,6 +278,39 @@ def test_ragged_matmul_kernel_grid(monkeypatch):
     assert ck.stats["mm_a_blocks"] == 1
 
 
+@pytest.mark.parametrize("bk", [4, 8])
+def test_coarsened_matmul(monkeypatch, bk):
+    """PITON_PERSISTENT coarsening of the tutorial matmul (two ids per
+    hardware program, the k loop and its prologue once per id).  8x64x4:
+    both builds coarsened, bit for bit.  8x64x8 at K = 128 (as matmul_pi's
+    512^3 and 1024^3 builds): no coarsened plain build allocates, so
+    compile() keeps one id per program; the coarsened MM build allocates or
+    not depending on the allocator's set order, and either gives the
+    uncoarsened MM build's results."""
+    n, kk = 64, 128
+    rng = np.random.default_rng(165)
+    a = rng.integers(-3, 4, (n, kk)).astype(np.float32)
+    b = rng.integers(-3, 4, (kk, n)).astype(np.float32)
+    cons = dict(K=kk, stride_ak=1, stride_bn=1, stride_cn=1, BLOCK_SIZE_M=8, BLOCK_SIZE_N=64,
+                BLOCK_SIZE_K=bk, GROUP_SIZE_M=4)
+    values = dict(a_ptr=a, b_ptr=b, c_ptr=np.full((n, n), np.nan, np.float32), M=n, N=n, stride_am=kk,
+                  stride_bk=n, stride_cm=n)
+    grid = ((n // 8) * (n // 64),)
+    monkeypatch.setenv("PITON_PERSISTENT", "0")
+    plain = _run(_build(monkeypatch, "1", matmul_kernel, MATMUL_SIG, cons, grid), grid, values)
+    monkeypatch.setenv("PITON_PERSISTENT", "2")
+    if bk == 4:
+        out, ck = _off_and_on(monkeypatch, "1", matmul_kernel, MATMUL_SIG, cons, grid, values, ["c_ptr"])
+        assert ck.coarsen == 2
+    else:
+        assert _build(monkeypatch, None, matmul_kernel, MATMUL_SIG, cons, grid).coarsen == 1
+        ck = _build(monkeypatch, "1", matmul_kernel, MATMUL_SIG, cons, grid)
+        out = _run(ck, grid, values)
+    assert ck.stats["mm_dots"] == 1
+    np.testing.assert_array_equal(out["c_ptr"].view(np.uint32), plain["c_ptr"].view(np.uint32))
+    np.testing.assert_array_equal(out["c_ptr"], a @ b)
+
+
 @pytest.mark.parametrize("batch", [1, 5, 32])
 def test_dense_layers(monkeypatch, batch):
     """The digits dense layers' tiles (examples/nn_kernels.py dense_tiles),
