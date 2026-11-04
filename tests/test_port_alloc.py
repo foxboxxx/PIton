@@ -12,10 +12,12 @@ ROOT = os.path.join(os.path.dirname(__file__), "..")
 sys.path.insert(0, os.path.join(ROOT, "examples"))
 sys.path.insert(0, ROOT)
 import piton  # noqa: E402
+import piton.language as tl  # noqa: E402
 from piton import compiler  # noqa: E402
 from piton.backend import regalloc  # noqa: E402
 from piton.backend.mir import MOp, VReg  # noqa: E402
 from piton.qpu import isa  # noqa: E402
+from piton.qpu.asm import find_vc4asm, vc4asm_assemble  # noqa: E402
 from piton.qpu.emulator import V3D  # noqa: E402
 from piton.runtime.launcher import Launcher, run_emulator  # noqa: E402
 import kernels as K  # noqa: E402
@@ -260,3 +262,119 @@ def test_compute_peak_one_program(port_alloc):
     run_emulator(ck, (1,), {"x_ptr": x, "out_ptr": out})
     ref = 9999.0 + (x.astype(np.float64) - 9999.0) * 0.9999 ** (3 * 16)
     np.testing.assert_allclose(out, ref, rtol=5e-3)
+
+
+# ---------------------------------------------------------------------------
+# Adversarial kernels: the port-aware build must compute exactly what the
+# plain build computes (register choices never change arithmetic)
+# ---------------------------------------------------------------------------
+
+
+@piton.jit
+def _nested_k(x_ptr, out_ptr, n, a, b, c, d, m_outer, m_inner, BLOCK: tl.constexpr):
+    """Nested runtime loops: loop invariants (uniforms, immediates) read at
+    depths 1 and 2, loop-carried values, a select."""
+    offs = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    mask = offs < n
+    x = tl.load(x_ptr + offs, mask=mask, other=0.0)
+    acc = tl.zeros([BLOCK], tl.float32)
+    t = x
+    for i in range(m_outer):
+        s = t * a + b
+        for j in range(m_inner):
+            s = s * c + d
+            s = tl.where(s > 3.0, s - 2.5, s)
+            acc += s * 0.5
+        t = t + 1.0
+    tl.store(out_ptr + offs, acc, mask=mask)
+
+
+@piton.jit
+def _intops_k(x_ptr, y_ptr, out_ptr, n, k, sh, BLOCK: tl.constexpr):
+    """Integer shifts, bit ops, compares and selects with small immediates."""
+    offs = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    mask = offs < n
+    x = tl.load(x_ptr + offs, mask=mask, other=0)
+    y = tl.load(y_ptr + offs, mask=mask, other=-1)
+    r = (x ^ y) + (x >> 3) - (y << 2)
+    r = tl.where(x < y, r, -r)
+    r = tl.maximum(tl.minimum(r, x), y & 127)
+    for i in range(k):
+        r = r + (r >> sh) - (x | 5)
+        r = tl.where(r > y, r - y, r + 7)
+        r = r ^ (y >> 1)
+    tl.store(out_ptr + offs, r, mask=mask)
+
+
+@piton.jit
+def _floats_k(x_ptr, out_ptr, n, k, BLOCK: tl.constexpr):
+    """inf, NaN, -0.0 and denormal inputs through compares, min/max and reductions."""
+    offs = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    mask = offs < n
+    x = tl.load(x_ptr + offs, mask=mask, other=0.0)
+    m = tl.max(tl.where(mask, x, -1e30), axis=0)
+    acc = x
+    for i in range(k):
+        acc = tl.where(acc != acc, 0.0, acc)
+        acc = tl.maximum(tl.minimum(acc * 1.5 - m, 1e30), -1e30) + x * 0.0
+    tl.store(out_ptr + offs, acc + tl.sum(tl.where(mask, x, 0.0), axis=0), mask=mask)
+
+
+def _nested_case(n, block):
+    x = rng.standard_normal(n).astype(np.float32)
+    sig = {"x_ptr": "*fp32", "out_ptr": "*fp32", "n": "i32", "a": "fp32", "b": "fp32", "c": "fp32",
+           "d": "fp32", "m_outer": "i32", "m_inner": "i32"}
+    return _nested_k, sig, {"BLOCK": block}, dict(x_ptr=x, out_ptr=np.full(n, np.nan, np.float32), n=n,
+                                                  a=0.75, b=0.1, c=0.9, d=0.3, m_outer=3, m_inner=4)
+
+
+def _intops_case(n, block):
+    x = rng.integers(-2 ** 31, 2 ** 31 - 1, n, dtype=np.int64).astype(np.int32)
+    y = rng.integers(-2 ** 31, 2 ** 31 - 1, n, dtype=np.int64).astype(np.int32)
+    x[:4] = [-2 ** 31, 2 ** 31 - 1, 0, -1]
+    y[:4] = [2 ** 31 - 1, -2 ** 31, -1, 0]
+    sig = {"x_ptr": "*i32", "y_ptr": "*i32", "out_ptr": "*i32", "n": "i32", "k": "i32", "sh": "i32"}
+    return _intops_k, sig, {"BLOCK": block}, dict(x_ptr=x, y_ptr=y, out_ptr=np.zeros(n, np.int32), n=n,
+                                                  k=5, sh=3)
+
+
+def _floats_case(n, block):
+    x = rng.standard_normal(n).astype(np.float32)
+    x[:5] = [np.inf, -np.inf, np.nan, -0.0, 1e-40]
+    sig = {"x_ptr": "*fp32", "out_ptr": "*fp32", "n": "i32", "k": "i32"}
+    return _floats_k, sig, {"BLOCK": block}, dict(x_ptr=x, out_ptr=np.full(n, np.nan, np.float32), n=n, k=3)
+
+
+@pytest.mark.parametrize("make,n,block", [(_nested_case, 197, 64), (_nested_case, 5, 16),
+                                          (_intops_case, 197, 64), (_intops_case, 21, 16),
+                                          (_floats_case, 53, 16), (_floats_case, 100, 64)])
+def test_outputs_bit_identical_to_the_plain_allocation(monkeypatch, make, n, block):
+    kernel, sig, cons, vals = make(n, block)
+    grid = (piton.cdiv(n, block),)
+    bound = tuple(1 << max(0, int(g) - 1).bit_length() for g in grid)
+    out = {}
+    for env in ("0", "1"):
+        monkeypatch.setenv("PITON_PORT_ALLOC", env)
+        ck = compiler.compile(kernel, sig, cons, grid=bound)
+        v = {k: (x.copy() if isinstance(x, np.ndarray) else x) for k, x in vals.items()}
+        run_emulator(ck, grid, v)
+        out[env] = (ck, v)
+    (plain, v0), (port, v1) = out["0"], out["1"]
+    assert port.stats["port_alloc"] > 0 and list(port.words) != list(plain.words)
+    assert port.uniforms == plain.uniforms
+    for name, val in vals.items():
+        if isinstance(val, np.ndarray):
+            np.testing.assert_array_equal(v1[name].view(np.uint32), v0[name].view(np.uint32), err_msg=name)
+
+
+@pytest.mark.skipif(find_vc4asm() is None, reason="vc4asm not installed")
+@pytest.mark.parametrize("name", ["exp", "idiv", "softmax", "mandel_16x16x2", "matmul_8x64x8"])
+def test_port_aware_pi_builds_assemble_with_vc4asm(monkeypatch, name):
+    """The Pi-size binaries: vc4asm assembles our .qasm to the same words and
+    its verifier (-V) reports nothing."""
+    monkeypatch.setenv("PITON_PORT_ALLOC", "1")
+    ck, _ = compile_case(CASES_BY_NAME[name], "pi")
+    assert ck.stats["port_alloc"] > 0
+    words, warnings = vc4asm_assemble(ck.asm["qasm"], verify=True)
+    assert words == [int(w) for w in ck.words]
+    assert not warnings, warnings[:5]
