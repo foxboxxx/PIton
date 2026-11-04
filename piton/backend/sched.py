@@ -643,6 +643,9 @@ def _list_schedule(nodes, missed, weight, swap=False, balance=0):
             progress = False
             cands = sorted((n for n in ready if earliest[n.idx] <= cycle and n.idx not in refused), key=key)
             for n in cands:
+                if pair and (bundle.kind != "alu" or n.alu_ops and bundle.add is not None and bundle.mul is not None):
+                    refused.add(n.idx)          # (no ALU left for it: what try_add would find)
+                    continue
                 if bundle.try_add(n):
                     n.cycle = cycle
                     ready.remove(n)
