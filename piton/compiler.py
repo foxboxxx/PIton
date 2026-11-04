@@ -222,10 +222,12 @@ COARSEN_MAX_LONG = 2
 COARSEN_SHORT = 1500
 
 
-def _id_length(tile, prog: Program) -> Optional[int]:
-    """Instructions one program id executes at most: the program length times
-    the trip count of every loop (None when a loop runs a run-time count)."""
-    n = len(prog.instrs)
+def _id_length(tile, prog: Program, mf) -> Optional[int]:
+    """Instructions one program id executes at most: code outside loops once,
+    code inside them times the trip count of every loop (None when a loop runs
+    a run-time count). (With store slots the store after a rerolled loop, with
+    its four slot copies of acquire and release, is ~40% of the program.)"""
+    trips = 1
     for op in tile.walk():
         if op.name != "scf.for":
             continue
@@ -233,7 +235,14 @@ def _id_length(tile, prog: Program) -> Optional[int]:
                         for v in op.operands[:3])
         if lb is None or ub is None or not step or step < 0:
             return None
-        n *= max(1, -(-(ub - lb) // step))
+        trips *= max(1, -(-(ub - lb) // step))
+    depth = {b.label: b.loop_depth for b in mf.blocks}
+    starts = sorted((idx, label) for label, idx in prog.labels.items())
+    bounds = [idx for idx, _ in starts] + [len(prog.instrs)]
+    n, current = bounds[0], 0               # code before the first label: depth 0
+    for (idx, label), end in zip(starts, bounds[1:]):
+        current = depth.get(label, current)
+        n += (end - idx) * (trips if current else 1)
     return n
 
 
@@ -315,7 +324,7 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
     # them. (With slots every store waits for its DMAs before it releases the
     # slot, so only the start is saved; the private rows' last DMA of an id
     # still runs on into the next.)
-    coarsen = _coarsening(tile, pid_max, lambda: _id_length(tile, prog))
+    coarsen = _coarsening(tile, pid_max, lambda: _id_length(tile, prog, mf))
     if coarsen > 1:
         best = None
         for hoist in (True, False):

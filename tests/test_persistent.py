@@ -22,7 +22,7 @@ from piton.backend.regalloc import RegAllocError
 from piton.qpu import isa
 from piton.qpu.emulator import V3D, HazardError
 from piton.qpu.isa import f2u
-from piton.runtime.launcher import program_ids, run_emulator, uniforms_for
+from piton.runtime.launcher import program_ids, run_emulator, semaphore_programs, slot_semaphores, uniforms_for
 from piton.tools.compile import emit_c
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "examples"))
@@ -280,9 +280,12 @@ def _waits_after_last_kick(ck, block_prefix) -> int:
 
 
 @pytest.mark.parametrize("kernel,cons", [(sfu_kernel, {"OP": 4, "BLOCK": 256}), (copy_kernel, {"BLOCK": 64})])
-def test_last_store_overlaps_the_next_id(persistent, kernel, cons):
+def test_last_store_overlaps_the_next_id(persistent, monkeypatch, kernel, cons):
     """Rerolled (exp) and straight-line versioned (copy) bodies: no wait for the
-    previous id's DMA before the next id's loads."""
+    previous id's DMA before the next id's loads. Private VPM rows only: a store
+    through a slot waits for its DMA before it releases the slot
+    (tests/test_persistent_slots.py)."""
+    monkeypatch.setenv("PITON_STORE_SLOTS", "0")      # (copy at BLOCK 64 has no slot stores anyway)
     n = 16 * cons["BLOCK"]
     x = rng.uniform(-8, 8, n).astype(np.float32)
     ck, got, _, _ = _same_as_plain(persistent, 4, kernel, COPY_SIG, cons, (16,),
@@ -339,6 +342,10 @@ ROW_SIG = {"x_ptr": "*fp32", "out_ptr": "*fp32", "n_cols": "i32", "stride": "i32
     ("1", add_kernel, ADD_SIG, {"BLOCK_SIZE": 16}, (255,), 1),
     ("1", add_kernel, ADD_SIG, {"BLOCK_SIZE": 16}, None, 1),
     ("1", add_kernel, ADD_SIG, {"BLOCK_SIZE": 16}, (1024, 2), 1),
+    # store slots (1 KiB DMAs; rerolled exp stores its queue after the loop): ids as short as without
+    ("1", copy_kernel, COPY_SIG, {"BLOCK": 256}, (1024,), 4),
+    ("1", sfu_kernel, COPY_SIG, {"OP": 4, "BLOCK": 256}, (1024,), 4),
+    ("1", sfu_kernel, COPY_SIG, {"OP": 4, "BLOCK": 256}, (256,), 2),
     # long program ids (exact division: ~6000 instructions) and run-time loops: at most 2
     ("1", idiv_kernel, IDIV_SIG, {"BLOCK": 256}, (1024,), 2),
     ("1", row_sum_kernel, ROW_SIG, {"BLOCK_M": 4, "BLOCK_N": 64}, (1024,), 2),
@@ -354,20 +361,32 @@ def test_factor(persistent, value, kernel, sig, cons, grid, k):
     assert compiler.compile(kernel, sig, cons, grid=grid).coarsen == k
 
 
-def test_id_length(persistent):
-    """Per-id instruction estimate: straight-line length, times constant trip
-    counts (the reroll chunk loop), unknown for run-time loops."""
-    from piton import frontend
+@pytest.mark.parametrize("slots", ["0", "1"])
+def test_id_length(persistent, monkeypatch, slots):
+    """Per-id instruction estimate: code outside loops once, loop bodies times
+    their constant trip counts (the reroll chunk loop), unknown for run-time
+    loops. It bounds what an id executes from above, and closely: with store
+    slots the queued store after the rerolled loop (four slot copies of acquire
+    and release, both store versions) is ~40% of the program, and multiplying it
+    by the 4 chunks too took exp past COARSEN_SHORT (k 2 instead of 4)."""
+    monkeypatch.setenv("PITON_STORE_SLOTS", slots)
     persistent(None)
-    sig = {"x_ptr": "*fp32", "out_ptr": "*fp32", "n": "i32"}
-    ck = compiler.compile(sfu_kernel, sig, {"OP": 4, "BLOCK": 256})
-    assert ck.stats["rerolled"] == 64
-    tile = frontend.generate(sfu_kernel.fn, sig, {"OP": 4, "BLOCK": 256})
-    from piton import reroll
-    reroll.run(tile, 64)
-    assert compiler._id_length(tile, ck.program) == 4 * len(ck.program.instrs)
-    tile = frontend.generate(row_sum_kernel.fn, ROW_SIG, {"BLOCK_M": 4, "BLOCK_N": 64})
-    assert compiler._id_length(tile, ck.program) is None
+    seen = []
+    real = compiler._coarsening
+
+    def spy(tile, pid_max, id_length):
+        seen.append(id_length())
+        return real(tile, pid_max, id_length)
+    monkeypatch.setattr(compiler, "_coarsening", spy)
+    ck = compiler.compile(sfu_kernel, COPY_SIG, {"OP": 4, "BLOCK": 256}, grid=(16,))
+    assert ck.stats["rerolled"] == 64 and bool(ck.stats.get("store_slots")) == (slots == "1")
+    n = 16 * 256 - 40
+    _, stats = _run(ck, (16,), {"x_ptr": rng.uniform(-8, 8, n).astype(np.float32),
+                                "out_ptr": np.zeros(n, np.float32), "n": n})
+    per_id = stats["instructions"] / 16
+    assert per_id <= seen[-1] <= 1.25 * per_id < compiler.COARSEN_SHORT
+    compiler.compile(row_sum_kernel, ROW_SIG, {"BLOCK_M": 4, "BLOCK_N": 64}, grid=(64,))
+    assert seen[-1] is None
 
 
 def test_kernels_without_program_ids_are_left_alone(persistent):
@@ -646,6 +665,10 @@ uint32_t piton_launch(uint32_t code, const uint32_t *unifs, uint32_t n) {
     }
     return 0;
 }
+uint32_t piton_launch_slots(uint32_t code, const uint32_t *unifs, uint32_t n, uint32_t init, uint32_t fini) {
+    printf("SLOTS %u %u\n", init - code, fini - code);
+    return piton_launch(code, unifs, n);
+}
 """
 
 
@@ -655,11 +678,15 @@ uint32_t piton_launch(uint32_t code, const uint32_t *unifs, uint32_t n) {
      [(13, 1, 1), (64, 1, 1), (1, 1, 1)], 4),
     (ids_kernel, {"out_ptr": "*i32", "flag_ptr": "*i32"}, {"ROUNDS": 2}, {"out_ptr": 0x1000, "flag_ptr": 0x2000},
      [(10, 3, 1), (7, 2, 2)], 3),
+    (copy_kernel, COPY_SIG, {"BLOCK": 256}, {"x_ptr": 0x1000, "out_ptr": 0x9000, "n": 2000},
+     [(9, 1, 1), (2, 1, 1)], 4),                 # store slots: piton_launch_slots
 ])
 def test_generated_c_launcher(persistent, monkeypatch, tmp_path, kernel, sig, cons, args, grids, k):
     """tools/compile.py's C launcher writes the same uniforms as the Python
     launch paths (program_ids + uniforms_for): ceil(gx / k) programs, pid0 =
-    the hardware program, nprog0 = gx. Run with both uniform protocols."""
+    the hardware program, nprog0 = gx. Run with both uniform protocols. A
+    kernel with store slots goes through piton_launch_slots, whose init / fini
+    programs follow the kernel's code."""
     cc = shutil.which("cc")
     if cc is None:
         pytest.skip("host C compiler is unavailable")
@@ -687,6 +714,14 @@ def test_generated_c_launcher(persistent, monkeypatch, tmp_path, kernel, sig, co
         values = {n: (f2u(v) if isinstance(v, float) else v) for n, v in args.items()}
         launches = [i for i, ln in enumerate(log) if ln.startswith("LAUNCH")]
         assert len(launches) == len(grids)
+        sems = slot_semaphores(ck.words)
+        assert bool(sems) == (kernel is copy_kernel)
+        slot_lines = [ln for ln in log if ln.startswith("SLOTS")]
+        if sems:
+            init, _ = semaphore_programs(sems)
+            assert slot_lines == [f"SLOTS {8 * len(ck.words)} {8 * (len(ck.words) + len(init))}"] * len(grids)
+        else:
+            assert not slot_lines
         for grid, at in zip(grids, launches):
             ids = list(program_ids(grid, ck.coarsen))
             assert int(log[at].split()[1]) == len(ids) == -(-grid[0] // k) * grid[1] * grid[2]
