@@ -361,9 +361,9 @@ def test_coarsened_matmul(monkeypatch, bk):
     hardware program, the k loop and its prologue once per id).  8x64x4:
     both builds coarsened, bit for bit.  8x64x8 at K = 128 (as matmul_pi's
     512^3 and 1024^3 builds): no coarsened plain build allocates, so
-    compile() keeps one id per program; the coarsened MM build allocates or
-    not depending on the allocator's set order, and either gives the
-    uncoarsened MM build's results."""
+    compile() keeps one id per program, and so does the MM build, whose
+    coarsened version can allocate (compiler._build: the switch does not
+    change the ids per hardware program)."""
     n, kk = 64, 128
     rng = np.random.default_rng(165)
     a = rng.integers(-3, 4, (n, kk)).astype(np.float32)
@@ -380,9 +380,9 @@ def test_coarsened_matmul(monkeypatch, bk):
         out, ck = _off_and_on(monkeypatch, "1", matmul_kernel, MATMUL_SIG, cons, grid, values, ["c_ptr"])
         assert ck.coarsen == 2
     else:
+        out, ck = _off_and_on(monkeypatch, "1", matmul_kernel, MATMUL_SIG, cons, grid, values, ["c_ptr"])
+        assert ck.coarsen == 1
         assert _build(monkeypatch, None, matmul_kernel, MATMUL_SIG, cons, grid).coarsen == 1
-        ck = _build(monkeypatch, "1", matmul_kernel, MATMUL_SIG, cons, grid)
-        out = _run(ck, grid, values)
     assert ck.stats["mm_dots"] == 1
     np.testing.assert_array_equal(out["c_ptr"].view(np.uint32), plain["c_ptr"].view(np.uint32))
     np.testing.assert_array_equal(out["c_ptr"], a @ b)

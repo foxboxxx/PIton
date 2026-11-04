@@ -186,11 +186,19 @@ def _build(tile, ranges, options: dict, interleave: bool):
         # PITON_MM: a dot loop whose registers do not fit, or whose operands
         # take a form the MM dot does not handle, gets the plain dot
         try:
-            return _build(tile, ranges, dict(options, mm_tried=True), interleave)
+            built = _build(tile, ranges, dict(options, mm_tried=True), interleave)
         except (RegAllocError, MMUnsupported):
             built = _build(tile, ranges, dict(options, mm=None), interleave)
             built[3]["mm_fallback"] = 1
             return built
+        if options.get("coarsen", 1) > 1 and built[3].get("mm_dots"):
+            # coarsened only where the plain dot fits too (raises RegAllocError
+            # as without PITON_MM): the switch changes the k loop, not the ids
+            # per hardware program.  matmul 8x64x8 at 512^3 and 1024^3 would
+            # be coarsened only with it, which the Pi runs slower (try/e1k:
+            # 0.79-0.93x below 128 ids) and without TMU_NOSWAP (try/b1)
+            _build(tile, ranges, dict(options, mm=None), interleave)
+        return built
     port_alloc = os.environ.get("PITON_PORT_ALLOC", "1") != "0"     # PITON_PORT_ALLOC=0: plain allocation only
     for cache_dot_a in (True, False):
         lw = Lowering(tile, ranges, dict(options, cache_dot_a=cache_dot_a))
