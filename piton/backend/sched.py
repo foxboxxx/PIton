@@ -33,7 +33,10 @@ the switch:
   * each block is scheduled with several priority functions (PAIR_MODES:
     the plain one, the move, and the move with a bonus of 1, 2 or 5 cycles
     for ops of the ALU with more single-unit ops left) and the shortest
-    schedule is kept (the earlier one on ties);
+    schedule is kept (the earlier one on ties); a loop that streams through
+    the TMU keeps the one whose iterations wait least for their loads
+    instead (tmu_loop_cost: the bonus can move a request closer to the load
+    that receives it, and matmul's loop is bound by those waits);
   * a dot product's multiply-add pairs stay atomic, except that the add of
     the last product before each A broadcast (lower.py op_tt_dot, MInst
     `split`) may also be scheduled on its own: the broadcast's rotation
@@ -57,6 +60,7 @@ all latency and hazard rules hold for each.
 from __future__ import annotations
 
 import os
+from collections import deque
 from dataclasses import dataclass, field, replace
 from itertools import combinations
 from typing import Optional
@@ -64,6 +68,7 @@ from typing import Optional
 from ..qpu import isa
 from ..qpu.asm import Program
 from ..qpu.isa import AluOp, EncodeError, Imm, Instr, Reg
+from .lower import TMU_DEPTH
 from .mir import MInst, MOp, VReg
 
 LAT_REGFILE = 2
@@ -74,6 +79,10 @@ LAT_VPM_READ = 4
 LAT_UNIF_ADDR = 3
 # Soft latency used only for priorities: keep TMU requests far from their reads.
 SOFT_TMU = 10
+# TMU latencies (instructions) for tmu_loop_cost: the emulator's fixed-latency
+# model reproduces the TMU stall of perf/results/pi-2026-11-03-baseline.json
+# at about 60 (dense_relu, 25%), 70 (row_sum, 43%) and 90-100 (matmul, 26-35%)
+TMU_LATENCIES = (60, 90, 120)
 # Special destinations a register move may write from either ALU (PITON_PAIR;
 # the mul ALU spells it `v8min x, x`), besides accumulators and register
 # files. Not a discarded result or a move of an immediate, which vc4asm
@@ -558,7 +567,7 @@ def _missed_pair(bundle: Bundle, ready: list):
 
 
 def schedule_block(minsts, terminator: Optional[MInst] = None, missed: Optional[list] = None,
-                   weight: float = 1, kept: Optional[list] = None):
+                   weight: float = 1, kept: Optional[list] = None, cost=None):
     """Returns list[Instr] for one block (terminator branch excluded).
 
     missed: if given, collects (weight, [(unit, MOp)]) for every instruction
@@ -568,22 +577,25 @@ def schedule_block(minsts, terminator: Optional[MInst] = None, missed: Optional[
     docstring; the later ones only while none reaches _lower_bound), and
     `missed` gets the pairs of all those built, each at weight / their
     number; `kept`, if given, gets the pairs of the schedule returned, at
-    full weight (compiler.py's second port-aware search)."""
+    full weight (compiler.py's second port-aware search). cost (PITON_PAIR):
+    every schedule is built and the one of lowest (cost(schedule), length)
+    kept, the earlier on ties (schedule_function: a loop's TMU waits)."""
     if not pair_enabled():
         return _list_schedule(build_dag(minsts), missed, weight)
-    best, best_pairs, pairs, built = None, None, [], 0
+    best, best_key, best_pairs, pairs, built = None, None, None, [], 0
     collect = missed is not None or kept is not None
     for split in (False, True) if any(m.split for m in minsts) else (False,):
         nodes = build_dag(minsts, split)
-        bound = _lower_bound(nodes)
+        bound = -1 if cost is not None else _lower_bound(nodes)
         for swap, balance in PAIR_MODES:
             mine = [] if collect else None
             out = _list_schedule(nodes, mine, weight, swap, balance)
             built += 1
             if collect:
                 pairs += mine
-            if best is None or len(out) < len(best):
-                best, best_pairs = out, mine
+            key = (cost(out), len(out)) if cost is not None else len(out)
+            if best is None or key < best_key:
+                best, best_key, best_pairs = out, key, mine
             if len(best) <= bound:
                 break
         if len(best) <= bound:
@@ -861,6 +873,50 @@ def fix_block_boundaries(blocks_instrs: list, preds: dict, order: list) -> None:
                     changed = True
 
 
+def _tmu_events(ins: Instr):
+    """(TMU unit requested, TMU unit received) by one instruction, None for neither."""
+    req = None
+    for op in (ins.add, ins.mul):
+        if op is not None and op.dst in isa.TMU_S:
+            req = isa.TMU_S.index(op.dst)
+    recv = None
+    if ins.kind == "alu" and ins.sig in ("ldtmu0", "ldtmu1"):
+        recv = int(ins.sig[-1])
+    return req, recv
+
+
+def tmu_loop_period(body: list, latency: int, iters: int = 8) -> float:
+    """Instructions per iteration, waits included, of a loop body that runs
+    again and again with each TMU result ready `latency` instructions after its
+    request (the emulator's TimingModel).  The FIFOs start as full as the body
+    allows: a LoopStream keeps them full across the back edge."""
+    events = [_tmu_events(ins) for ins in body]
+    fifo = (deque(), deque())
+    for u in (0, 1):
+        level = peak = 0
+        for req, recv in events:
+            level += (req == u) - (recv == u)
+            peak = max(peak, level)
+        fifo[u].extend([0] * max(0, TMU_DEPTH - peak))
+    t = 0
+    ends = []
+    for _ in range(iters):
+        for req, recv in events:
+            if recv is not None and fifo[recv]:
+                t = max(t, fifo[recv].popleft())
+            if req is not None:
+                fifo[req].append(t + latency)
+            t += 1
+        ends.append(t)
+    half = iters // 2
+    return (ends[-1] - ends[half - 1]) / (iters - half)
+
+
+def tmu_loop_cost(body: list) -> float:
+    """tmu_loop_period averaged over TMU_LATENCIES."""
+    return sum(tmu_loop_period(body, lat) for lat in TMU_LATENCIES) / len(TMU_LATENCIES)
+
+
 def schedule_function(fn, name: str, missed: Optional[list] = None, kept: Optional[list] = None) -> Program:
     """Schedule an allocated mir.Function into a Program (missed, kept: see
     schedule_block; weighted by 100^loop depth, as compiler.py weighs blocks)."""
@@ -878,10 +934,19 @@ def schedule_function(fn, name: str, missed: Optional[list] = None, kept: Option
             term = insts.pop()
         ends = insts and insts[-1].sig == "thrend"
         end_inst = insts.pop() if ends else None
-        body = schedule_block(insts, missed=missed, weight=100 ** b.loop_depth, kept=kept)
         if term is not None:
             br = Instr(kind="branch", bcond=term.bcond, target=term.target, rel=True,
                        add=AluOp("mov", isa.NOP, isa.NOP), mul=AluOp("mov", isa.NOP, isa.NOP))
+        cost = None
+        if pair_enabled() and term is not None and term.target == b.label \
+                and any(op.dst in isa.TMU_S for m in insts for op in m.ops):
+            # (PITON_PAIR) a loop that streams through the TMU keeps the schedule
+            # that waits least for its loads (matmul_8x64x4: the shortest one
+            # waits longer at every latency from 24 to 120)
+            def cost(body, br=br):
+                return tmu_loop_cost(fill_delay_slots(body, br))
+        body = schedule_block(insts, missed=missed, weight=100 ** b.loop_depth, kept=kept, cost=cost)
+        if term is not None:
             body = fill_delay_slots(body, br)
         if end_inst is not None:
             body += [Instr(kind="alu", sig="thrend", comment="end of program"), Instr.nop(), Instr.nop()]

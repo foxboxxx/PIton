@@ -186,6 +186,45 @@ def test_kept_pairs_are_those_of_the_schedule_returned(pair):
     assert kept and kept == best[1]
 
 
+def _tmu_ins(req=None, recv=None):
+    add = AluOp("mov", isa.TMU_S[req], isa.RA[1]) if req is not None else None
+    return Instr(add=add, sig=f"ldtmu{recv}" if recv is not None else "none")
+
+
+def test_tmu_loop_period():
+    # one load per 20-instruction iteration, received right after its request:
+    # the FIFO keeps four in flight, so an iteration waits once four of them
+    # take longer than the latency (each wait ends 19 instructions before the
+    # next request)
+    body = [_tmu_ins(req=0), _tmu_ins(recv=0)] + [Instr.nop()] * 18
+    assert sched.tmu_loop_period(body, 60) == 20
+    assert sched.tmu_loop_period(body, 120) == (120 + 19) / 4
+    assert sched.tmu_loop_cost(body) == (20 + (90 + 19) / 4 + (120 + 19) / 4) / 3
+    # a second load on the same TMU shares its four slots; on the other TMU it does not
+    same = body[:10] + [_tmu_ins(req=0), _tmu_ins(recv=0)] + body[12:]
+    other = body[:10] + [_tmu_ins(req=1), _tmu_ins(recv=1)] + body[12:]
+    assert sched.tmu_loop_period(same, 120) > sched.tmu_loop_period(other, 120) == (120 + 19) / 4
+
+
+def test_tmu_loop_keeps_the_schedule_that_waits_least(monkeypatch):
+    """matmul_8x64x4's Pi build: its loop's period at TMU latencies 60-120
+    is no longer than without the switch (the shortest pairing schedule
+    waited 2-7% longer at each), with no more instructions."""
+    def loop(env):
+        monkeypatch.setenv("PITON_PAIR", env)
+        ck, _ = compile_case(CASES_BY_NAME["matmul_8x64x4"], "pi")
+        prog = ck.program
+        starts = sorted((i, label) for label, i in prog.labels.items())
+        bounds = [i for i, _ in starts] + [len(prog.instrs)]
+        loops = [prog.instrs[lo:hi] for (lo, label), hi in zip(starts, bounds[1:])
+                 if any(ins.kind == "branch" and ins.target == label for ins in prog.instrs[lo:hi])]
+        return max(loops, key=len)
+    off, on = loop("0"), loop("1")
+    assert len(on) <= len(off)
+    for lat in sched.TMU_LATENCIES:
+        assert sched.tmu_loop_period(on, lat) <= sched.tmu_loop_period(off, lat), lat
+
+
 def test_second_port_aware_search_only_with_the_switch(monkeypatch):
     calls = {}
     original = compiler._port_aware
