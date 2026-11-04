@@ -15,14 +15,18 @@ import dataclasses
 import importlib.util
 import os
 import shutil
+import re
 import subprocess
-import tempfile
 import sys
+import tempfile
 
 import numpy as np
 import pytest
 
+import piton
+import piton.language as tl
 from piton import compiler
+from piton.qpu.emulator import V3D
 from piton.qpu.isa import f2u
 from piton.runtime import pi
 from piton.runtime.launcher import (launch_coarsen, program_ids, run_emulator, semaphore_programs,
@@ -37,7 +41,8 @@ from kernels import add_kernel, matmul_kernel  # noqa: E402
 from nn_kernels import dense_layer_kernel, dense_tiles  # noqa: E402
 from primitive_kernels import copy_kernel  # noqa: E402
 from piton.backend.regalloc import RegAllocError  # noqa: E402
-from test_persistent import ADD_SIG, COPY_SIG, MATMUL_SIG, STUB_RUNTIME, ids_kernel, late_args_kernel  # noqa: E402
+from test_persistent import (ADD_SIG, COPY_SIG, MATMUL_SIG, STUB_RUNTIME, id_slot_kernel, ids_kernel,  # noqa: E402
+                             late_args_kernel)
 from test_store_slots import contended  # noqa: E402
 from test_store_slots_protocol import protocol_errors  # noqa: E402
 
@@ -339,6 +344,124 @@ def test_digits_dense_layer(env):
         _same(want, _run(ck, grid, values, coarsen=2)[0], f"{rows} rows, k=2")
 
 
+# -- every id exactly once, the 24-bit multiplier, the uniform list ---------------------------
+
+@piton.jit
+def count_kernel(cnt_ptr, BLOCK: tl.constexpr):
+    """Each id adds 1 to its own row: an id run twice leaves 2, a skipped one
+    0, one past the grid writes into the guard rows."""
+    offs = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    tl.store(cnt_ptr + offs, tl.load(cnt_ptr + offs) + 1)
+
+
+@pytest.mark.parametrize("persistent", [1, 4])
+def test_every_id_runs_once(env, persistent):
+    """Every factor 1 ... 4 (and the launch's own) of one build on grids below,
+    at and above k, not multiples of it, and around COARSEN_MIN_GRID."""
+    env(persistent)
+    ck = compiler.compile(count_kernel, {"cnt_ptr": "*i32"}, {"BLOCK": 16}, grid=(1024,))
+    assert ck.coarsen == 4 and ("coarsen", "coarsen0") in ck.uniforms
+    for gx in (1, 2, 3, 4, 5, 7, 9, 255, 256, 257, 1023):
+        for k in (None, 3) if gx > 9 else (None, 1, 2, 3, 4):
+            got, _ = _run(ck, (gx,), {"cnt_ptr": np.zeros((gx + 8) * 16, np.int32)}, coarsen=k)
+            got = got["cnt_ptr"].reshape(-1, 16)
+            assert np.all(got[:gx] == 1) and np.all(got[gx:] == 0), (gx, k)
+
+
+@pytest.mark.parametrize("G", [1 << 24, (1 << 24) + 3])
+def test_first_id_at_the_24_bit_boundary(env, G):
+    """pid0 * coarsen0 with pid0 up to G - 1 (k = 1): a mul24 while the grid
+    fits 24 bits, the exact product past it; hardware programs at the top of
+    the grid and around 2^24 / k for k = 1 ... 4."""
+    env(4)
+    ck = compiler.compile(id_slot_kernel, {"out_ptr": "*i32"}, {"BLOCK": 16}, grid=(G,))
+    assert ck.coarsen == 4 and ("coarsen", "coarsen0") in ck.uniforms
+    for k in (1, 2, 3, 4):
+        hx = -(-G // k)
+        hws, expect = [], {}
+        for hw in (0, (1 << 24) // k - 1, (1 << 24) // k, hx - 2, hx - 1):
+            ids = range(hw * k, min(hw * k + k, G))
+            if hw < hx and not any(p % 1021 in expect for p in ids):
+                hws.append(hw)
+                expect.update((p % 1021, p) for p in ids)
+        v = V3D(num_qpus=4, strict=True)
+        out = v.mem.alloc(1021 * 16 * 4, 64)
+        v.mem.write_array(out, np.full(1021 * 16, -1, np.int32))
+        zero, scratch = v.mem.alloc(64, 64), v.mem.alloc(64, 64)
+        unifs = []
+        for hw in hws:
+            a = v.mem.alloc(4 * len(ck.uniforms), 16)
+            v.mem.write_words(a, np.array(uniforms_for(ck, {"out_ptr": np.zeros(1, np.int32)}, {"out_ptr": out},
+                                                       (hw, 0, 0), (G, 1, 1), zero, scratch, a, k), dtype=np.uint32))
+            unifs.append(a)
+        v.run(v.load(ck.words), unifs)
+        got = v.mem.read_array(out, (1021, 16), np.int32)
+        for slot, p in expect.items():
+            assert np.all(got[slot] == p), (k, slot, p)
+        assert sum(bool(np.all(r == -1)) for r in got) == 1021 - len(expect)
+
+
+@pytest.mark.parametrize("reload", [False, True])
+def test_uniform_reads_stay_in_the_list(env, monkeypatch, reload):
+    """Every uniform a hardware program reads, with either protocol and every
+    factor, is one of its own list's words (one past it would be the next
+    program's first argument), and it reads all of them."""
+    from piton.qpu import emulator
+    monkeypatch.setattr(compiler, "_compile_tile", _only(compiler._compile_tile, reload))
+    env(1)
+    ck = _add(64)
+    assert ck.coarsen == 4 and ck.stats["coarsen_reload"] == reload
+    base, reads = {}, set()
+    start, read = emulator.QPU.start, emulator.QPU.read_regfile
+
+    def start_(self, program, entry, unif_addr):
+        start(self, program, entry, unif_addr)
+        base[self.num] = unif_addr
+
+    def read_(self, src, file):
+        if src.raddr == 32:                      # unif
+            off = self.unif_ptr - base[self.num]
+            assert 0 <= off < 4 * len(ck.uniforms), off
+            reads.add(off)
+        return read(self, src, file)
+    monkeypatch.setattr(emulator.QPU, "start", start_)
+    monkeypatch.setattr(emulator.QPU, "read_regfile", read_)
+    for gx in (1, 5, 300):
+        for k in (None, 1, 3, 4):
+            reads.clear()
+            _run(ck, (gx,), _add_values(gx, 64), coarsen=k)
+            assert reads == set(range(0, 4 * len(ck.uniforms), 4)), (gx, k)
+
+
+@piton.jit
+def ids3_kernel(out_ptr):
+    p0, p1, p2 = tl.program_id(0), tl.program_id(1), tl.program_id(2)
+    n0, n1, n2 = tl.num_programs(0), tl.num_programs(1), tl.num_programs(2)
+    flat = (p2 * n1 + p1) * n0 + p0
+    offs = flat * 16 + tl.arange(0, 16)
+    tl.store(out_ptr + offs, tl.load(out_ptr + offs) + p0 * 1000000 + p1 * 10000 + p2 * 100 + n0 * 7 + n1 * 3 + n2)
+
+
+@pytest.mark.parametrize("grid", [(5, 2, 2), (1, 1, 3), (4, 3, 2)])
+def test_three_dimensional_grid(env, grid):
+    """Axis 0 coarsened (forced 3) on 3-D grids smaller than the build's: every
+    factor runs each (x, y, z) once with the logical ids and grid."""
+    env(3)
+    ck = compiler.compile(ids3_kernel, {"out_ptr": "*i32"}, {}, grid=(9, 3, 3))
+    assert ck.coarsen == 3
+    gx, gy, gz = grid
+    n = gx * gy * gz
+    p0 = np.tile(np.arange(gx), gy * gz)
+    p1 = np.tile(np.repeat(np.arange(gy), gx), gz)
+    p2 = np.repeat(np.arange(gz), gx * gy)
+    want = p0 * 1000000 + p1 * 10000 + p2 * 100 + gx * 7 + gy * 3 + gz
+    for k in (1, 2, 3):
+        got, _ = _run(ck, grid, {"out_ptr": np.zeros((n + 4) * 16, np.int32)}, coarsen=k)
+        got = got["out_ptr"].reshape(-1, 16)
+        np.testing.assert_array_equal(got[:n], np.repeat(want[:, None], 16, axis=1))
+        assert np.all(got[n:] == 0)
+
+
 # -- the generated C launcher ------------------------------------------------------------------
 
 def _c_launch(tmp_path, ck, args, grids):
@@ -533,7 +656,6 @@ def test_generated_c_does_not_divide_by_k(env):
     forced = _add(64)
     env(6)
     six = dataclasses.replace(_add(64), coarsen_launch=(16, 4))
-    import re
     for ck in (auto, forced, six):
         header, source = emit_c(ck, "kern")
         code = re.sub(r"//.*", "", source)
@@ -549,8 +671,9 @@ def test_generated_c_does_not_divide_by_k(env):
             for opt in ("-O0", "-Og"):
                 obj = os.path.join(d, "kern.o")
                 subprocess.run([arm, opt, "-std=gnu99", "-Wall", "-Werror", "-ffreestanding", "-nostdlib",
-                                "-mcpu=arm1176jzf-s", "-mhard-float", "-mfpu=vfp", "-I", os.path.join(ROOT, "pi", "runtime"),
-                                "-I", d, "-c", os.path.join(d, "kern.c"), "-o", obj], check=True, capture_output=True)
+                                "-mcpu=arm1176jzf-s", "-mhard-float", "-mfpu=vfp",
+                                "-I", os.path.join(ROOT, "pi", "runtime"), "-I", d, "-c", os.path.join(d, "kern.c"),
+                                "-o", obj], check=True, capture_output=True)
                 undefined = subprocess.run([nm, "-u", obj], check=True, capture_output=True, text=True).stdout
                 assert "div" not in undefined, (ck.coarsen, opt, undefined)
 
