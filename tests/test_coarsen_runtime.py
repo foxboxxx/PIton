@@ -37,12 +37,12 @@ ROOT = os.path.join(os.path.dirname(__file__), "..")
 sys.path.insert(0, os.path.join(ROOT, "examples"))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.dirname(__file__))
-from kernels import add_kernel, matmul_kernel  # noqa: E402
+from kernels import add_kernel, matmul_kernel, row_sum_kernel  # noqa: E402
 from nn_kernels import dense_layer_kernel, dense_tiles  # noqa: E402
 from primitive_kernels import copy_kernel  # noqa: E402
 from piton.backend.regalloc import RegAllocError  # noqa: E402
-from test_persistent import (ADD_SIG, COPY_SIG, MATMUL_SIG, STUB_RUNTIME, id_slot_kernel, ids_kernel,  # noqa: E402
-                             late_args_kernel)
+from test_persistent import (ADD_SIG, COPY_SIG, MATMUL_SIG, ROW_SIG, STUB_RUNTIME, id_slot_kernel,  # noqa: E402
+                             ids_kernel, late_args_kernel)
 from test_store_slots import contended  # noqa: E402
 from test_store_slots_protocol import protocol_errors  # noqa: E402
 
@@ -149,6 +149,41 @@ def test_factor_follows_the_launched_grid(env):
     # the switch off keeps the compile-time thresholds
     env(1, runtime=False)
     assert [_add(64, (gx,)).coarsen for gx in (128, 255, 256, 512)] == [1, 1, 2, 4]
+
+
+def _digits_layer(layer, grid=None):
+    """examples/digits_pi.py's layer (1: 64 -> 128, 2: 128 -> 64, 3: 64 -> 16), built
+    for the full 1800-row batch unless grid is given."""
+    k_in, n = {1: (64, 128), 2: (128, 64), 3: (64, 16)}[layer]
+    bm, bn, bk = dense_tiles(n)
+    constants = dict(N=n, K=k_in, BLOCK_SIZE_M=bm, BLOCK_SIZE_N=bn, BLOCK_SIZE_K=bk, GROUP_SIZE_M=1,
+                     ADD_BIAS=True, RELU=layer < 3)
+    sig = dict.fromkeys(("x_ptr", "w_ptr", "bias_ptr", "y_ptr"), "*fp32")
+    sig["M"] = "i32"
+    return compiler.compile(dense_layer_kernel, sig, constants, grid=grid or (1800 // bm * (n // bn),))
+
+
+def test_limits_follow_the_stores(env):
+    """Kernels whose ids store at least COARSEN_MIN_STORE_BYTES per instruction
+    (add, the digits' first layer) are coarsened from COARSEN_LAUNCH_MIN_GRID
+    ids, at compile time and per launch; the others (the second layer, a
+    matmul, row_sum's run-time loop) from COARSEN_MIN_GRID as without the switch."""
+    env(1)
+    conservative = (compiler.COARSEN_MIN_GRID, compiler.COARSEN_MIN_PROGRAMS)
+    assert _add(64).coarsen_launch == _digits_layer(1).coarsen_launch == LAUNCH
+    second = _digits_layer(2)
+    assert second.coarsen == 2 and second.coarsen_launch == conservative
+    assert [launch_coarsen(second, (g,)) for g in (64, 128, 255, 256, 450)] == [1, 1, 1, 2, 2]
+    cons = dict(K=256, stride_ak=1, stride_bn=1, stride_cn=1, BLOCK_SIZE_M=8, BLOCK_SIZE_N=64, BLOCK_SIZE_K=8,
+                GROUP_SIZE_M=4)
+    mm = compiler.compile(matmul_kernel, MATMUL_SIG, cons, grid=(512,))
+    assert mm.coarsen == 2 and mm.coarsen_launch == conservative and launch_coarsen(mm, (128,)) == 1
+    rows = compiler.compile(row_sum_kernel, ROW_SIG, {"BLOCK_M": 4, "BLOCK_N": 64}, grid=(1024,))
+    assert rows.coarsen == 2 and rows.coarsen_launch == conservative
+    # the compile time with a known grid
+    assert _add(64, (128,)).coarsen == 4 and _digits_layer(1, (128,)).coarsen == 2
+    assert _digits_layer(2, (128,)).coarsen == 1
+    assert compiler.compile(row_sum_kernel, ROW_SIG, {"BLOCK_M": 4, "BLOCK_N": 64}, grid=(64,)).coarsen == 1
 
 
 def test_forced_factor_runs_in_every_launch(env):

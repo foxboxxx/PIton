@@ -32,9 +32,10 @@ class CompiledKernel:
     coarsen: int = 1
     # PITON_COARSEN_RUNTIME: the program reads its ids per hardware program
     # from uniform "coarsen0" (1 ... coarsen), and each launch chooses them
-    # (runtime/launcher.py launch_coarsen): (COARSEN_LAUNCH_MIN_GRID,
-    # COARSEN_LAUNCH_MIN_PROGRAMS) as _coarsening applies them to a known grid.
-    # None: every launch runs `coarsen` ids (compile-time or forced factor).
+    # (runtime/launcher.py launch_coarsen): (grid, hardware programs) from
+    # which to coarsen, as _coarsening applies them to a known grid
+    # (_coarsen_limits). None: every launch runs `coarsen` ids (compile-time or
+    # forced factor).
     coarsen_launch: Optional[tuple] = None
 
     @property
@@ -247,12 +248,19 @@ def _compile_tile(fn, signature, constants, name, pid_max, options, chunk: int =
 # more than COARSEN_SHORT instructions, or run-time loops, get at most 2.
 COARSEN_MIN_GRID = 256
 COARSEN_MIN_PROGRAMS = 128
-# With PITON_COARSEN_RUNTIME each launch picks k with these instead (and the
-# compile time with the largest grid): one build launched with each k on the
-# Pi (2026-11-04, perf/coarsen_sweep.py, perf/results/coarsen-launch-*.jsonl)
-# gained from 64 ids up (the digits layer dense_relu 1.12x at 64 ids with
-# k=2; add even at 64, 1.21x at 128 with k=4 on 32 hardware programs) and lost
-# below (dense_relu 0.96x at 32 ids, 0.59x at 2).
+# Coarsening lets an id's store DMAs drain while the next id runs, so what
+# decides it is what the ids store, not what they load (Pi, 2026-11-04, one
+# build launched with each k: perf/coarsen_sweep.py,
+# perf/results/coarsen-launch-*.jsonl). At 0.48 bytes stored per executed
+# instruction the digits' first layer (dense_relu) gains 1.13x on its full
+# grid and from 64 ids up (1.12x at 64 with k=2, 0.96x at 32); add (2.8) from
+# 128 up (1.21x at k=4 on 32 hardware programs). At 0.26 the second layer
+# loses everywhere (0.988x on its full grid, 0.76-0.96x below), matmul 8x64x8
+# at 0.14 too (0.79-0.93x below 128 ids). PITON_COARSEN_STORES=1 coarsens only
+# kernels storing COARSEN_MIN_STORE_BYTES; with PITON_COARSEN_RUNTIME those
+# use COARSEN_LAUNCH_MIN_GRID / _PROGRAMS (every launch, and the compile time
+# with the largest grid), the rest COARSEN_MIN_GRID / _PROGRAMS.
+COARSEN_MIN_STORE_BYTES = 0.4      # bytes stored per executed instruction
 COARSEN_LAUNCH_MIN_GRID = 64
 COARSEN_LAUNCH_MIN_PROGRAMS = 32
 COARSEN_MAX = 4
@@ -270,6 +278,12 @@ COARSEN_MIN_BYTES = 4              # bytes loaded and stored per executed instru
 # bytes per instruction 1.05x faster with slots, 512^3 at 0.08 even, 1024^3 at
 # 0.04 0.95x).
 SLOTS_MIN_STORE_BYTES = 0.1        # bytes stored per executed instruction
+
+
+def coarsen_stores_enabled() -> bool:
+    """PITON_COARSEN_STORES=1: coarsen only kernels whose ids store at least
+    COARSEN_MIN_STORE_BYTES per executed instruction."""
+    return os.environ.get("PITON_COARSEN_STORES", "0") not in ("", "0")
 
 
 def coarsen_runtime_enabled() -> bool:
@@ -330,13 +344,24 @@ def _id_bytes(tile, kinds=("tt.load", "tt.store")) -> Optional[int]:
     return walk(tile.body, 1)
 
 
+def _stores_densely(tile, length) -> bool:
+    stored = _id_bytes(tile, ("tt.store",))
+    return length is not None and stored is not None and stored >= COARSEN_MIN_STORE_BYTES * length
+
+
+def _coarsen_limits(tile, id_length) -> tuple:
+    """(grid, hardware programs) from which a kernel is coarsened: with
+    PITON_COARSEN_RUNTIME, COARSEN_LAUNCH_MIN_* for ids that store densely."""
+    if coarsen_runtime_enabled() and _stores_densely(tile, id_length()):
+        return COARSEN_LAUNCH_MIN_GRID, COARSEN_LAUNCH_MIN_PROGRAMS
+    return COARSEN_MIN_GRID, COARSEN_MIN_PROGRAMS
+
+
 def _coarsening(tile, pid_max, id_length) -> int:
     """Logical program ids per hardware program along axis 0 (PITON_PERSISTENT):
     unset or 1 -> automatic, 0 -> 1 (one hardware program per id), k >= 2 -> k
     for every grid. Kernels that never read tl.program_id(0) are not coarsened.
     id_length() is _id_length of the plain build."""
-    min_grid, min_programs = ((COARSEN_LAUNCH_MIN_GRID, COARSEN_LAUNCH_MIN_PROGRAMS) if coarsen_runtime_enabled()
-                              else (COARSEN_MIN_GRID, COARSEN_MIN_PROGRAMS))
     env = os.environ.get("PITON_PERSISTENT", "1")
     try:
         want = int(env)
@@ -348,10 +373,15 @@ def _coarsening(tile, pid_max, id_length) -> int:
     bound = None if pid_max is None else pid_max[0] + 1
     if want >= 2:
         return want if bound is None else max(1, min(want, bound))
-    if bound is None or any(pid_max[1:]) or bound < min_grid:
+    if bound is None or any(pid_max[1:]):
+        return 1
+    min_grid, min_programs = _coarsen_limits(tile, id_length)
+    if bound < min_grid:
         return 1
     length = id_length()
     if length is not None and (_id_bytes(tile) or 0) < COARSEN_MIN_BYTES * length:
+        return 1
+    if coarsen_stores_enabled() and not _stores_densely(tile, length):
         return 1
     k = COARSEN_MAX if length is not None and length <= COARSEN_SHORT else COARSEN_MAX_LONG
     while k > 1 and bound // k < min_programs:
@@ -407,7 +437,7 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
     launch = None
     if coarsen > 1 and options.get("coarsen_runtime") and int(os.environ.get("PITON_PERSISTENT", "1")) < 2:
         # (a forced factor, PITON_PERSISTENT=k checked by _coarsening, runs k ids in every launch)
-        launch = (COARSEN_LAUNCH_MIN_GRID, COARSEN_LAUNCH_MIN_PROGRAMS)
+        launch = (stats["coarsen_min_grid"], stats["coarsen_min_programs"])
         prog.header.append(f"coarsened: up to {coarsen} program ids (axis 0) per hardware program, "
                            f"chosen per launch (uniform coarsen0)")
     elif coarsen > 1:
@@ -520,6 +550,7 @@ def _compile_program(fn, signature, constants, name, pid_max, options):
             return _compile_program(fn, signature, constants, name, pid_max, dict(options, store_slots=False))
     coarsen = _coarsening(tile, pid_max, lambda: _id_length(tile, prog, mf))
     if coarsen > 1:
+        limits = _coarsen_limits(tile, lambda: _id_length(tile, prog, mf)) if options.get("coarsen_runtime") else None
         best = None
         for hoist in (True, False):
             for reload in (False, True):
@@ -540,4 +571,6 @@ def _compile_program(fn, signature, constants, name, pid_max, options):
             coarsen = 1
         else:
             tile, prog, mf, lw, stats, asm = best
+            if limits:
+                stats["coarsen_min_grid"], stats["coarsen_min_programs"] = limits
     return tile, prog, lw, stats, asm, coarsen

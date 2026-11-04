@@ -390,7 +390,12 @@ ROW_SIG = {"x_ptr": "*fp32", "out_ptr": "*fp32", "n_cols": "i32", "stride": "i32
     ("3", add_kernel, ADD_SIG, {"BLOCK_SIZE": 16}, None, 3),
     ("4", add_kernel, ADD_SIG, {"BLOCK_SIZE": 16}, (64, 8), 4),
 ])
-def test_factor(persistent, value, kernel, sig, cons, grid, k):
+def test_factor(persistent, monkeypatch, value, kernel, sig, cons, grid, k):
+    """(The thresholds with the factor fixed at compile time: PITON_COARSEN_RUNTIME
+    and PITON_COARSEN_STORES change them, tests/test_coarsen_runtime.py and
+    tests/test_coarsen_stores.py.)"""
+    monkeypatch.delenv("PITON_COARSEN_RUNTIME", raising=False)
+    monkeypatch.delenv("PITON_COARSEN_STORES", raising=False)
     persistent(value)
     assert compiler.compile(kernel, sig, cons, grid=grid).coarsen == k
 

@@ -100,7 +100,7 @@ def launch_coarsen(ck: CompiledKernel, grid) -> int:
     `grid`: ck.coarsen, unless each launch chooses them (PITON_COARSEN_RUNTIME,
     ck.coarsen_launch; the program reads them from uniform coarsen0): then, as
     compiler._coarsening chooses for a known grid, ck.coarsen for at least
-    COARSEN_LAUNCH_MIN_GRID launched programs, halved until COARSEN_LAUNCH_MIN_PROGRAMS
+    ck.coarsen_launch[0] launched programs, halved until ck.coarsen_launch[1]
     hardware programs remain, and 1 (the plain program's ids, one hardware
     program each) for smaller launches. (A program without coarsen0 has its
     factor in the code: every launch runs ck.coarsen, whatever coarsen_launch
