@@ -366,8 +366,7 @@ ROW_SIG = {"x_ptr": "*fp32", "out_ptr": "*fp32", "n_cols": "i32", "stride": "i32
     ("1", copy_kernel, COPY_SIG, {"BLOCK": 256}, (1024,), 4),
     ("1", sfu_kernel, COPY_SIG, {"OP": 4, "BLOCK": 256}, (1024,), 4),
     ("1", sfu_kernel, COPY_SIG, {"OP": 4, "BLOCK": 256}, (256,), 2),
-    # long program ids (exact division: ~6000 instructions) and run-time loops: at most 2
-    ("1", idiv_kernel, IDIV_SIG, {"BLOCK": 256}, (1024,), 2),
+    # run-time loops: at most 2 (long ids: test_factor_long_ids)
     ("1", row_sum_kernel, ROW_SIG, {"BLOCK_M": 4, "BLOCK_N": 64}, (1024,), 2),
     ("1", row_sum_kernel, ROW_SIG, {"BLOCK_M": 4, "BLOCK_N": 64}, (64,), 1),
     # a forced factor: any grid, at most the grid
@@ -379,6 +378,17 @@ ROW_SIG = {"x_ptr": "*fp32", "out_ptr": "*fp32", "n_cols": "i32", "stride": "i32
 def test_factor(persistent, value, kernel, sig, cons, grid, k):
     persistent(value)
     assert compiler.compile(kernel, sig, cons, grid=grid).coarsen == k
+
+
+def test_factor_long_ids(persistent, monkeypatch):
+    """Long program ids get at most 2: the branching exact division runs ~6000
+    instructions per id; the branch-free one (PITON_FAST_IDIV, the default)
+    ~1100, short enough for 4."""
+    persistent("1")
+    monkeypatch.setenv("PITON_FAST_IDIV", "0")
+    assert compiler.compile(idiv_kernel, IDIV_SIG, {"BLOCK": 256}, grid=(1024,)).coarsen == 2
+    monkeypatch.delenv("PITON_FAST_IDIV")
+    assert compiler.compile(idiv_kernel, IDIV_SIG, {"BLOCK": 256}, grid=(1024,)).coarsen == 4
 
 
 @pytest.mark.parametrize("slots", ["0", "1"])
