@@ -360,3 +360,179 @@ def test_reduction_with_other_uses(monkeypatch):
                               dict(BLOCK=32), {"x_ptr": x, "out_ptr": out})
             outs.append(vals["out_ptr"])
         np.testing.assert_array_equal(outs[1], outs[0])
+
+
+# -- review: more guard and lane-condition shapes (switch on == switch off) -------------
+
+def _same(monkeypatch, kernel, signature, constants, values, grid=(1,)):
+    """Run with fast_branches off and on; outputs must agree. Returns the two stats."""
+    outs, stats = [], []
+    for on in (False, True):
+        _, vals, st = _run(monkeypatch, on, kernel, signature, constants, values, grid)
+        outs.append({k: v for k, v in vals.items() if isinstance(v, np.ndarray)})
+        stats.append(st)
+    for k in outs[0]:
+        np.testing.assert_array_equal(outs[1][k], outs[0][k], err_msg=k)
+    return stats
+
+
+@piton.jit
+def nested_guards_k(x_ptr, y_ptr, out_ptr, n, m, BLOCK: tl.constexpr):
+    i = tl.arange(0, BLOCK)
+    v = tl.load(x_ptr + i)
+    w = v * 0
+    total = 0
+    for k in range(n):
+        if tl.max(v) > 0:                # outer guard: stores and loads in its then-branch
+            v = v - 1
+            u = v + tl.load(y_ptr + k * BLOCK + i)
+            for j in range(m):
+                if tl.min(u) < 50:       # inner guard
+                    u = u + 3
+                    total += 1
+            w = w + u
+            tl.store(out_ptr + 3 * BLOCK + k * BLOCK + i, u)
+    tl.store(out_ptr + i, w)
+    tl.store(out_ptr + BLOCK + i, v + tl.load(y_ptr + i))
+    tl.store(out_ptr + 2 * BLOCK + tl.arange(0, 1), tl.zeros([1], tl.int32) + total)
+
+
+@pytest.mark.parametrize("n,m", [(0, 5), (5, 0), (4, 30), (30, 30)])
+def test_nested_guards_with_memory(monkeypatch, n, m):
+    x = (np.arange(32) % 7).astype(np.int32)
+    y = (np.arange(32 * 30) % 11 - 3).astype(np.int32)
+    out = np.full(32 * 33, -9, np.int32)
+    _same(monkeypatch, nested_guards_k, {"x_ptr": "*i32", "y_ptr": "*i32", "out_ptr": "*i32", "n": "i32", "m": "i32"},
+          dict(BLOCK=32), {"x_ptr": x, "y_ptr": y, "out_ptr": out, "n": n, "m": m})
+
+
+@piton.jit
+def guard_shapes_k(x_ptr, y_ptr, out_ptr, n, lim, BLOCK: tl.constexpr, MODE: tl.constexpr):
+    i = tl.arange(0, BLOCK)
+    a = tl.load(x_ptr + i)
+    b = a * 2 + 1
+    p = y_ptr + i
+    last = -1
+    s = 0
+    if MODE == 0:                        # carried values swapped by the then-branch
+        for k in range(n):
+            if tl.max(a + b) > lim:
+                a, b = b - 3, a - 2
+                last = k
+    elif MODE == 1:                      # constant trip count, carried pointer
+        for k in range(20):
+            if tl.max(a) > lim:
+                a = a - 1
+                b = b + tl.load(p)
+                p += BLOCK
+                last = k
+    elif MODE == 2:                      # strided range
+        for k in range(3, n, 4):
+            if tl.min(a) <= lim:
+                a = a + 2
+                last = k
+    else:                                # uniform (scalar) guard
+        for k in range(n):
+            if s < lim:
+                s += 2
+                b = b * 3 + k
+    tl.store(out_ptr + i, a)
+    tl.store(out_ptr + BLOCK + i, b + tl.load(p))
+    tl.store(out_ptr + 2 * BLOCK + tl.arange(0, 1), tl.zeros([1], tl.int32) + last * 1000 + s)
+
+
+@pytest.mark.parametrize("mode", range(4))
+@pytest.mark.parametrize("n,lim", [(0, 4), (3, 4), (17, 4), (90, 4), (40, -2 ** 31), (40, 2 ** 31 - 1)])
+def test_guard_shapes(monkeypatch, mode, n, lim):
+    x = (np.arange(16) % 9).astype(np.int32)
+    y = (np.arange(16 * 21) * 3 - 77).astype(np.int32)
+    out = np.zeros(33, np.int32)
+    _same(monkeypatch, guard_shapes_k, {"x_ptr": "*i32", "y_ptr": "*i32", "out_ptr": "*i32", "n": "i32", "lim": "i32"},
+          dict(BLOCK=16, MODE=mode), {"x_ptr": x, "y_ptr": y, "out_ptr": out, "n": n, "lim": lim})
+
+
+@piton.jit
+def lane_shapes_k(x_ptr, out_ptr, c, R: tl.constexpr, C: tl.constexpr, SRC: tl.constexpr):
+    r = tl.arange(0, R)[:, None]
+    q = tl.arange(0, C)[None, :]
+    if SRC == 0:
+        x = tl.load(x_ptr + r * C + q)
+    elif SRC == 1:
+        x = r * 100 + q + c * 0          # affine
+    else:
+        x = tl.zeros([R, C], tl.int32) + c   # splat
+    res = 0
+    if tl.min(x) <= c:
+        res = 1
+    if c > tl.max(x + 1):
+        res += 2
+    tl.store(out_ptr + tl.arange(0, 1), tl.zeros([1], tl.int32) + res)
+
+
+@pytest.mark.parametrize("R,C", [(2, 8), (4, 4), (16, 1), (8, 16)])
+@pytest.mark.parametrize("src", [0, 1, 2])
+def test_lane_condition_tile_shapes(monkeypatch, R, C, src):
+    x = (np.arange(R * C) * 37 % 11 - 5).astype(np.int32)
+    for c in (-6, 0, 5, 1600, 2 ** 31 - 1):
+        _same(monkeypatch, lane_shapes_k, {"x_ptr": "*i32", "out_ptr": "*i32", "c": "i32"}, dict(R=R, C=C, SRC=src),
+              {"x_ptr": x, "out_ptr": np.zeros(1, np.int32), "c": c})
+
+
+@piton.jit
+def unsigned_cond_k(x_ptr, out_ptr, c, BLOCK: tl.constexpr):
+    i = tl.arange(0, BLOCK)
+    x = tl.load(x_ptr + i)
+    r = 0
+    if tl.max(x) > c:                    # unsigned: stays on the reduction path
+        r = 1
+    if tl.min(x) < c:
+        r += 2
+    tl.store(out_ptr + tl.arange(0, 1), tl.zeros([1], tl.uint32) + r)
+
+
+def test_unsigned_conditions(monkeypatch):
+    x = np.array(list(range(15)) + [2 ** 31 + 3], np.uint32)
+    for c in (0, 5, 2 ** 31, 2 ** 32 - 1):
+        out = np.zeros(1, np.uint32)
+        _same(monkeypatch, unsigned_cond_k, {"x_ptr": "*u32", "out_ptr": "*u32", "c": "u32"}, dict(BLOCK=16),
+              {"x_ptr": x, "out_ptr": out, "c": c})
+        _, vals, _ = _run(monkeypatch, True, unsigned_cond_k, {"x_ptr": "*u32", "out_ptr": "*u32", "c": "u32"},
+                          dict(BLOCK=16), {"x_ptr": x, "out_ptr": out, "c": c})
+        assert vals["out_ptr"][0] == int(int(x.max()) > c) + 2 * int(int(x.min()) < c)
+
+
+@piton.jit
+def programs_k(x_ptr, out_ptr, n, BLOCK: tl.constexpr):
+    i = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    v = tl.load(x_ptr + i)
+    t = 0
+    for k in range(n):
+        if tl.max(v) > 0:                # programs leave the loop at different trips
+            v = v - 2
+            t += 1
+            tl.store(out_ptr + i, v + t)
+    tl.store(out_ptr + 24 * BLOCK + i, v * 10 + t)
+
+
+def test_guard_across_programs(monkeypatch):
+    x = (np.arange(16 * 24) % 23).astype(np.int32)
+    _same(monkeypatch, programs_k, {"x_ptr": "*i32", "out_ptr": "*i32", "n": "i32"}, dict(BLOCK=16),
+          {"x_ptr": x, "out_ptr": np.zeros(48 * 16, np.int32), "n": 30}, grid=(24,))
+
+
+@pytest.mark.parametrize("block,unroll,tile_h,rows,w", [(32, 8, 1, 8, 40), (64, 8, 1, 2, 72), (32, 16, 1, 1, 50)])
+def test_level1_masked_sub_blocks(fast, block, unroll, tile_h, rows, w):
+    """Column sub-blocks entirely past the width, and [1, 32] tiles (ROWS odd)."""
+    x0, y0, step, _, _ = VIEWS["cardioid edge"]
+    h = 8 if rows > 1 else 4
+    plain = counts(fast, 0, x0, y0, step, w, h, 64, block=block, unroll=unroll, tile_h=tile_h, rows=rows)
+    got = counts(fast, 1, x0, y0, step, w, h, 64, block=block, unroll=unroll, tile_h=tile_h, rows=rows)
+    np.testing.assert_array_equal(got, plain)
+
+
+@pytest.mark.parametrize("max_iter", [0, 5, 13])
+def test_level1_short_max_iter(fast, max_iter):
+    """Fewer iterations than UNROLL, and a remainder UNROLL does not divide."""
+    x0, y0, step, w, h = VIEWS["cardioid edge"]
+    plain = counts(fast, 0, x0, y0, step, w, h, max_iter, block=32, unroll=8, rows=8)
+    np.testing.assert_array_equal(counts(fast, 1, x0, y0, step, w, h, max_iter, block=32, unroll=8, rows=8), plain)
