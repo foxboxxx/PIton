@@ -2023,10 +2023,26 @@ class Lowering:
         x = self.get(op.operands[0])
         m, n = op.operands[0].shape
         shape = op.result.shape
+        return self.trans_val(x, m, n, shape, op.result.dtype, op.attrs.get("load_operand", False))
+
+    def trans_val(self, x, m, n, shape, dtype, symbolic=False):
+        if symbolic and isinstance(x, Pred):
+            # the mask of a transposed load (reroll.transposed_loads): compares of
+            # index math stay compares of transposed (affine) operands
+            if x.kind == "const":
+                return Pred("const", shape, x.value)
+            if x.kind == "cmp":
+                pred, a, b, f = x.value
+                return Pred("cmp", shape, (pred, self.trans_val(a, m, n, shape, getattr(a, "dtype", None), True),
+                                           self.trans_val(b, m, n, shape, getattr(b, "dtype", None), True), f),
+                            wide=x.wide)
+            if x.kind == "dense":
+                return Pred("dense", shape, self.trans_val(x.value, m, n, shape, ir.int1))
+            return Pred(x.kind, shape, None, [self.trans_val(a, m, n, shape, ir.int1, True) for a in x.args])
         if isinstance(x, Affine) and x.dense is None:
             return Affine(shape, x.dtype, x.base, [x.coeffs[1], x.coeffs[0]])
         if isinstance(x, (Splat, S)):
-            return Splat(shape, op.result.dtype, x if isinstance(x, S) else x.s)
+            return Splat(shape, dtype, x if isinstance(x, S) else x.s)
         if not isinstance(x, Scal):
             d = self.materialize(x)
             return self.permute_dense(d, shape, [i * n + j for j in range(n) for i in range(m)])
@@ -3559,11 +3575,16 @@ class Lowering:
         opname = {"sum": "add", "max": "max", "min": "min"}[kind]
         if res.dtype.kind == "uint" and kind != "sum":
             opname += "u"
-        if isinstance(x, Splat) and kind in ("max", "min"):
+        # a second operand (reroll.py's chunked reductions) is a partial that the
+        # rows are combined into, first to last
+        acc = self.materialize(self.get(op.operands[1])) if len(op.operands) > 1 else None
+        if isinstance(x, Splat) and kind in ("max", "min") and acc is None:
             return x.s if not res.shape else Splat(res.shape, res.dtype, x.s)
         rank = len(src)
         L = src[-1]
-        if isinstance(x, Scal):
+        if acc is not None and not (axis < rank - 1 and numel(src[axis + 1:]) % LANES == 0):
+            raise self.error("internal: a reduction into a partial must combine whole registers")
+        if isinstance(x, Scal) and acc is None:
             return self.reduce_scal(x, axis, opname, is_float, res)
         d = self.materialize(x)
         if axis == rank - 1 and L >= LANES:
@@ -3588,8 +3609,11 @@ class Lowering:
             regs = []
             for o in range(outer):
                 for i in range(inner):
-                    cur = self.reg_of(d, (o * red) * inner + i)
-                    for r in range(1, red):
+                    if acc is None:
+                        cur, first = self.reg_of(d, (o * red) * inner + i), 1
+                    else:
+                        cur, first = self.reg_of(acc, o * inner + i), 0
+                    for r in range(first, red):
                         n = self.new("rd", is_float)
                         self.elementwise(opname, n, cur, self.reg_of(d, (o * red + r) * inner + i), is_float)
                         cur = n
@@ -3740,6 +3764,16 @@ class Lowering:
             regs.append(r)
         return Dense(res.shape, res.dtype, regs)
 
+    def op_piton_concat(self, op):
+        """The chunks a rerolled store pass carried out of its loop, as the
+        block they make up (reroll._run_passes with `queue`): their registers
+        in order, no instructions."""
+        regs = []
+        for v in op.operands:
+            d = self.materialize(self.get(v))
+            regs += [self.reg_of(d, j) for j in range(len(d.regs))]
+        return Dense(op.result.shape, op.result.dtype, regs)
+
     def carried_form(self, init, shape, dtype):
         """Loop-carried representation: (value used inside, list of (reg, source) copies)."""
         if isinstance(init, Affine):
@@ -3848,10 +3882,25 @@ class Lowering:
         body = op.regions[0]
         yield_op = body.ops[-1]
         forms = []
+        handed = set()
+        if op.attrs.get("rerolled"):
+            # reroll.py's pass loops hand their carried slots to the next pass:
+            # a slot used by nothing else keeps its registers (no copies)
+            uses = {}
+            for o in self.fn.walk():
+                for v in o.operands:
+                    if v is not None:
+                        uses[v.id] = uses.get(v.id, 0) + 1
+            handed = {i for i, v in enumerate(op.operands[3:]) if uses.get(v.id) == 1 and v.op is not None
+                      and v.op.name == "scf.for" and v.op.attrs.get("rerolled")}
         for i, (init, arg) in enumerate(zip(inits, body.args[1:])):
             if isinstance(init, Affine) and not self._affine_carry_ok(arg, yield_op.operands[i]):
                 init = self.materialize(init)
                 inits[i] = init
+            if i in handed and isinstance(init, Dense) and all(isinstance(r, VReg) for r in init.regs) \
+                    and len({id(r) for r in init.regs}) == len(init.regs):
+                forms.append((Dense(arg.shape, arg.dtype, list(init.regs)), [], "dense"))
+                continue
             forms.append(self.carried_form(init, arg.shape, arg.dtype))
         res = self._lower_loop(op, lb, ub, step, inits, forms)
         return tuple(res) if len(op.results) != 1 else res[0]
