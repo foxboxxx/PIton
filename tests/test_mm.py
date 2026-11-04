@@ -154,6 +154,27 @@ def _two_dot_loops(a_ptr, b_ptr, out_ptr, M, n1, n2, K: tl.constexpr, BM: tl.con
     tl.store(out_ptr + tl.arange(0, BM)[:, None] * BN + n, acc)
 
 
+@piton.jit
+def _b_stride_by_iteration(a_ptr, b_ptr, out_ptr, n_iter, NI: tl.constexpr, BM: tl.constexpr, BN: tl.constexpr,
+                           BK: tl.constexpr, RUNTIME: tl.constexpr):
+    # row k of iteration i's B tile is row k * (i + 1): the row stride depends
+    # on the loop variable, the base pointer does not
+    m = tl.arange(0, BM)[:, None]
+    n = tl.arange(0, BN)[None, :]
+    ak = tl.arange(0, BK)[None, :]
+    bk = tl.arange(0, BK)[:, None]
+    acc = tl.zeros((BM, BN), tl.float32)
+    if RUNTIME:
+        trips = n_iter
+    else:
+        trips = NI
+    for i in range(trips):
+        a = tl.load(a_ptr + m * (BK * NI) + i * BK + ak)
+        b = tl.load(b_ptr + bk * ((i + 1) * BN) + n)
+        acc = tl.dot(a, b, acc)
+    tl.store(out_ptr + m * BN + n, acc)
+
+
 MATMUL_SIG = {"a_ptr": "*fp32", "b_ptr": "*fp32", "c_ptr": "*fp32", "M": "i32", "N": "i32",
               "stride_am": "i32", "stride_bk": "i32", "stride_cm": "i32"}
 
@@ -303,6 +324,27 @@ def test_bk8_matmul_loop_requests_share_rotations(monkeypatch):
                  and ins.add is not None and ins.add.dst in isa.TMU_S)
     assert shared >= 16
     assert ck.stats["mm_dots"] == 1 and not ck.stats.get("mm_fallback")
+
+
+@pytest.mark.parametrize("bm,bn,bk", [(8, 32, 4), (4, 16, 2), (8, 64, 2)])
+@pytest.mark.parametrize("mm", ["order,rp", "1"])
+@pytest.mark.parametrize("runtime", [False, True])
+def test_b_row_stride_by_iteration(monkeypatch, bm, bn, bk, mm, runtime):
+    """B's row pointers (rp) are cached per base register and row stride: the
+    prologue's base + k * stride of iteration 0 was reused in every later
+    iteration when only the stride depends on the loop variable (wrong B
+    rows from the second iteration on)."""
+    ni = 3
+    rng = np.random.default_rng(210 + bm + bk)
+    a = rng.integers(-3, 4, (bm, bk * ni)).astype(np.float32)
+    b = rng.integers(-3, 4, (bk * ni, bn)).astype(np.float32)
+    sig = {"a_ptr": "*fp32", "b_ptr": "*fp32", "out_ptr": "*fp32", "n_iter": "i32"}
+    values = dict(a_ptr=a, b_ptr=b, out_ptr=np.full((bm, bn), np.nan, np.float32), n_iter=ni)
+    out, ck = _off_and_on(monkeypatch, mm, _b_stride_by_iteration, sig,
+                          dict(NI=ni, BM=bm, BN=bn, BK=bk, RUNTIME=runtime), (1,), values, ["out_ptr"])
+    np.testing.assert_array_equal(out["out_ptr"],
+                                  sum(a[:, i * bk:(i + 1) * bk] @ b[np.arange(bk) * (i + 1)] for i in range(ni)))
+    assert ck.stats["mm_dots"] == 1
 
 
 @pytest.mark.skipif(find_vc4asm() is None, reason="vc4asm not installed")

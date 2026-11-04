@@ -4490,7 +4490,7 @@ class LoopStream:
         self.plan = lw.mm_plan(self.body, loads) if lw.mm else None
         if self.plan is not None:
             self.entries = self.plan.entries()
-        self.rows = {}              # PITON_MM=rp: B base register id -> (row, its row pointer)
+        self.rows = {}              # PITON_MM=rp: (B base, row stride) -> (row, its row pointer)
         # PITON_MM=at: column-block views of A's pointer dense part (by its registers),
         # permuted in this loop's preheader
         self.tdense = {}
@@ -4563,7 +4563,11 @@ class LoopStream:
         lr.hint = "A"
         if not ptr.coeffs[0].is_const:
             ptr.coeffs[0].reg.hint = "A"
-        key = ptr.base.reg.id
+        # A row pointer is base + k * row stride: keyed by both, as the prologue,
+        # the body and the next iteration's prefetch can share the base register
+        # but not the stride (e.g. a stride computed from the loop variable)
+        c0 = ptr.coeffs[0]
+        key = (ptr.base.reg.id, ("c", _wrap(c0.const)) if c0.is_const else ("r", c0.reg.id))
         if k:
             last, rp = self.rows.get(key, (0, None))
             if last != k:
