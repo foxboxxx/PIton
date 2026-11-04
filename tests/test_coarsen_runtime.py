@@ -200,7 +200,7 @@ def test_small_and_large_launches(env, block, grids):
 def test_matmul_k_loop(env, monkeypatch, mode):
     """A nested runtime loop with loop-carried accumulators and arguments re-read
     after it, with either uniform protocol: every factor 1 ... 3 of the one build
-    (10 tiles: no factor but 1 divides them)."""
+    (3 does not divide the 10 tiles), and a launch of 4 tiles."""
     reload = mode == "reload"
     M, N, K = 40, 128, 16
     cons = dict(K=K, stride_ak=1, stride_bn=1, stride_cn=1, BLOCK_SIZE_M=8, BLOCK_SIZE_N=64,
