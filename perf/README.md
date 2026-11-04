@@ -84,8 +84,20 @@ add/mul pair that could share an instruction did.
    add-bound blocks out of add work (Mandelbrot: 225 add-only to 128 mul-only
    ops per loop body), each dot broadcast's add ALU stayed idle because the
    lowering pre-pairs every add with the next multiply, the port-aware
-   allocation saw the pairs only one schedule missed, and a nop for a hazard on
-   the way into a loop ran on every iteration (compute_peak, Mandelbrot).
-   Executed instructions geomean 0.945 (recip 0.876, add 0.881, mandel_32x16
-   0.931, transpose 0.926, softmax 0.938, matmul 0.973/0.986), never more; the
-   paired share rises in every kernel (mandel_32x16 39 -> 49%, recip 30 -> 48%).
+   allocation saw the pairs only one schedule missed and its greedy search
+   ends where its first hints lead (mandel_32x16's Pi build stopped at a
+   246-instruction loop, its emulator-size build at 232; a second search
+   from the kept schedules' pairs finds 236), and a nop for a hazard on the
+   way into a loop ran on every iteration (compute_peak, Mandelbrot). The
+   shortest schedule is not always the fastest: matmul_8x64x4's ran 1-6%
+   longer in the emulator at TMU latencies of 24-120 instructions, so a loop
+   that streams through the TMU keeps the schedule that waits least
+   (tmu_loop_cost; now 0.957-0.991). Executed instructions geomean 0.945, both at emulator
+   size and for the Pi builds (recip 0.876, add 0.871, transpose 0.926,
+   softmax 0.937, mandel_32x16 0.948, mandel_16x16x2 0.932, matmul
+   0.991/0.985, dense_relu 0.984, the digits layers 0.96-0.975), never more;
+   the paired share rises in every kernel (mandel_32x16 39 -> 49%, recip 30 ->
+   48%). Scaled by the busy fractions of `pi-2026-11-04-d1once.json` that is
+   ~1.03x on the Pi (mandelbrot 1.05-1.07x, recip 1.12x, rsqrt 1.08x, softmax
+   1.06x; memory-bound kernels less than that); compiling takes ~3.4x the CPU
+   time.
