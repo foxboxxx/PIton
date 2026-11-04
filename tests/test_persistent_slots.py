@@ -119,7 +119,11 @@ def test_automatic_factor_keeps_slots(env, name):
     from perf.suite import CASES_BY_NAME, compile_case
     env(1)
     ck, run = compile_case(CASES_BY_NAME[name], "pi")
-    if name in ("copy", "add"):
+    # (PITON_ISSUE: recip's cheaper special-value checks fit a straight-line build,
+    # 399 instructions per id where the rerolled one ran 834: 5.1 bytes per
+    # instruction, above COARSEN_MIN_BYTES, so it is coarsened like copy and add)
+    issue = os.environ.get("PITON_ISSUE", "0") not in ("", "0")
+    if name in ("copy", "add") or issue and name == "recip":
         _check_coarsened(ck, 4)
     else:
         assert ck.coarsen == 1
@@ -242,10 +246,11 @@ def test_uniform_protocols(env, monkeypatch, reload):
     through unif_addr for every id) with slot stores."""
     real = compiler._compile_tile
 
-    def only(fn, signature, constants, name, pid_max, options, chunk=0):
+    # (the PITON_ISSUE fallback in _compile_tile passes the whole variant on)
+    def only(fn, signature, constants, name, pid_max, options, *variant, **kw):
         if options.get("coarsen", 1) > 1 and options["coarsen_reload"] != reload:
             raise RegAllocError("forced by the test")
-        return real(fn, signature, constants, name, pid_max, options, chunk)
+        return real(fn, signature, constants, name, pid_max, options, *variant, **kw)
     monkeypatch.setattr(compiler, "_compile_tile", only)
     n = 9 * 256 - 100
     ck, _ = differential(env, 4, copy_kernel, COPY_SIG, {"BLOCK": 256}, (9,),
@@ -264,10 +269,11 @@ def test_coarsened_builds_keep_store_slots(env, monkeypatch):
     real = compiler._build
 
     def failing(fail):
-        def build(tile, ranges, options, interleave):
+        # pass on the pre-scheduling variant (_build's alphas and flags, PITON_ISSUE)
+        def build(tile, ranges, options, interleave, *args, **kw):
             if options.get("coarsen", 1) > 1 and options.get("store_slots") and fail(options):
                 raise RegAllocError("forced by the test")   # _compile_tile retries with the private rows
-            return real(tile, ranges, options, interleave)
+            return real(tile, ranges, options, interleave, *args, **kw)
         return build
     env(1)
     monkeypatch.setattr(compiler, "_build", failing(lambda o: True))
