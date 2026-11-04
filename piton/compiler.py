@@ -151,8 +151,45 @@ def _port_aware(original, name: str, missed: list, copy_of: dict, rounds: int = 
             return
 
 
+MM_PARTS = ("order", "at", "rp")
+
+
+def _mm_options() -> dict:
+    """PITON_MM (off unless set): the k loop of a tl.dot whose operands are
+    loads pipelined by its scf.for (backend/lower.py dot_mm). "1" turns on
+    every part, or a comma-separated subset of them (for A/B runs):
+
+    order -- the loop's TMU requests in the order the dot uses them, each
+             k step receiving the next step's registers spread over its
+             rows (not all of A and a B row at the top of the iteration),
+             A straight into accumulators
+    at    -- with order: A loaded transposed (lanes along M), so the k
+             steps of one A register follow each other and two
+             accumulators hold A, the next register arriving while the
+             current one is broadcast (not every register of the tile
+             cached or reloaded in each k step)
+    rp    -- with order: B row addresses from an accumulator, so the TMU
+             requests can share the broadcasts' instructions (a rotation
+             takes regfile B's read port)
+    """
+    value = os.environ.get("PITON_MM", "0")
+    parts = set(MM_PARTS) if value == "1" else set() if value in ("", "0") else set(value.split(","))
+    if not parts <= set(MM_PARTS) or parts and "order" not in parts:
+        raise ValueError(f"PITON_MM={value!r}: expected 0, 1 or a comma-separated subset of "
+                         f"{', '.join(MM_PARTS)} with order")
+    return {"mm": frozenset(parts)} if parts else {}
+
+
 def _build(tile, ranges, options: dict, interleave: bool):
     """Lower, allocate and schedule; returns (program, mir, lowering, stats, mir dumps)."""
+    if options.get("mm") and not options.get("mm_tried"):
+        # PITON_MM: a dot loop whose registers do not fit gets the plain dot
+        try:
+            return _build(tile, ranges, dict(options, mm_tried=True), interleave)
+        except RegAllocError:
+            built = _build(tile, ranges, dict(options, mm=None), interleave)
+            built[3]["mm_fallback"] = 1
+            return built
     port_alloc = os.environ.get("PITON_PORT_ALLOC", "1") != "0"     # PITON_PORT_ALLOC=0: plain allocation only
     for cache_dot_a in (True, False):
         lw = Lowering(tile, ranges, dict(options, cache_dot_a=cache_dot_a))
@@ -359,7 +396,7 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
                # frequent (SLOTS_MIN_STORE_BYTES); PITON_STORE_SLOTS=0: private rows,
                # =all: slots for every kernel
                "store_slots": os.environ.get("PITON_STORE_SLOTS", "1") not in ("", "0"),
-               "store_slots_all": os.environ.get("PITON_STORE_SLOTS", "1") == "all"}
+               "store_slots_all": os.environ.get("PITON_STORE_SLOTS", "1") == "all", **_mm_options()}
     if os.environ.get("PITON_MANDEL_FAST", "1") not in ("", "0"):
         # `if tl.max(x) > c` branches on the lanes of x, and a loop guarded by
         # such an if exits when it fails (examples/mandelbrot.py)
