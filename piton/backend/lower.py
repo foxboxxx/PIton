@@ -45,7 +45,10 @@ back to 0 after it (runtime/launcher.py semaphore_programs).  sacq / srel
 name their semaphore in the instruction, so slot_dispatch branches to one
 of four copies.  A rerolled loop (reroll.py) carries its block's stored
 values in registers and stores them after the loop: one DMA, not one per
-64-element chunk.
+64-element chunk.  In a coarsened program (PITON_PERSISTENT, begin_programs)
+each program id runs every store's acquire ... release itself, so no slot is
+held from one id into the next or into the thread end, and no id leaves a
+slot DMA running for the next id to overlap.
 """
 
 from __future__ import annotations
@@ -313,6 +316,7 @@ class Lowering:
         self.zero_ptr = None
         self.scratch_ptr = None
         self.unif_base = None
+        self.prog_iv = None             # coarsened launch: the logical program id 0
         self.region_depth = 0
         self.loop_cmp_wide = False
         self.row_gap_fits = None
@@ -1783,8 +1787,13 @@ class Lowering:
         # uniforms for program ids are read lazily but appended to the ABI in a
         # fixed order after the arguments
         self.lazy_ok = set()
+        coarsen = self.opts.get("coarsen", 1)
+        if coarsen > 1:
+            self.begin_programs(coarsen)
         self.lower_block(self.fn.body)
         self.tmu.drain()
+        if coarsen > 1:
+            self.end_programs()
         if self.vdw_pending or (self.stats["dma_stores"] and not self.slots):   # (slot stores waited)
             self.op("mov", isa.NOP, isa.VW_WAIT)
         self.emit(MInst(ops=[], sig="thrend"))
@@ -1793,6 +1802,8 @@ class Lowering:
         return self.mf
 
     def program_id(self, axis) -> S:
+        if axis == 0 and self.prog_iv is not None:
+            return S(reg=self.prog_iv)
         if axis not in self.pid_regs:
             self.pid_regs[axis] = self.uniform("pid", f"pid{axis}")
         if self.pid_late.get(axis):
@@ -1815,6 +1826,66 @@ class Lowering:
         if axis not in self.nprog_regs:
             self.nprog_regs[axis] = self.uniform("nprog", f"nprog{axis}")
         return S(reg=self.nprog_regs[axis])
+
+    def begin_programs(self, k: int):
+        """Coarsened launch (compile(): PITON_PERSISTENT): hardware program pid0
+        runs the whole kernel once for each logical program id pid0 * k ...
+        min(pid0 * k + k, num_programs(0)) - 1. Its uniforms pid0, nprog0 (and
+        unif_base when the kernel's uniforms are re-read for every id) follow the
+        kernel's own, so the uniform indices of ArgReload stay valid."""
+        hw, n = VReg("pid0"), VReg("nprog0")
+        self.prog_uniforms = [("pid", "pid0", hw), ("nprog", "nprog0", n)]
+        if self.opts.get("coarsen_reload"):
+            self.unif_base = VReg("unif_base")
+            self.prog_uniforms.append(("self", "unif_base", self.unif_base))
+        self.nprog_regs[0] = n                  # tl.num_programs(0): the logical grid
+        self.stats.update(coarsen=k, coarsen_reload=int(bool(self.opts.get("coarsen_reload"))),
+                          coarsen_hoist=int(self.opts.get("coarsen_hoist", True)))
+        hw_max = -(-(self.ranges.pid_max[0] + 1) // k) - 1 if self.ranges is not None else None
+        lo, end, top = self.new("plo"), self.new("phi"), self.new("phi")
+        self.imul(lo, hw, self.operand(C(k)), (0, hw_max) if hw_max is not None else None, None, None, C(k))
+        self.op("add", end, lo, self.operand(C(k)))
+        self.op("min", top, end, n)
+        self.prog_last = self.new("phi")
+        self.op("sub", self.prog_last, top, Imm(1))
+        # the host launches ceil(nprog0 / k) programs, so the first id is in range
+        self.prog_iv = self.new("pid")
+        self.op("mov", self.prog_iv, lo)
+        # an id's last store DMA may still run when the next id starts (a store
+        # through a slot waits for its DMAs before it releases the slot)
+        self.prog_stores = not self.slots and any(o.name == "tt.store" for o in self.fn.walk())
+        self.loop_depth += 1
+        self.prog_loop = self.new_block("programs")
+        if not self.opts.get("coarsen_hoist", True):
+            # values hoisted out of this loop would stay live through every id
+            self.mf.no_licm.add(self.prog_loop.label)
+        self.cur = self.prog_loop
+        # the previous id's last store may still be running
+        self.vdw_pending = self.prog_stores
+
+    def end_programs(self):
+        """Branch back for the next program id; its store DMA is waited for by
+        the next id's first store (or before thread end), not here. (A store
+        through a slot has waited and released the slot: no id holds a slot
+        when the next one starts or the program ends.)"""
+        own = list(self.entry_uniform_insts)
+        for kind, name, v in self.prog_uniforms:
+            self.entry_uniform_insts.append(alu("mov", v, isa.UNIF))
+            self.uniforms.append((kind, name))
+        # another id follows while this one is below the last; the increment
+        # comes after the compare, so it can fill a branch delay slot
+        self.op("sub", isa.NOP, self.prog_iv, self.prog_last, setf=True, unit="add")
+        self.op("add", self.prog_iv, self.prog_iv, Imm(1))
+        if self.opts.get("coarsen_reload"):
+            # the next id reads the kernel's uniforms again (from the start of
+            # the list) instead of keeping them in registers through the body
+            self.op("mov", isa.UNIF_ADDR, self.unif_base)
+            for ins in own:
+                self.emit(alu("mov", ins.ops[0].dst, isa.UNIF))
+        self.emit(MInst(kind="branch", bcond="anyn", target=self.prog_loop.label))
+        self.loop_depth -= 1
+        self.cur = self.new_block("programs_end")
+        self.vdw_pending = self.vdw_pending or self.prog_stores
 
     def get_zero_ptr(self) -> VReg:
         if self.zero_ptr is None:
@@ -2947,7 +3018,9 @@ class Lowering:
         self.emit(MInst(kind="branch", bcond="allnz", target=slow_label))
         self.cur = self.new_block("store_full")
         self.store_chunks(layout, dv, None, filled)
-        if not self.slots:                  # (slot_release waits)
+        if self.prog_iv is None and not self.slots:     # (slot_release waits)
+            # (coarsened: the next program id's loads overlap this DMA; the
+            # next store, or the end of the program, waits for it)
             self.dma_wait()
         self.emit(MInst(kind="branch", bcond="always", target=done_label))
         slow = mir.Block(slow_label, loop_depth=self.loop_depth)
@@ -3861,7 +3934,10 @@ class Lowering:
         # (a store through a slot has waited for its DMAs when it ends)
         has_store = any(o.name == "tt.store" for o in _walk_ops(body)) and not self.slots
         self.tmu.drain()
-        self.dma_wait()
+        if not (has_store and self.prog_iv is not None):
+            # (coarsened: the body's first store waits for the previous program
+            # id's last DMA, so the loads before it overlap that DMA)
+            self.dma_wait()
         for (form, copies, kind) in forms:
             for reg, src in copies:
                 self.copy_into(reg, src)

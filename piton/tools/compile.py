@@ -78,7 +78,10 @@ def emit_c(ck, out_name: str) -> tuple:
         lines_h.append("    int32_t _unused;")
     lines_h += [
         f"}} {sym}_args_t;", "",
-        "// Launch gx*gy*gz program instances through the V3D request queue.",
+        "// Launch gx*gy*gz program instances through the V3D request queue."]
+    if ck.coarsen > 1:
+        lines_h.append(f"// Each hardware program runs {ck.coarsen} consecutive x ids (PITON_PERSISTENT).")
+    lines_h += [
         "// Returns the elapsed time in microseconds.",
         f"uint32_t {sym}_launch(const {sym}_args_t *args, unsigned gx, unsigned gy, unsigned gz);",
         "", "#endif", ""]
@@ -90,8 +93,12 @@ def emit_c(ck, out_name: str) -> tuple:
     body += ["};", "",
              "static piton_buf_t code_buf, unif_buf, zero_buf;",
              "static unsigned unif_capacity;", "",
-             f"uint32_t {sym}_launch(const {sym}_args_t *args, unsigned gx, unsigned gy, unsigned gz) {{",
-             "    unsigned n = gx * gy * gz;",
+             f"uint32_t {sym}_launch(const {sym}_args_t *args, unsigned gx, unsigned gy, unsigned gz) {{"]
+    hx = "gx"
+    if ck.coarsen > 1:
+        hx = "hx"
+        body.append(f"    unsigned hx = (gx + {ck.coarsen - 1}) / {ck.coarsen};   // hardware programs along x")
+    body += [f"    unsigned n = {hx} * gy * gz;",
              "    if (!code_buf.handle) {",
              f"        code_buf = piton_alloc(sizeof({sym}_code));",
              "        volatile uint32_t *c = (volatile uint32_t *)code_buf.cpu;",
@@ -111,7 +118,7 @@ def emit_c(ck, out_name: str) -> tuple:
              "    unsigned p = 0;",
              "    for (unsigned z = 0; z < gz; z++)",
              "    for (unsigned y = 0; y < gy; y++)",
-             "    for (unsigned x = 0; x < gx; x++, p++) {",
+             f"    for (unsigned x = 0; x < {hx}; x++, p++) {{",
              f"        volatile uint32_t *q = u + p * {max(len(ck.uniforms), 1)};",
              "        uint32_t self = unif_buf.bus + 4 * (uint32_t)(q - u);"]
     for j, (kind, name) in enumerate(ck.uniforms):

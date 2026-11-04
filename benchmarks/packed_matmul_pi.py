@@ -40,7 +40,7 @@ def bench(n, bm=8, bn=64, bk=8, group=4, stages=2, repeats=3, sample_stride=97,
     grid = (piton.cdiv(n, bm) * piton.cdiv(n, bn),)
     ck = pc.compile(matmul_packed_b_kernel, sig, cons, num_stages=stages, grid=grid)
     programs = []
-    for pid, g in program_ids(grid):
+    for pid, g in program_ids(grid, ck.coarsen):
         uniforms = []
         for kind, name in ck.uniforms:
             if kind == "arg":

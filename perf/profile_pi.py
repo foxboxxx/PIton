@@ -68,7 +68,7 @@ def run_case(case, repeats: int, runner: PiRunner, compiled=None) -> dict:
     buffers = [buffer_for(n, run.inputs.specs[n]) for n in run.inputs.specs]
     buffers += [Buffer("__zero", 64), Buffer("__scratch", 64)]
     programs = []
-    for pid, g in program_ids(run.grid):
+    for pid, g in program_ids(run.grid, ck.coarsen):
         u = []
         for kind, name in ck.uniforms:
             if kind == "arg":
