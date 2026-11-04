@@ -1,0 +1,343 @@
+{
+ "env": "PITON_REROLL_REDUCE",
+ "off": "0",
+ "on": "1",
+ "targets": [
+  "softmax",
+  "transpose",
+  "row_sum",
+  "row_max",
+  "dense_relu"
+ ],
+ "accept": false,
+ "why": "slower: transpose 0.712x",
+ "rows": [
+  {
+   "name": "copy",
+   "instructions_off": 265,
+   "instructions_on": 265,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "add",
+   "instructions_off": 361,
+   "instructions_on": 361,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "mul",
+   "instructions_off": 356,
+   "instructions_on": 356,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "fma",
+   "instructions_off": 373,
+   "instructions_on": 373,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "scaled_relu",
+   "instructions_off": 411,
+   "instructions_on": 411,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "exp",
+   "instructions_off": 409,
+   "instructions_on": 409,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "exp2",
+   "instructions_off": 399,
+   "instructions_on": 399,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "log",
+   "instructions_off": 436,
+   "instructions_on": 436,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "log2",
+   "instructions_off": 420,
+   "instructions_on": 420,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "recip",
+   "instructions_off": 372,
+   "instructions_on": 372,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "rsqrt",
+   "instructions_off": 371,
+   "instructions_on": 371,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "sqrt",
+   "instructions_off": 354,
+   "instructions_on": 354,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "idiv",
+   "instructions_off": 692,
+   "instructions_on": 692,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "row_sum",
+   "instructions_off": 203,
+   "instructions_on": 203,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "row_max",
+   "instructions_off": 205,
+   "instructions_on": 205,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "transpose",
+   "instructions_off": 1040,
+   "instructions_on": 476,
+   "off_us": 769,
+   "on_us": 1080,
+   "speedup": 0.712037037037037,
+   "off": [
+    {
+     "times_us": [
+      794,
+      772,
+      769,
+      769,
+      770
+     ],
+     "busy": 0.4123762462071955,
+     "tmu": 0.0032856523623753793,
+     "idle": 0.06200780234070221,
+     "icache_miss": 0.03154902966781494
+    },
+    {
+     "times_us": [
+      793,
+      770,
+      772,
+      774,
+      772
+     ],
+     "busy": 0.4118406926406926,
+     "tmu": 0.0033852813852813853,
+     "idle": 0.061676190476190475,
+     "icache_miss": 0.03154508622269275
+    },
+    {
+     "times_us": [
+      793,
+      769,
+      771,
+      770,
+      770
+     ],
+     "busy": 0.4123762462071955,
+     "tmu": 0.003209362808842653,
+     "idle": 0.06114607715648028,
+     "icache_miss": 0.03154902966781494
+    }
+   ],
+   "on": [
+    {
+     "times_us": [
+      1099,
+      1080,
+      1083,
+      1083,
+      1083
+     ],
+     "busy": 0.11504938271604938,
+     "tmu": 0.8179962962962963,
+     "idle": 0.03745925925925926,
+     "icache_miss": 0.0017139796464916979
+    },
+    {
+     "times_us": [
+      1095,
+      1084,
+      1082,
+      1083,
+      1083
+     ],
+     "busy": 0.11484658040665434,
+     "tmu": 0.8190067775723968,
+     "idle": 0.0381158348736907,
+     "icache_miss": 0.0017138327727671972
+    },
+    {
+     "times_us": [
+      1094,
+      1081,
+      1082,
+      1083,
+      1082
+     ],
+     "busy": 0.11494295405488746,
+     "tmu": 0.8210595127967931,
+     "idle": 0.03729879740980573,
+     "icache_miss": 0.0017139796464916979
+    }
+   ]
+  },
+  {
+   "name": "softmax",
+   "instructions_off": 1097,
+   "instructions_on": 532,
+   "off_us": 834,
+   "on_us": 487,
+   "speedup": 1.7125256673511293,
+   "off": [
+    {
+     "times_us": [
+      873,
+      847,
+      846,
+      848,
+      849
+     ],
+     "busy": 0.4119621749408983,
+     "tmu": 0.005111111111111111,
+     "idle": 0.0568053585500394,
+     "icache_miss": 0.03177413619391928
+    },
+    {
+     "times_us": [
+      861,
+      849,
+      848,
+      853,
+      847
+     ],
+     "busy": 0.41147579693034236,
+     "tmu": 0.004969696969696969,
+     "idle": 0.05673042109405746,
+     "icache_miss": 0.03177413619391928
+    },
+    {
+     "times_us": [
+      862,
+      834,
+      849,
+      847,
+      847
+     ],
+     "busy": 0.4178896882494005,
+     "tmu": 0.004214228617106315,
+     "idle": 0.05793764988009592,
+     "icache_miss": 0.03177413619391928
+    }
+   ],
+   "on": [
+    {
+     "times_us": [
+      495,
+      492,
+      491,
+      489,
+      492
+     ],
+     "busy": 0.8181213360599864,
+     "tmu": 0.004774369461486026,
+     "idle": 0.08224403544648944,
+     "icache_miss": 0.0027155216826263116
+    },
+    {
+     "times_us": [
+      491,
+      491,
+      492,
+      490,
+      487
+     ],
+     "busy": 0.8214811772758385,
+     "tmu": 0.004722792607802875,
+     "idle": 0.0834113620807666,
+     "icache_miss": 0.00267905814154468
+    },
+    {
+     "times_us": [
+      488,
+      487,
+      491,
+      491,
+      490
+     ],
+     "busy": 0.8214811772758385,
+     "tmu": 0.004851471594798084,
+     "idle": 0.08307460643394934,
+     "icache_miss": 0.002722151130905888
+    }
+   ]
+  },
+  {
+   "name": "matmul_8x64x4",
+   "instructions_off": 1136,
+   "instructions_on": 1136,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "matmul_8x64x8",
+   "instructions_off": 1423,
+   "instructions_on": 1423,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "dense_relu",
+   "instructions_off": 565,
+   "instructions_on": 565,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "mandel_32x16",
+   "instructions_off": 422,
+   "instructions_on": 422,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "mandel_16x16x2",
+   "instructions_off": 447,
+   "instructions_on": 447,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "compute_peak",
+   "instructions_off": 150,
+   "instructions_on": 150,
+   "same": true,
+   "speedup": 1.0
+  }
+ ]
+}

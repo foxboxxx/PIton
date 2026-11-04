@@ -273,11 +273,12 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
 
 def _compile_program(fn, signature, constants, name, pid_max, options):
     """compile() up to the scheduled program: straight-line, else rerolled."""
-    # PITON_REROLL_REDUCE=1 (default off) also rerolls 1-D kernels with row
-    # reductions (softmax: one loop per pass, reroll.py) and loads transposed
-    # 2-D tiles through transposed pointers (transpose); "rows" / "tiles"
-    # enable only one of the two.
-    mode = os.environ.get("PITON_REROLL_REDUCE", "0")
+    # PITON_REROLL_REDUCE: "rows" (the default) also rerolls 1-D kernels with
+    # row reductions (softmax: one loop per pass, reroll.py); "tiles" loads
+    # transposed 2-D tiles through transposed pointers (transpose; off by
+    # default: 0.71x on the Pi, each request's lanes span 16 rows); "1" both,
+    # "0" neither.
+    mode = os.environ.get("PITON_REROLL_REDUCE", "rows")
     rows, tiles = mode not in ("", "0", "tiles"), mode not in ("", "0", "rows")
     use_reroll = os.environ.get("PITON_REROLL", "1") != "0"
 

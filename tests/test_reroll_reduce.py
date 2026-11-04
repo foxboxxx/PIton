@@ -35,10 +35,7 @@ TRANSPOSE = {"x_ptr": "*fp32", "out_ptr": "*fp32", "n_rows": "i32", "n_cols": "i
 
 
 def build(monkeypatch, kernel, sig, cons, grid, mode="1", icache=None, capacity=None):
-    if mode is None:
-        monkeypatch.delenv("PITON_REROLL_REDUCE", raising=False)
-    else:
-        monkeypatch.setenv("PITON_REROLL_REDUCE", mode)
+    monkeypatch.setenv("PITON_REROLL_REDUCE", "0" if mode is None else mode)
     if icache is not None:
         monkeypatch.setattr(reroll, "ICACHE_INSTRUCTIONS", icache)
     if capacity is not None:
@@ -134,11 +131,24 @@ def test_other_suite_cases_unchanged(monkeypatch, name):
     a dot layer (its reduction is tl.dot in the K loop) and the elementwise
     kernels compile exactly as without the switch."""
     from perf.suite import CASES_BY_NAME, compile_case
-    monkeypatch.delenv("PITON_REROLL_REDUCE", raising=False)
+    monkeypatch.setenv("PITON_REROLL_REDUCE", "0")
     off, _ = compile_case(CASES_BY_NAME[name], "pi")
     monkeypatch.setenv("PITON_REROLL_REDUCE", "1")
     on, _ = compile_case(CASES_BY_NAME[name], "pi")
     assert on.words == off.words and on.uniforms == off.uniforms
+
+
+def test_default_rerolls_rows_only(monkeypatch):
+    """Unset means "rows": softmax gets its pass loops, transpose keeps the
+    plain build (transposed loads measured 0.71x on the Pi)."""
+    from perf.suite import CASES_BY_NAME, compile_case
+    monkeypatch.delenv("PITON_REROLL_REDUCE", raising=False)
+    softmax = compile_case(CASES_BY_NAME["softmax"], "pi")[0]
+    monkeypatch.setenv("PITON_REROLL_REDUCE", "rows")
+    assert compile_case(CASES_BY_NAME["softmax"], "pi")[0].words == softmax.words
+    monkeypatch.setenv("PITON_REROLL_REDUCE", "0")
+    assert len(compile_case(CASES_BY_NAME["softmax"], "pi")[0].program.instrs) > len(softmax.program.instrs)
+    assert softmax.stats["rerolled"]
 
 
 def test_softmax_special_values(monkeypatch):

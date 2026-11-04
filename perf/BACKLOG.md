@@ -49,8 +49,8 @@ Status: `todo`, `wip`, `accepted <commit>`, `rejected (<why>)`.
 ## D. Instruction cache
 | # | change | status |
 |---|---|---|
-| D1 | reroll row reductions (carry partial max/sum across chunks) | wip (batch 1, opt/d1-reroll-reduce, with D2) |
-| D2 | reroll 2-D tiles | wip (with D1) |
+| D1 | reroll row reductions (carry partial max/sum across chunks) | accepted, on by default (`PITON_REROLL_REDUCE=rows`; `0` turns it off): softmax 1.73x |
+| D2 | reroll 2-D tiles | built as transposed loads (`PITON_REROLL_REDUCE=tiles`), off: transpose 0.71x on the Pi (each request's 16 lanes read 16 rows 1 KiB apart) |
 | D3 | autotune the reroll threshold (450) and chunk size | rejected: SUB 64 is best (32 is 1.4x slower for exp/log/sqrt; 128 gives the same code or time) |
 | D4 | align hot loops to 32-instruction cache lines | deferred: hot loops already fit the ~500-instruction cache, so alignment only affects their first iteration |
 
@@ -88,3 +88,4 @@ outputs; H6 matmul register blocking for more A reuse.
 | 2026-11-03 | profile | after C1 + A1: geometric mean 1.165x over the 23 cases against the morning baseline (`pi-2026-11-03-c1a1.json`, `perf/compare.py`); exp/log/recip/rsqrt now 87-89% busy (compute bound), copy at the store engine's ~940 MB/s, add/mul/fma 22% busy (load side). row_sum/row_max 142/146 us is their usual range (141-146 in every profile since 11-02; the 138/139 baseline was a fast boot) |
 | 2026-11-03 | G1 | BLOCK sweep with slots: exp 256 -> 1356 us, 512 1695, 1024 1676; sqrt 256 1175, 512 1725, 1024 1638. Blocks above 256 lose the slots (the rerolled store queue holds one 16-row slot, at most 4 chunks), so 256 stays best (`tune-2026-11-03-{exp,sqrt}-BLOCK-c1a1.json`) |
 | 2026-11-03 | C10 | branch-free exact division (`//` and `%` share one estimate, constant divisors take shortcuts), on top of C1 + A1: idiv 7836 -> 2824 us (2.775x), dense_relu 4989 -> 4354 (1.146x), matmul_8x64x8 1.048x, matmul_8x64x4 1.028x, transpose 1.024x, nothing else changes; host tests both ways (684), test_hw 11/11 (`ab-2026-11-03-fast_idiv.json`) |
+| 2026-11-03 | D1/D2 | rerolled reductions and transposed tile loads on top of C1 + A1 + C10: both parts softmax 834 -> 487 us (1.713x) but transpose 769 -> 1080 (0.712x), rejected (`ab-2026-11-03-reroll_reduce-both-rejected.json`); rows only: softmax 844 -> 488 (1.730x), everything else the same code; host tests both ways (762), test_hw 12/12 (`ab-2026-11-03-reroll_reduce.json`) |

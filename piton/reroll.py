@@ -27,7 +27,7 @@ shifting each chunk in (`piton.shift_in`: N/16 - SUB/16 register moves per
 chunk), and the full block is stored after the loop, one 1 KiB DMA instead
 of N/SUB DMAs of SUB*4 bytes.
 
-With `reductions` (PITON_REROLL_REDUCE=1 or "rows") the kernel may also
+With `reductions` (PITON_REROLL_REDUCE "rows", the default, or 1) the kernel may also
 reduce such tensors to scalars (tl.sum / tl.max / tl.min) and splat the
 results back, as softmax does. Each pass over the row becomes its own loop:
 
@@ -61,7 +61,7 @@ elementwise loop leave the store loop too, which carries their values out
 in slots, and each is stored once after it (softmax at BLOCK_SIZE=256: one
 1 KiB DMA per row).
 
-transposed_loads() (PITON_REROLL_REDUCE=1 or "tiles") handles the 2-D tile
+transposed_loads() (PITON_REROLL_REDUCE=1 or "tiles", off by default) handles the 2-D tile
 that missed the cache, transpose: tl.trans of a loaded tile becomes a load
 through the transposed pointers, which needs no lane permutation at all.
 """

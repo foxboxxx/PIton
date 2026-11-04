@@ -1,0 +1,339 @@
+{
+ "env": "PITON_REROLL_REDUCE",
+ "off": "0",
+ "on": "rows",
+ "targets": [
+  "softmax"
+ ],
+ "accept": true,
+ "why": "faster: softmax 1.730x",
+ "rows": [
+  {
+   "name": "copy",
+   "instructions_off": 265,
+   "instructions_on": 265,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "add",
+   "instructions_off": 361,
+   "instructions_on": 361,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "mul",
+   "instructions_off": 356,
+   "instructions_on": 356,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "fma",
+   "instructions_off": 373,
+   "instructions_on": 373,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "scaled_relu",
+   "instructions_off": 411,
+   "instructions_on": 411,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "exp",
+   "instructions_off": 409,
+   "instructions_on": 409,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "exp2",
+   "instructions_off": 399,
+   "instructions_on": 399,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "log",
+   "instructions_off": 436,
+   "instructions_on": 436,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "log2",
+   "instructions_off": 420,
+   "instructions_on": 420,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "recip",
+   "instructions_off": 372,
+   "instructions_on": 372,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "rsqrt",
+   "instructions_off": 371,
+   "instructions_on": 371,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "sqrt",
+   "instructions_off": 354,
+   "instructions_on": 354,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "idiv",
+   "instructions_off": 692,
+   "instructions_on": 692,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "row_sum",
+   "instructions_off": 203,
+   "instructions_on": 203,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "row_max",
+   "instructions_off": 205,
+   "instructions_on": 205,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "transpose",
+   "instructions_off": 1057,
+   "instructions_on": 1033,
+   "off_us": 786,
+   "on_us": 765,
+   "speedup": 1.0274509803921568,
+   "off": [
+    {
+     "times_us": [
+      814,
+      788,
+      787,
+      788,
+      789
+     ],
+     "busy": 0.40858280389665397,
+     "tmu": 0.002859805167301991,
+     "idle": 0.060606522659889875,
+     "icache_miss": 0.03161741085769354
+    },
+    {
+     "times_us": [
+      812,
+      789,
+      789,
+      787,
+      788
+     ],
+     "busy": 0.40858280389665397,
+     "tmu": 0.002841168996188056,
+     "idle": 0.05943074968233799,
+     "icache_miss": 0.03161741085769354
+    },
+    {
+     "times_us": [
+      812,
+      790,
+      788,
+      786,
+      790
+     ],
+     "busy": 0.40910262934690417,
+     "tmu": 0.002885496183206107,
+     "idle": 0.059256997455470736,
+     "icache_miss": 0.03161741085769354
+    }
+   ],
+   "on": [
+    {
+     "times_us": [
+      789,
+      766,
+      765,
+      765,
+      766
+     ],
+     "busy": 0.4096244008714597,
+     "tmu": 0.003963398692810457,
+     "idle": 0.06094640522875817,
+     "icache_miss": 0.03165172391060716
+    },
+    {
+     "times_us": [
+      792,
+      766,
+      767,
+      767,
+      768
+     ],
+     "busy": 0.40908964316797214,
+     "tmu": 0.003973890339425587,
+     "idle": 0.06079721496953873,
+     "icache_miss": 0.03165172391060716
+    },
+    {
+     "times_us": [
+      793,
+      767,
+      769,
+      768,
+      765
+     ],
+     "busy": 0.4096244008714597,
+     "tmu": 0.003989542483660131,
+     "idle": 0.060181263616557734,
+     "icache_miss": 0.03165172391060716
+    }
+   ]
+  },
+  {
+   "name": "softmax",
+   "instructions_off": 1097,
+   "instructions_on": 532,
+   "off_us": 844,
+   "on_us": 488,
+   "speedup": 1.7295081967213115,
+   "off": [
+    {
+     "times_us": [
+      860,
+      851,
+      848,
+      849,
+      848
+     ],
+     "busy": 0.41099056603773587,
+     "tmu": 0.005562893081761006,
+     "idle": 0.05766194968553459,
+     "icache_miss": 0.03177413619391928
+    },
+    {
+     "times_us": [
+      861,
+      850,
+      852,
+      848,
+      850
+     ],
+     "busy": 0.41099056603773587,
+     "tmu": 0.005034591194968553,
+     "idle": 0.05689622641509434,
+     "icache_miss": 0.03177413619391928
+    },
+    {
+     "times_us": [
+      874,
+      849,
+      849,
+      848,
+      844
+     ],
+     "busy": 0.4129383886255924,
+     "tmu": 0.004976303317535545,
+     "idle": 0.0564565560821485,
+     "icache_miss": 0.03177413619391928
+    }
+   ],
+   "on": [
+    {
+     "times_us": [
+      492,
+      491,
+      488,
+      490,
+      491
+     ],
+     "busy": 0.8197978142076503,
+     "tmu": 0.0046775956284153,
+     "idle": 0.08276502732240437,
+     "icache_miss": 0.0026923179195362567
+    },
+    {
+     "times_us": [
+      490,
+      490,
+      492,
+      490,
+      490
+     ],
+     "busy": 0.8164517006802721,
+     "tmu": 0.007523809523809524,
+     "idle": 0.08074285714285714,
+     "icache_miss": 0.002927620319878243
+    },
+    {
+     "times_us": [
+      492,
+      490,
+      492,
+      489,
+      490
+     ],
+     "busy": 0.8181213360599864,
+     "tmu": 0.004831629175187457,
+     "idle": 0.08576687116564417,
+     "icache_miss": 0.002662482923213461
+    }
+   ]
+  },
+  {
+   "name": "matmul_8x64x4",
+   "instructions_off": 1136,
+   "instructions_on": 1136,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "matmul_8x64x8",
+   "instructions_off": 1423,
+   "instructions_on": 1423,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "dense_relu",
+   "instructions_off": 565,
+   "instructions_on": 565,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "mandel_32x16",
+   "instructions_off": 422,
+   "instructions_on": 422,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "mandel_16x16x2",
+   "instructions_off": 447,
+   "instructions_on": 447,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "compute_peak",
+   "instructions_off": 150,
+   "instructions_on": 150,
+   "same": true,
+   "speedup": 1.0
+  }
+ ]
+}
