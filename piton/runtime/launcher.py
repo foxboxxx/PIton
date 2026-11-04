@@ -101,8 +101,10 @@ def launch_coarsen(ck: CompiledKernel, grid) -> int:
     compiler._coarsening chooses for a known grid, ck.coarsen for at least
     COARSEN_MIN_GRID launched programs, halved until COARSEN_MIN_PROGRAMS
     hardware programs remain, and 1 (the plain program's ids, one hardware
-    program each) for smaller launches."""
-    if ck.coarsen_launch is None:
+    program each) for smaller launches. (A program without coarsen0 has its
+    factor in the code: every launch runs ck.coarsen, whatever coarsen_launch
+    says, as tools/compile.py emit_c's launcher does.)"""
+    if ck.coarsen_launch is None or ("coarsen", "coarsen0") not in ck.uniforms:
         return ck.coarsen
     min_grid, min_programs = ck.coarsen_launch
     gx = (list(grid) + [1])[0]

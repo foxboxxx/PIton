@@ -161,6 +161,24 @@ def test_forced_factor_runs_in_every_launch(env):
         _run(_add(64), (7,), values, coarsen=1)            # (the factor is part of the code)
 
 
+def test_factor_in_the_code_wins(env, fake_pi):
+    """A build without coarsen0 runs its compile-time factor in every launch
+    path even when coarsen_launch says otherwise (a hand-made CompiledKernel):
+    launch_coarsen agrees with emit_c, which keys on the uniform."""
+    env(1, runtime=False)
+    ck = dataclasses.replace(_add(64), coarsen_launch=LAUNCH)
+    assert ck.coarsen == 4 and ("coarsen", "coarsen0") not in ck.uniforms
+    assert [launch_coarsen(ck, (gx,)) for gx in (1, 13, 300, 1024)] == [4, 4, 4, 4]
+    _, source = emit_c(ck, "kern")
+    assert "unsigned hx = (gx + 3) / 4;" in source and "unsigned k" not in source
+    values = _add_values(13, 64)
+    pi.run_on_pi(ck, (13,), values)
+    assert len(fake_pi[-1][1]) == 4
+    env(None)
+    want, _ = _run(_add(64), (13,), values)
+    _same(want, _run(ck, (13,), values)[0])
+
+
 # -- one build, small and large launches ----------------------------------------------------
 
 @pytest.mark.parametrize("block,grids", [(64, (1, 13, 255, 256, 301, 513)), (128, (5, 257, 513))])
