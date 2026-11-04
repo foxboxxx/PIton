@@ -500,6 +500,7 @@ def test_generated_c_launcher(env, monkeypatch, tmp_path, which):
     both uniform protocols; copy goes through piton_launch_slots; ids_kernel's
     forced factor holds for every 2-D launch; dense is examples/digits_pi.py's
     first layer (batches of 1, 16, 256 and 1800 rows)."""
+    monkeypatch.setenv("PITON_SLOTS_ONCE", "0")     # the stub runtime logs init and fini
     reloads = (False, True)
     if which == "add":
         kernel, sig, cons, grid = add_kernel, ADD_SIG, {"BLOCK_SIZE": 64}, (1024,)
