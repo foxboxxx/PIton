@@ -360,6 +360,17 @@ def _coarsening(tile, pid_max, id_length) -> int:
     return k
 
 
+def tmu_noswap_enabled() -> bool:
+    """PITON_TMU_NOSWAP=1: a program that is not coarsened and spreads its
+    loads over TMU0 and TMU1 writes TMU_NOSWAP, so each load reaches the same
+    physical TMU (and its cache) on all four QPUs of a slice, not the other
+    one on QPU2/QPU3 (guide p40; lower.py Lowering.run).  Unset, "" or "0": off."""
+    env = os.environ.get("PITON_TMU_NOSWAP", "0")
+    if env not in ("", "0", "1"):
+        raise ValueError(f"PITON_TMU_NOSWAP={env!r}: expected 0 or 1")
+    return env == "1"
+
+
 def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stages: int = 2,
             name: Optional[str] = None, verify: bool = True, store_mutex: bool = True,
             grid=None) -> CompiledKernel:
@@ -385,7 +396,9 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
                "store_slots": os.environ.get("PITON_STORE_SLOTS", "1") not in ("", "0"),
                "store_slots_all": os.environ.get("PITON_STORE_SLOTS", "1") == "all",
                # issue efficiency (presched.py flag groups, lower.py "Issue"); PITON_ISSUE=1: on
-               "issue": os.environ.get("PITON_ISSUE", "0") not in ("", "0")}
+               "issue": os.environ.get("PITON_ISSUE", "0") not in ("", "0"),
+               # TMU_NOSWAP where requests are balanced (lower.py); PITON_TMU_NOSWAP=1: on
+               "tmu_noswap": tmu_noswap_enabled()}
     if os.environ.get("PITON_MANDEL_FAST", "1") not in ("", "0"):
         # `if tl.max(x) > c` branches on the lanes of x, and a loop guarded by
         # such an if exits when it fails (examples/mandelbrot.py)
