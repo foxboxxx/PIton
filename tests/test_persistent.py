@@ -49,10 +49,10 @@ def _fail_builds(monkeypatch, when):
     """Make _compile_tile raise RegAllocError for the option sets `when` accepts."""
     real = compiler._compile_tile
 
-    def build(fn, signature, constants, name, pid_max, options, chunk=0):
+    def build(fn, signature, constants, name, pid_max, options, *variant, **kw):
         if when(options):
             raise RegAllocError("forced by the test")
-        return real(fn, signature, constants, name, pid_max, options, chunk)
+        return real(fn, signature, constants, name, pid_max, options, *variant, **kw)
     monkeypatch.setattr(compiler, "_compile_tile", build)
 
 
@@ -519,11 +519,10 @@ def _variants(monkeypatch, k, kernel, sig, cons, grid, values, compile_grid="lau
     built = 0
     for hoist in (True, False):
         for reload in (False, True):
-            def only(fn, signature, constants, name, pid_max, options, chunk=0, hoist=hoist, reload=reload):
-                if options.get("coarsen", 1) > 1 and (options["coarsen_hoist"], options["coarsen_reload"]) != \
-                        (hoist, reload):
+            def only(fn, signature, constants, name, pid_max, options, *variant, _want=(hoist, reload), **kw):
+                if options.get("coarsen", 1) > 1 and (options["coarsen_hoist"], options["coarsen_reload"]) != _want:
                     raise RegAllocError("forced by the test")
-                return real(fn, signature, constants, name, pid_max, options, chunk)
+                return real(fn, signature, constants, name, pid_max, options, *variant, **kw)
             monkeypatch.setattr(compiler, "_compile_tile", only)
             ck = compiler.compile(kernel, sig, cons, grid=compile_grid)
             monkeypatch.setattr(compiler, "_compile_tile", real)

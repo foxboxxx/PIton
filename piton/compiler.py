@@ -392,11 +392,13 @@ def _compile_program(fn, signature, constants, name, pid_max, options):
     sub = reroll.SUB
     try:
         tile, prog, mf, lw, stats, asm = _compile_tile(fn, signature, constants, name, pid_max, options)
+        variant = ((), {})          # _compile_tile's arguments for the chosen build (coarsening rebuilds it)
     except RegAllocError as e:
         if use_reroll and reroll.applicable(generate(), sub):
             # A large block does not fit the registers as straight-line code;
             # as a loop over chunks only one chunk is live at a time.
             tile, prog, mf, lw, stats, asm = _compile_tile(fn, signature, constants, name, pid_max, options, sub)
+            variant = ((sub,), {})
             sub //= 2
         elif multipass or tiles and reroll.transposed_loads(generate()):
             # a row or tile too large for the registers: chunked passes, or loads
@@ -412,6 +414,7 @@ def _compile_program(fn, signature, constants, name, pid_max, options):
             candidate = None
         if candidate is not None and (prog is None or len(candidate[1].instrs) < len(prog.instrs)):
             tile, prog, mf, lw, stats, asm = candidate
+            variant = ((), {"transposed": True})
     if multipass:
         if prog is None or len(prog.instrs) > reroll.ICACHE_INSTRUCTIONS:
             # Every chunk halving adds loop iterations and carried-slot moves to
@@ -424,17 +427,19 @@ def _compile_program(fn, signature, constants, name, pid_max, options):
                         continue
                     try:
                         cand = _compile_tile(fn, signature, constants, name, pid_max, options, sub, True, carry)
+                        cand_variant = ((sub, True, carry), {})
                     except RegAllocError:
                         continue
                     if best is None or len(best[1].instrs) > reroll.ICACHE_CAPACITY and \
                             len(cand[1].instrs) < len(best[1].instrs):
-                        best = cand
+                        best, best_variant = cand, cand_variant
                     if len(cand[1].instrs) <= reroll.ICACHE_CAPACITY:
                         break
                 if best is not None and len(best[1].instrs) <= reroll.ICACHE_CAPACITY:
                     break
             if best is not None and (prog is None or len(best[1].instrs) < len(prog.instrs)):
                 tile, prog, mf, lw, stats, asm = best
+                variant = best_variant
     elif prog is not None:
         # A straight-line program larger than the instruction cache stalls on
         # every cache line (reroll.py); a loop over 64-element chunks fits, and
@@ -445,6 +450,7 @@ def _compile_program(fn, signature, constants, name, pid_max, options):
             if len(rerolled[1].instrs) >= len(prog.instrs):
                 break
             tile, prog, mf, lw, stats, asm = rerolled
+            variant = ((sub,), {})
             sub //= 2
     if prog is None:
         raise unrolled_error
@@ -466,7 +472,7 @@ def _compile_program(fn, signature, constants, name, pid_max, options):
             for reload in (False, True):
                 opts = dict(options, coarsen=coarsen, coarsen_reload=reload, coarsen_hoist=hoist)
                 try:
-                    built = _compile_tile(fn, signature, constants, name, pid_max, opts, stats["rerolled"])
+                    built = _compile_tile(fn, signature, constants, name, pid_max, opts, *variant[0], **variant[1])
                 except RegAllocError:
                     continue
                 if stats.get("store_slots") and not built[4].get("store_slots"):

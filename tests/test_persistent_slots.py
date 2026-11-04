@@ -179,9 +179,11 @@ def test_ragged_copy(env, blocks, k, num_qpus):
     assert np.all(got["out_ptr"][n:] == -2.0)
 
 
-def test_slot_store_scatter_and_scalar(env):
+def test_slot_store_scatter_and_scalar(env, monkeypatch):
     """Three stores per id, each through the slot: contiguous, reversed
-    (element by element) and scalar."""
+    (element by element) and scalar. (Straight-line: rerolled into passes,
+    PITON_REROLL_REDUCE, the kernel keeps private rows and one id per program.)"""
+    monkeypatch.setenv("PITON_REROLL_REDUCE", "0")
     n, block, blocks = 7 * 256 - 9, 256, 7
     x = rng.standard_normal(n).astype(np.float32)
     differential(env, 3, mixed_store_kernel,
