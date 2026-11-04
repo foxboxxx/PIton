@@ -532,9 +532,10 @@ def test_waited_reservations_end_with_their_run(slots):
 
 # -- the Pi side -----------------------------------------------------------------------------
 
-def test_generated_launch_runs_init_kernel_fini(slots, tmp_path):
+def test_generated_launch_runs_init_kernel_fini(slots, tmp_path, monkeypatch):
     """The generated firmware calls piton_launch_slots with the init / fini
     programs it embedded after the kernel; run it against a stand-in runtime."""
+    monkeypatch.setenv("PITON_SLOTS_ONCE", "0")      # the per-launch init / fini (test_slots_once_launches: the other)
     cc = shutil.which("cc")
     if cc is None:
         pytest.skip("host C compiler is unavailable")
@@ -591,8 +592,9 @@ uint32_t piton_launch_slots(uint32_t code, const uint32_t *unifs, uint32_t n, ui
     assert log.count("PROGRAMS 4") == 2 and log.count("PITON_TIME 5") == 2
 
 
-def test_aot_launcher_uses_launch_slots(slots):
+def test_aot_launcher_uses_launch_slots(slots, monkeypatch):
     from piton.tools.compile import emit_c
+    monkeypatch.setenv("PITON_SLOTS_ONCE", "0")      # the per-launch init / fini (test_slots_once_launches: the other)
     ck = build(copy_kernel, SIG_COPY, {"BLOCK": 256}, (4,))
     header, body = emit_c(ck, "copyk")
     init, fini = semaphore_programs(slot_semaphores(ck.words))

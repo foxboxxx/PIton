@@ -280,9 +280,10 @@ def test_coarsened_builds_keep_store_slots(env, monkeypatch):
     assert protocol_errors(ck.program) == []
 
 
-def test_pi_launch_of_a_coarsened_slot_kernel(env):
+def test_pi_launch_of_a_coarsened_slot_kernel(env, monkeypatch):
     """run_on_pi queues ceil(gx / k) programs through piton_launch_slots, with
     the kernel's slot semaphores set up around the launch."""
+    monkeypatch.setenv("PITON_SLOTS_ONCE", "0")      # the per-launch init / fini (test_slots_once_launches: the other)
     env(4)
     ck = compiler.compile(copy_kernel, COPY_SIG, {"BLOCK": 256}, grid=(16,))
     _check_coarsened(ck, 4)

@@ -46,7 +46,7 @@ uint32_t piton_launch(uint32_t code, const uint32_t *unifs, uint32_t n);
 uint32_t piton_launch_slots(uint32_t code, const uint32_t *unifs, uint32_t n,
                             uint32_t init, uint32_t fini);
 
-// piton_launch_slots without the per-launch init and fini (PITON_SLOTS_ONCE=1):
+// piton_launch_slots without the per-launch init and fini (the default; PITON_SLOTS_ONCE=0: the other):
 // `init` runs before the first slot launch after boot, and the semaphores stay
 // at 1 between launches. Saves two one-program launches and their cache
 // clears per call (~10 us each), which short launches notice.

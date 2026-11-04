@@ -112,11 +112,11 @@ def slot_semaphores(words) -> tuple:
 
 
 def slots_once() -> bool:
-    """PITON_SLOTS_ONCE=1: the generated firmware sets the slot semaphores up
-    once per boot (piton_launch_slots_once, pi/runtime/piton_rt.c) instead of
-    with init and fini programs around every launch. The emulator keeps
-    running init and fini, which leaves the same counts between launches."""
-    return os.environ.get("PITON_SLOTS_ONCE", "0") != "0"
+    """The generated firmware sets the slot semaphores up once per boot
+    (piton_launch_slots_once, pi/runtime/piton_rt.c); PITON_SLOTS_ONCE=0: with
+    init and fini programs around every launch. The emulator keeps running
+    init and fini, which leaves the same counts between launches."""
+    return os.environ.get("PITON_SLOTS_ONCE", "1") != "0"
 
 
 def semaphore_programs(sems) -> tuple:

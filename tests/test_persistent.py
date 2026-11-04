@@ -724,6 +724,7 @@ def test_generated_c_launcher(persistent, monkeypatch, tmp_path, kernel, sig, co
     the hardware program, nprog0 = gx. Run with both uniform protocols. A
     kernel with store slots goes through piton_launch_slots, whose init / fini
     programs follow the kernel's code."""
+    monkeypatch.setenv("PITON_SLOTS_ONCE", "0")      # the per-launch init / fini (test_slots_once_launches: the other)
     cc = shutil.which("cc")
     if cc is None:
         pytest.skip("host C compiler is unavailable")
