@@ -1,0 +1,10 @@
+== default
+N= 1024 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 2, 2)  best   279504 us  7.683 GFLOPS  max sampled err 1.10e-03  (2048 programs)  ok  times_us=[281593, 286339, 279504]
+== PITON_STORE_SLOTS=0
+N= 1024 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 2, 2)  best   272052 us  7.894 GFLOPS  max sampled err 1.10e-03  (2048 programs)  ok  times_us=[277299, 272052, 274425]
+== PITON_PORT_ALLOC=0
+N= 1024 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 2, 2)  best   283372 us  7.578 GFLOPS  max sampled err 1.10e-03  (2048 programs)  ok  times_us=[283372, 284792, 288475]
+== PITON_FAST_IDIV=0
+N= 1024 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 2, 2)  best   285381 us  7.525 GFLOPS  max sampled err 1.10e-03  (2048 programs)  ok  times_us=[287764, 286017, 285381]
+== PITON_STORE_SLOTS=0 PITON_PORT_ALLOC=0 PITON_FAST_IDIV=0
+N= 1024 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 2, 2)  best   289255 us  7.424 GFLOPS  max sampled err 1.10e-03  (2048 programs)  ok  times_us=[293086, 289255, 291211]
