@@ -154,6 +154,9 @@ def test_failed_port_aware_attempt_keeps_the_plain_allocation(monkeypatch, error
 
 @pytest.mark.parametrize("name", TARGETS)
 def test_suite_case_with_port_alloc(name, monkeypatch):
+    # the plain Mandelbrot loop (PITON_MANDEL_FAST restructures it; there
+    # port-aware allocation saves ~13% instead of ~20%)
+    monkeypatch.setenv("PITON_MANDEL_FAST", "0")
     case = CASES_BY_NAME[name]
     off, _ = _dynamic(case, "0", monkeypatch)
     on, stats = _dynamic(case, "1", monkeypatch)
