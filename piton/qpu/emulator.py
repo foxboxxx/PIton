@@ -6,7 +6,9 @@ and models the parts of the chip a general-purpose kernel touches:
   * 16-lane registers: regfile A/B, accumulators r0-r5, per-lane N/Z/C flags
   * add/mul ALUs, small immediates, mul-output vector rotation
   * uniforms stream (+ unif_addr rewrites)
-  * TMU direct-address gathers (per-QPU request FIFO, results in r4)
+  * TMU direct-address gathers through TMU0 and TMU1 (one request FIFO per
+    QPU per unit, results in r4), the TMU swap of QPU2/QPU3 in each slice
+    and TMU_NOSWAP
   * SFU recip / recipsqrt / exp2 / log2 (results in r4 three instrs later)
   * VPM generic block reads/writes, VDR DMA loads and VDW DMA stores
   * semaphores, the mutex, thread end, branches with three delay slots
@@ -395,7 +397,10 @@ class QPU:
         self.branch_countdown = None
         self.unif_ptr = 0
         self.unif_block_until = -1
-        self.tmu = [deque(), deque()]
+        self.tmu = [deque(), deque()]   # this QPU's FIFOs of physical TMU0 / TMU1 of its slice
+        self.tmu_noswap = False         # TMU_NOSWAP state of this program (reset at program start)
+        self.tmu_noswap_at = None       # instruction index of the last TMU_NOSWAP write
+        self.tmu_used = False           # a TMU request was made by this program
         self.r4_pending = None          # (ready_cycle, value) for SFU
         self.sfu_busy_until = -1
         self.last_written = set()       # ('A'|'B', addr) written by previous instruction
@@ -413,7 +418,8 @@ class QPU:
         self.instructions = 0
         self.stall_cycles = 0
         self.blocked = None
-        self.stats = {"tmu_loads": 0, "vdw_bytes": 0, "vdr_bytes": 0, "fmul": 0, "fadd": 0}
+        self.stats = {"tmu_loads": 0, "tmu_stall_cycles": 0, "vdw_bytes": 0, "vdr_bytes": 0, "fmul": 0,
+                      "fadd": 0}
         self.program = None
 
     # -- helpers -----------------------------------------------------------
@@ -422,6 +428,18 @@ class QPU:
         if self.v3d.strict:
             raise HazardError(f"QPU{self.num} pc=0x{self.pc * 8:x} "
                               f"({isa.format_instr(self.program[self.pc][0])}): {msg}")
+
+    def tmu_unit(self, unit: int) -> int:
+        """The physical TMU of this slice that TMU `unit` (0/1) addresses.
+
+        Guide p40: with two TMUs per slice, accesses by QPU2 and QPU3 of the
+        slice go to the other TMU unless the program wrote 1 to TMU_NOSWAP.
+        Requests and ldtmu reads are swapped alike, so each FIFO stays one
+        physical unit's FIFO for this QPU.
+        """
+        if self.num % self.v3d.qpus_per_slice in (2, 3) and not self.tmu_noswap:
+            return unit ^ 1
+        return unit
 
     def start(self, program, entry: int, unif_addr: int):
         self.reset()
@@ -692,6 +710,12 @@ class QPU:
             self.last_r5_now = True
             return
         if w == 36:           # tmu_noswap
+            # p37: written at least three instructions before the first TMU
+            # write; changing it later would move requests between FIFOs
+            if self.tmu_used:
+                self.hazard("TMU_NOSWAP written after a TMU request")
+            self.tmu_noswap = bool(lane0 & 1)
+            self.tmu_noswap_at = self.instructions
             return
         if w == 38:           # host interrupt
             self.v3d.host_interrupts += 1
@@ -732,13 +756,18 @@ class QPU:
             self.r4_pending = (self.cycle + 3, _u(r.astype(np.float32)))
             return
         if w in (56, 60):
-            unit = 0 if w == 56 else 1
+            if self.tmu_noswap_at is not None and self.instructions - self.tmu_noswap_at < 3:
+                self.hazard("TMU write less than three instructions after TMU_NOSWAP")
+            addressed = 0 if w == 56 else 1
+            unit = self.tmu_unit(addressed)
             if len(self.tmu[unit]) >= self.v3d.tmu_fifo_depth:
-                self.hazard(f"TMU{unit} request FIFO overflow (> {self.v3d.tmu_fifo_depth})")
+                self.hazard(f"TMU{addressed} request FIFO overflow (> {self.v3d.tmu_fifo_depth})")
             addrs = (value & ~np.uint32(3)).astype(np.int64)
             data = self.v3d.mem.read_words(addrs)
             self.tmu[unit].append((self.cycle + self.v3d.timing.tmu_latency, data))
+            self.tmu_used = True
             self.stats["tmu_loads"] += 1
+            self.v3d.count_tmu_request(self.num // self.v3d.qpus_per_slice, unit, addrs)
             return
         raise EmulatorError(f"unsupported write to {dst.name}")
 
@@ -936,14 +965,16 @@ class QPU:
 
         tmu_data = None
         if ins.sig in ("ldtmu0", "ldtmu1"):
-            unit = 0 if ins.sig == "ldtmu0" else 1
+            addressed = 0 if ins.sig == "ldtmu0" else 1
+            unit = self.tmu_unit(addressed)
             if not self.tmu[unit]:
-                raise EmulatorError(f"QPU{self.num}: ldtmu{unit} with an empty TMU FIFO")
+                raise EmulatorError(f"QPU{self.num}: ldtmu{addressed} with an empty TMU FIFO")
             if self.r4_pending is not None:
                 self.hazard("TMU load while an SFU result is pending")
             ready, tmu_data = self.tmu[unit].popleft()
             if ready > self.cycle:
                 self.stall_cycles += ready - self.cycle
+                self.stats["tmu_stall_cycles"] += ready - self.cycle
                 self.cycle = ready
         elif ins.sig not in ("none", "thrend"):
             raise EmulatorError(f"unsupported signal {ins.sig}")
@@ -988,6 +1019,12 @@ class V3D:
     # tmu_fifo_depth: the guide says 8 direct lookups fit per TMU, but on a
     # Pi Zero the 5th outstanding request overwrites the oldest result
     # (tools/probes.py tmu_fifo). 4 per TMU is the real limit.
+    # Slices of 4 QPUs (assumed: qpu_num // 4) with two TMUs each (guide
+    # p39-40: a request/receive FIFO per QPU per TMU); the probe filled 4
+    # requests on each of t0s and t1s and read both back in order.
+    qpus_per_slice = 4
+    tmu_line_bytes = 64             # TMU cache misses = requests for 64-byte loads (perf/results)
+
     def __init__(self, num_qpus: int = 12, mem: Optional[Memory] = None, strict: bool = True,
                  tmu_fifo_depth: int = 4, timing: Optional[TimingModel] = None,
                  seed: Optional[int] = None):
@@ -996,6 +1033,10 @@ class V3D:
         self.strict = strict
         self.tmu_fifo_depth = tmu_fifo_depth
         self.timing = timing or TimingModel()
+        # per physical TMU (slice, unit): requests, and the distinct cache
+        # lines it reads (its L1 fills if nothing were evicted)
+        self.tmu_requests = {}
+        self.tmu_lines = {}
         self.rng = np.random.default_rng(seed) if seed is not None else None   # timing jitter
         self.qpus = [QPU(i, self) for i in range(num_qpus)]
         self.require_vpm_mutex = True
@@ -1035,6 +1076,11 @@ class V3D:
         if self.mutex_owner not in (None, qpu.num):
             raise EmulatorError(f"QPU{qpu.num} released a mutex held by QPU{self.mutex_owner}")
         self.mutex_owner = None
+
+    def count_tmu_request(self, slc: int, unit: int, addrs: np.ndarray):
+        key = (slc, unit)
+        self.tmu_requests[key] = self.tmu_requests.get(key, 0) + 1
+        self.tmu_lines.setdefault(key, set()).update((addrs // self.tmu_line_bytes).tolist())
 
     def active_qpus(self) -> int:
         return sum(1 for q in self.qpus if q.running)
@@ -1076,7 +1122,8 @@ class V3D:
         self.vdw_free = 0
         total_instr = 0
         stalls = 0
-        stats = {"tmu_loads": 0, "vdw_bytes": 0, "vdr_bytes": 0, "fmul": 0, "fadd": 0}
+        stats = {"tmu_loads": 0, "tmu_stall_cycles": 0, "vdw_bytes": 0, "vdr_bytes": 0, "fmul": 0, "fadd": 0}
+        self.tmu_requests, self.tmu_lines = {}, {}
         busy_cycles = [0] * len(self.qpus)
         start = {}
         steps = 0                       # successful steps, to tell a deadlock from a wait
@@ -1118,4 +1165,7 @@ class V3D:
                     stats[k] += q.stats[k]
         makespan = max(busy_cycles) if busy_cycles else 0
         stats.update(instructions=total_instr, stall_cycles=stalls, cycles=makespan)
+        # "s<slice>t<unit>": requests per physical TMU and the cache lines each reads
+        stats["tmu_unit_requests"] = {f"s{s}t{u}": n for (s, u), n in sorted(self.tmu_requests.items())}
+        stats["tmu_unit_lines"] = {f"s{s}t{u}": len(v) for (s, u), v in sorted(self.tmu_lines.items())}
         return stats

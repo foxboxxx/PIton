@@ -12,6 +12,7 @@ dependence DAG whose edge latencies encode the QPU pipeline rules
   SFU write -> r4 read   3   (and no other r4 writer in between)
   vr_setup -> vpm read   4
   unif_addr -> unif      3
+  tmu_noswap -> t*s      3
   WAR                    0   (an instruction reads before it writes)
   WAW / ordering chains  1
 
@@ -38,6 +39,7 @@ LAT_ROT = 2
 LAT_SFU = 3
 LAT_VPM_READ = 4
 LAT_UNIF_ADDR = 3
+LAT_TMU_NOSWAP = 3      # guide p37: TMU_NOSWAP three instructions before the first TMU write
 # Soft latency used only for priorities: keep TMU requests far from their reads.
 SOFT_TMU = 10
 
@@ -107,6 +109,9 @@ def _write_key(r: Reg):
     if r.waddr == 38:
         return [("host",)]
     if r.waddr == 36:
+        # TMU_NOSWAP is not one of the closely coupled peripheral accesses
+        # (guide p37) and reads no uniform: it may share an instruction with
+        # a uniform read
         return [("tmu0",), ("tmu1",)]
     return [("io", r.waddr)]
 
@@ -137,6 +142,7 @@ class Res:
     sfu: bool = False                            # writes r4 through the SFU
     tmu_req: bool = False
     tmu_recv: bool = False
+    tmu_noswap: bool = False
     vr_setup: bool = False
     vpm_read: bool = False
     unif_addr: bool = False
@@ -185,6 +191,8 @@ def resources_of(alu_ops, sig=None, kind="alu", setf=False, cond_any=False) -> R
             r.sfu = True
         if op.dst in isa.TMU_S:
             r.tmu_req = True
+        if op.dst == isa.TMU_NOSWAP:
+            r.tmu_noswap = True
         if op.dst is isa.VR_SETUP:
             r.vr_setup = True
         if op.dst is isa.UNIF_ADDR:
@@ -233,6 +241,8 @@ def waw_latency(prev: Res, nxt: Res, key) -> int:
         return LAT_VPM_READ
     if key == ("unif",) and prev.unif_addr and nxt.unif_read:
         return LAT_UNIF_ADDR
+    if key in (("tmu0",), ("tmu1",)) and prev.tmu_noswap and nxt.tmu_req:
+        return LAT_TMU_NOSWAP
     return 1
 
 
@@ -246,6 +256,8 @@ def required_distance(prev: Res, nxt: Res) -> int:
             d = max(d, waw_latency(prev, nxt, k))
     if prev.sfu and (("r4",) in nxt.reads or ("r4",) in nxt.writes):
         d = max(d, LAT_SFU)
+    if prev.tmu_noswap and nxt.tmu_req:
+        d = max(d, LAT_TMU_NOSWAP)
     return d
 
 

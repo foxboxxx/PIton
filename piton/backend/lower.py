@@ -1981,7 +1981,33 @@ class Lowering:
         self.emit(MInst(ops=[], sig="thrend"))
         self.mf.blocks.extend(self.cold_blocks)
         entry.insts[0:0] = self.entry_uniform_insts
+        if self.opts.get("tmu_noswap") and coarsen == 1 and self.tmu_balanced():
+            # Requests alternate TMU0/TMU1 already; without this QPU2/QPU3 of
+            # each slice address the other physical TMU (guide p40), and data
+            # the slice's QPUs share lands in both TMU caches.  The scheduler
+            # keeps it three instructions ahead of the first request (p37).
+            # Not in coarsened programs: on the Pi (2026-11-04) it sped up the
+            # plain builds whose programs load the same data (matmul 8x64x8
+            # 1.09x at 256^3, 1.15-1.17x at 512^3 and 1024^3, dense_relu
+            # 1.026x), left row_sum (0.986x) and exp (0.999x) about even, and
+            # slowed the coarsened ones (dense_relu with k=2 0.960x, the digits
+            # network 0.91x).
+            entry.insts.insert(0, alu("mov", isa.TMU_NOSWAP, Imm(1)))
+            self.stats["tmu_noswap"] = 1
         return self.mf
+
+    def tmu_balanced(self) -> bool:
+        """Requests to TMU0 and TMU1, weighted by loop depth, within 1/8 of each
+        other: the guide's condition for disabling the swap (p40).  Without
+        the swap a program that favours TMU0 would load physical TMU0 from
+        all four QPUs of a slice."""
+        n = [0, 0]
+        for b in self.mf.blocks:
+            for ins in b.insts:
+                for op in ins.ops:
+                    if op.dst in isa.TMU_S:
+                        n[isa.TMU_S.index(op.dst)] += 100 ** b.loop_depth
+        return min(n) > 0 and 8 * abs(n[0] - n[1]) <= n[0] + n[1]
 
     def program_id(self, axis) -> S:
         if axis == 0 and self.prog_iv is not None:
