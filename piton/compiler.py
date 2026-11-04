@@ -130,7 +130,7 @@ def _port_aware(original, name: str, missed: list, copy_of: dict, rounds: int = 
 
 def _build(tile, ranges, options: dict, interleave: bool):
     """Lower, allocate and schedule; returns (program, mir, lowering, stats, mir dumps)."""
-    port_alloc = os.environ.get("PITON_PORT_ALLOC", "0") != "0"     # PITON_PORT_ALLOC=1: port-aware
+    port_alloc = os.environ.get("PITON_PORT_ALLOC", "1") != "0"     # PITON_PORT_ALLOC=0: plain allocation only
     for cache_dot_a in (True, False):
         lw = Lowering(tile, ranges, dict(options, cache_dot_a=cache_dot_a))
         mf = lw.run()

@@ -35,8 +35,8 @@ Status: `todo`, `wip`, `accepted <commit>`, `rejected (<why>)`.
 ## C. Instruction issue
 | # | change | status |
 |---|---|---|
-| C1 | port-aware register allocation (file A / B / accumulator by likely pair) | wip (batch 1, opt/c1-port-alloc, with C2) |
-| C2 | remove allocator copies where both operands landed in one file | wip (with C1) |
+| C1 | port-aware register allocation (file A / B / accumulator by likely pair) | accepted, on by default (`PITON_PORT_ALLOC=0` turns it off): mandel 1.22x / 1.27x, transpose 1.09x, softmax 1.04x |
+| C2 | remove allocator copies where both operands landed in one file | accepted with C1 (copies only where the plain allocation was not shorter) |
 | C3 | fill the 3 branch delay slots in loops (rerolled loops, Mandelbrot) | wip (batch 1, opt/c3-loop-slots, with C5) |
 | C4 | software pipelining of loop bodies | todo |
 | C5 | unroll rerolled loops 2x when they still fit the icache | wip (with C3) |
@@ -83,3 +83,4 @@ outputs; H6 matmul register blocking for more A reuse.
 | 2026-11-03 | D3 | reroll SUB sweep: no gain |
 | 2026-11-03 | G1/G2 | dense_relu BLOCK_SIZE_K 8 -> 4: 5040 -> 4400 us (1.145x); GROUP_SIZE_M>1 is slower. matmul_8x64x8 GROUP_SIZE_M (never swept before, the Oct 30 sweep fixed 4): 256^3 group 1 3450 vs 4148 us (1.20x); 512^3 group 2 8.858 GFLOPS vs 8.618 (group 4), group 1 7.95 and noisy; 1024^3 group 2 = group 4 (8.02 GFLOPS). Best grouping depends on size: an autotuner should pick it |
 | 2026-11-03 | G1 (app) | digits MLP dense tiles BK 8 -> 4: full batch 10.859 -> 9.881 ms (1.099x, 13.54x over ARM VFP, 181,864 images/s), batch 256 1.10x, batch 1 unchanged; 1743/1797 correct, all 28,752 logits within bounds |
+| 2026-11-03 | C1/C2 | port-aware allocation: mandel_32x16 42397 -> 34873 us (1.216x), mandel_16x16x2 41139 -> 32529 (1.265x), transpose 889 -> 813 (1.093x), softmax 879 -> 844 (1.041x), exp/exp2/log 1.02x, nothing slower than 0.993x; host tests both ways, test_hw 10/10 (`ab-2026-11-03-port_alloc.json`) |
