@@ -40,10 +40,10 @@ the switch:
     leaves the add ALU idle, and that add is the one op ready for it; both
     forms are scheduled and the shorter kept (allocation still sees the
     pair, so the joint form always encodes);
-  * the pairs every one of those schedules missed for the read ports go to
-    the port-aware allocation (regalloc.PortHints), each weighted by the
-    share of schedules that missed it, so its next attempt does not depend
-    on which schedule happened to be kept;
+  * the pairs those schedules missed for the read ports go to the
+    port-aware allocation (regalloc.PortHints), each weighted by the share
+    of schedules that missed it, so its next attempt does not depend on
+    which schedule happened to be kept;
   * a hazard that only the way into a loop has (a value written just
     before the loop and read at its head) is padded at the end of the
     preheader, not at the loop head where every iteration ran the nop
