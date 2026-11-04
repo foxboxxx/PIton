@@ -104,7 +104,8 @@ def _port_better(new: Program, new_mf, old: Program, old_mf) -> bool:
     return cost(new) < cost(old)
 
 
-def _port_aware(original, name: str, missed: list, copy_of: dict, rounds: int = PORT_ROUNDS):
+def _port_aware(original, name: str, missed: list, copy_of: dict, rounds: int = PORT_ROUNDS,
+                issue: bool = False):
     """Port-aware allocations of `original` (regalloc.py, "Port-aware file
     choice"), starting from the pairs the scheduler could not form with the
     plain allocation (`missed`, `copy_of`): each round allocates a fresh
@@ -120,7 +121,7 @@ def _port_aware(original, name: str, missed: list, copy_of: dict, rounds: int = 
             alloc = allocate(mf, hints=hints)
             dropped = opt.drop_self_moves(mf)
             missed = []
-            prog = schedule_function(mf, name, missed=missed)
+            prog = schedule_function(mf, name, missed=missed, prefer_mul=issue)
         except (RegAllocError, RuntimeError):
             return
         yield prog, mf, alloc, dropped
@@ -131,12 +132,13 @@ def _port_aware(original, name: str, missed: list, copy_of: dict, rounds: int = 
 def _build(tile, ranges, options: dict, interleave: bool):
     """Lower, allocate and schedule; returns (program, mir, lowering, stats, mir dumps)."""
     port_alloc = os.environ.get("PITON_PORT_ALLOC", "1") != "0"     # PITON_PORT_ALLOC=0: plain allocation only
+    issue = options.get("issue", False)
     for cache_dot_a in (True, False):
         lw = Lowering(tile, ranges, dict(options, cache_dot_a=cache_dot_a))
         mf = lw.run()
         stats = dict(lw.stats)
-        stats.update(opt.run(mf))
-        stats["presched_blocks"] = presched.run(mf) if interleave else 0
+        stats.update(opt.run(mf, issue=issue))
+        stats["presched_blocks"] = presched.run(mf, flags=issue) if interleave else 0
         mir = mf.dump()
         original = clone_function(mf) if port_alloc else None
         try:
@@ -154,11 +156,12 @@ def _build(tile, ranges, options: dict, interleave: bool):
     stats["self_moves_dropped"] = opt.drop_self_moves(mf)
     mir_alloc = mf.dump()
     missed = [] if original is not None else None
-    prog = schedule_function(mf, tile.name, missed=missed)
+    prog = schedule_function(mf, tile.name, missed=missed, prefer_mul=issue)
     if original is not None:
         # The plain allocation stays unless a port-aware one schedules shorter.
         stats["port_alloc"] = 0
-        for attempt, (p, f, a, dropped) in enumerate(_port_aware(original, tile.name, missed, alloc.copy_of), 1):
+        for attempt, (p, f, a, dropped) in enumerate(_port_aware(original, tile.name, missed, alloc.copy_of,
+                                                                   issue=issue), 1):
             if _port_better(p, f, prog, mf):
                 prog, mf, mir_alloc = p, f, f.dump()
                 stats.update(port_alloc=attempt, copies_inserted=a.copies_inserted, self_moves_dropped=dropped)
@@ -223,7 +226,9 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
         pid_max = tuple(max(1, int(x)) - 1 for x in g) + (0,) * (3 - len(g))
     options = {"num_stages": num_stages, "store_mutex": store_mutex,
                # stores through shared 16-row VPM slots (backend/lower.py); PITON_STORE_SLOTS=0: private rows
-               "store_slots": os.environ.get("PITON_STORE_SLOTS", "1") not in ("", "0")}
+               "store_slots": os.environ.get("PITON_STORE_SLOTS", "1") not in ("", "0"),
+               # issue efficiency (presched.py flag groups, lower.py "Issue"); PITON_ISSUE=1: on
+               "issue": os.environ.get("PITON_ISSUE", "0") not in ("", "0")}
     use_reroll = os.environ.get("PITON_REROLL", "1") != "0"
     sub = reroll.SUB
     try:

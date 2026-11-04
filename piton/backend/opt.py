@@ -245,9 +245,50 @@ def licm(fn) -> int:
     return hoisted
 
 
-def run(fn):
+_COMMUTATIVE = {"add", "and", "or", "xor", "min", "max", "fadd", "fmul", "fmin", "fmax", "mul24",
+                "v8adds", "v8min", "v8max"}
+
+
+def cse(fn) -> int:
+    """Block-local common subexpressions (PITON_ISSUE): a pure instruction that
+    repeats an earlier one of its block on the same single-definition operands
+    reuses that result (each special-value check of the math functions
+    recomputes |x|)."""
+    defs = defaultdict(int)
+    for b in fn.blocks:
+        for ins in b.insts:
+            for op in ins.ops:
+                if isinstance(op.dst, VReg):
+                    defs[op.dst] += 1
+    removed = 0
+    for b in fn.blocks:
+        seen = {}
+        keep = []
+        for ins in b.insts:
+            if _pure_inst(ins) and defs[ins.ops[0].dst] == 1:
+                op = ins.ops[0]
+                srcs = op.srcs if ins.kind == "alu" else []
+                if all(not isinstance(x, VReg) or defs[x] == 1 for x in srcs):
+                    ids = tuple(("v", x.id) if isinstance(x, VReg) else ("o", repr(x)) for x in srcs)
+                    if op.op in _COMMUTATIVE:
+                        ids = tuple(sorted(ids))
+                    key = (ins.kind, ins.imm, ins.ldi_mode, op.op, ids, op.rot, op.unit, op.dst.cls, op.dst.is_float)
+                    first = seen.get(key)
+                    if first is not None:
+                        _rename(fn, op.dst, first)
+                        removed += 1
+                        continue
+                    seen[key] = op.dst
+            keep.append(ins)
+        b.insts = keep
+    return removed
+
+
+def run(fn, issue=False):
     stats = {}
     stats["licm"] = licm(fn)
+    if issue:
+        stats["cse"] = cse(fn)
     stats["dce"] = dce(fn)
     stats["coalesced"] = coalesce_copies(fn)
     stats["dce2"] = dce(fn)
