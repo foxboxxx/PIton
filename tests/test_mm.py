@@ -22,6 +22,7 @@ from piton import compiler  # noqa: E402
 from piton.backend import lower  # noqa: E402
 from piton.backend.regalloc import RegAllocError  # noqa: E402
 from piton.qpu import isa  # noqa: E402
+from piton.qpu.asm import find_vc4asm, vc4asm_assemble  # noqa: E402
 from piton.runtime.launcher import run_emulator  # noqa: E402
 from kernels import matmul_kernel  # noqa: E402
 from nn_kernels import dense_layer_kernel  # noqa: E402
@@ -225,6 +226,18 @@ def test_bk8_matmul_loop_requests_share_rotations(monkeypatch):
                  and ins.add is not None and ins.add.dst in isa.TMU_S)
     assert shared >= 16
     assert ck.stats["mm_dots"] == 1 and not ck.stats.get("mm_fallback")
+
+
+@pytest.mark.skipif(find_vc4asm() is None, reason="vc4asm not installed")
+@pytest.mark.parametrize("name", ["matmul_8x64x8", "dense_relu"])
+def test_qasm_assembles_to_our_bits(monkeypatch, name):
+    """TMU requests next to rotations (small-immediate signal): vc4asm -V
+    assembles the .qasm to exactly our words, without warnings."""
+    monkeypatch.setenv("PITON_MM", "1")
+    ck, _ = compile_case(CASES_BY_NAME[name], "pi")
+    words, warnings = vc4asm_assemble(ck.asm["qasm"], verify=True)
+    assert list(words) == list(ck.words)
+    assert not warnings
 
 
 def test_runtime_k_stride_keeps_row_major_or_plain(monkeypatch):
