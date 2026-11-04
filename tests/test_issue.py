@@ -349,6 +349,45 @@ def test_drop_dead_other_keeps_int_loads():
     assert passes.drop_dead_other(tile) == 0
 
 
+@piton.jit
+def swapped_kernel(x_ptr, y_ptr, out_ptr, n, BLOCK: tl.constexpr):
+    offs = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    m = offs < n
+    x = tl.load(x_ptr + offs, mask=m)
+    y = tl.load(y_ptr + offs, mask=m)
+    tl.store(out_ptr + offs, tl.where(offs % 3 == 0, x + y, y + x), mask=m)
+    tl.store(out_ptr + n + offs, tl.where(offs % 2 == 0, tl.minimum(x, y), tl.minimum(y, x)), mask=m)
+    tl.store(out_ptr + 2 * n + offs, tl.where(offs % 2 == 1, tl.maximum(x, y), tl.maximum(y, x)), mask=m)
+    tl.store(out_ptr + 3 * n + offs, tl.where(offs % 2 == 1, x * y, y * x), mask=m)
+
+
+def test_cse_keeps_operand_order(monkeypatch):
+    """opt.cse merges swapped operands only where the result is the same bits:
+    inf + -inf is the second operand, fmin / fmax of -0 and +0 the first."""
+    sig = {"x_ptr": "*fp32", "y_ptr": "*fp32", "out_ptr": "*fp32", "n": "i32"}
+    pairs = [(np.inf, -np.inf), (-np.inf, np.inf), (0.0, -0.0), (-0.0, 0.0), (1e-40, -1e-40), (1.5, 2.5)]
+    x = np.array([p[0] for p in pairs] * 40, np.float32)
+    y = np.array([p[1] for p in pairs] * 40, np.float32)
+    n = x.size
+    grid = ((n + 63) // 64,)
+    outs = []
+    for issue in (False, True):
+        ck = build(monkeypatch, issue, swapped_kernel, sig, {"BLOCK": 64}, grid)
+        values = {"x_ptr": x, "y_ptr": y, "out_ptr": np.zeros(4 * n, np.float32), "n": n}
+        outs.append(run_bits(ck, grid, values))
+    np.testing.assert_array_equal(outs[0], outs[1])
+    ref = np.concatenate([np.where(np.arange(n) % 3 == 0, y, x), np.where(np.arange(n) % 2 == 0, x, y),
+                          np.where(np.arange(n) % 2 == 1, y, x)])    # the second / first operand
+    sel = np.isinf(x) | (x == 0) | (np.abs(x) < 1e-38)
+    for k in range(3):
+        got = outs[1][k * n:(k + 1) * n][sel[:n]]
+        want = ref[k * n:(k + 1) * n].view(np.uint32)[sel[:n]]
+        if k == 0:
+            assert np.array_equal(got[np.isinf(x[sel])], want[np.isinf(x[sel])])
+        else:
+            assert np.array_equal(got[~np.isinf(x[sel])], want[~np.isinf(x[sel])])
+
+
 # -- flag groups -------------------------------------------------------------------------
 
 def _check_order(before, after):

@@ -129,8 +129,9 @@ def _port_aware(original, name: str, missed: list, copy_of: dict, rounds: int = 
             return
 
 
-def _build(tile, ranges, options: dict, interleave: bool, alphas=None):
-    """Lower, allocate and schedule; returns (program, mir, lowering, stats, mir dumps)."""
+def _build(tile, ranges, options: dict, interleave: bool, alphas=None, flags=None):
+    """Lower, allocate and schedule; returns (program, mir, lowering, stats, mir dumps).
+    flags: presched.py flag groups (default: with PITON_ISSUE)."""
     port_alloc = os.environ.get("PITON_PORT_ALLOC", "1") != "0"     # PITON_PORT_ALLOC=0: plain allocation only
     issue = options.get("issue", False)
     for cache_dot_a in (True, False):
@@ -138,7 +139,8 @@ def _build(tile, ranges, options: dict, interleave: bool, alphas=None):
         mf = lw.run()
         stats = dict(lw.stats)
         stats.update(opt.run(mf, issue=issue))
-        stats["presched_blocks"] = presched.run(mf, flags=issue, alphas=alphas) if interleave else 0
+        flags_ = issue if flags is None else flags
+        stats["presched_blocks"] = presched.run(mf, flags=flags_, alphas=alphas) if interleave else 0
         mir = mf.dump()
         original = clone_function(mf) if port_alloc else None
         try:
@@ -202,13 +204,16 @@ def _compile_tile(fn, signature, constants, name, pid_max, options, chunk: int =
         # PITON_ISSUE: flag groups ordered by the cycle model (presched.py), close to
         # program order and also the best of three biases per block
         sets = PRESCHED_BIASES if options.get("issue") else [None]
-        variants = [(alphas, options) for alphas in sets]
-        if stats.get("loop_lanes"):
-            # and with lane registers per column block in loops (lower.py "Issue")
-            variants += [(alphas, dict(options, loop_lanes=True)) for alphas in sets]
-        for k, (alphas, opts) in enumerate(variants, 1):
+        variants = [(alphas, options, None) for alphas in sets]
+        if options.get("issue"):
+            # and the plain pre-scheduling order (no flag groups), with lane registers per
+            # column block in loops (lower.py "Issue")
+            variants.append((None, options, False))
+            if stats.get("loop_lanes"):
+                variants += [(alphas, dict(options, loop_lanes=True), None) for alphas in sets]
+        for k, (alphas, opts, flags) in enumerate(variants, 1):
             try:
-                candidate = _build(tile, ranges, opts, interleave=True, alphas=alphas)
+                candidate = _build(tile, ranges, opts, interleave=True, alphas=alphas, flags=flags)
             except RegAllocError:
                 continue
             if _weighted_length(candidate[0], candidate[1]) < _weighted_length(prog, mf):

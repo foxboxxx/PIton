@@ -245,8 +245,9 @@ def licm(fn) -> int:
     return hoisted
 
 
-_COMMUTATIVE = {"add", "and", "or", "xor", "min", "max", "fadd", "fmul", "fmin", "fmax", "mul24",
-                "v8adds", "v8min", "v8max"}
+# (not fadd, fmin, fmax: inf + -inf is the second operand, and fmin / fmax return
+# the first of two operands that order equal, such as -0 and +0; emulator.py)
+_COMMUTATIVE = {"add", "and", "or", "xor", "min", "max", "fmul", "mul24", "v8adds", "v8min", "v8max"}
 
 
 def cse(fn) -> int:
