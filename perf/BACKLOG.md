@@ -31,7 +31,7 @@ Status: `todo`, `wip`, `accepted <commit>`, `rejected (<why>)`.
 | B2 | deeper TMU prefetch | wip (with B1) |
 | B3 | bulk loads by VPM DMA read (VCD) for matmul's B | todo |
 | B4 | fewer uniforms per program | todo |
-| B5 | TMU_NOSWAP where TMU0/TMU1 requests are balanced (B1's noswap part), so a slice's four QPUs share each physical TMU's cache | wip (`PITON_TMU_NOSWAP=1`, off until the Pi A/B on top of C7): only in programs that are not coarsened; on try/b1 (`PITON_TMU1=noswap`) matmul_8x64x8 1.09x at 256^3 and 1.15-1.17x at 512^3 / 1024^3, dense_relu built plain 1.026x, but coarsened builds slower (dense_relu k=2 0.960x, digits 0.91x). B1's other parts (prefetch across chunk stores, hoisted requests, deep loop prefetch) dropped: 0.986-1.008x (`ab-2026-11-04-tmu1-*.json` on try/b1) |
+| B5 | TMU_NOSWAP where TMU0/TMU1 requests are balanced (B1's noswap part), so a slice's four QPUs share each physical TMU's cache | wip (`PITON_TMU_NOSWAP=1`, off until the Pi A/B on top of C7): only in programs that are not coarsened; on try/b1 (`PITON_TMU1=noswap`) matmul_8x64x8 1.09x at 256^3 and 1.15-1.17x at 512^3 / 1024^3, dense_relu built plain 1.026x, plain row_sum 0.986x and exp 0.999x, but coarsened builds slower (dense_relu k=2 0.960x, digits 0.91x). B1's other parts (prefetch across chunk stores, hoisted requests, deep loop prefetch) dropped: 0.986-1.008x (`ab-2026-11-04-tmu1-*.json` on try/b1) |
 
 ## C. Instruction issue
 | # | change | status |

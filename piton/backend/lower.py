@@ -1986,10 +1986,12 @@ class Lowering:
             # each slice address the other physical TMU (guide p40), and data
             # the slice's QPUs share lands in both TMU caches.  The scheduler
             # keeps it three instructions ahead of the first request (p37).
-            # Not in coarsened programs: on the Pi (2026-11-04) it sped up
-            # every plain build (matmul 8x64x8 1.09x at 256^3, 1.15-1.17x at
-            # 512^3 and 1024^3, dense_relu 1.026x) but slowed the coarsened
-            # ones (dense_relu with k=2 0.960x, the digits network 0.91x).
+            # Not in coarsened programs: on the Pi (2026-11-04) it sped up the
+            # plain builds whose programs load the same data (matmul 8x64x8
+            # 1.09x at 256^3, 1.15-1.17x at 512^3 and 1024^3, dense_relu
+            # 1.026x), left row_sum (0.986x) and exp (0.999x) about even, and
+            # slowed the coarsened ones (dense_relu with k=2 0.960x, the digits
+            # network 0.91x).
             entry.insts.insert(0, alu("mov", isa.TMU_NOSWAP, Imm(1)))
             self.stats["tmu_noswap"] = 1
         return self.mf
