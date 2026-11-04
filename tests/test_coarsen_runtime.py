@@ -351,12 +351,14 @@ def _c_launch(tmp_path, ck, args, grids):
     return header, source, zero, launches, log
 
 
-@pytest.mark.parametrize("which", ["add", "copy", "ids"])
+@pytest.mark.parametrize("which", ["add", "copy", "ids", "dense"])
 def test_generated_c_launcher(env, monkeypatch, tmp_path, which):
     """The C launcher chooses k at run time as launch_coarsen does (small and
     large gx, one build) and writes the same uniforms as uniforms_for, with
     both uniform protocols; copy goes through piton_launch_slots; ids_kernel's
-    forced factor holds for every 2-D launch."""
+    forced factor holds for every 2-D launch; dense is examples/digits_pi.py's
+    first layer (batches of 1, 16, 256 and 1800 rows)."""
+    reloads = (False, True)
     if which == "add":
         kernel, sig, cons, grid = add_kernel, ADD_SIG, {"BLOCK_SIZE": 64}, (1024,)
         args = {"x_ptr": 0x1000, "y_ptr": 0x2000, "output_ptr": 0x3000, "n_elements": 777 * 64}
@@ -368,14 +370,25 @@ def test_generated_c_launcher(env, monkeypatch, tmp_path, which):
         args = {"x_ptr": 0x1000, "out_ptr": 0x9000, "n": 2000}
         grids = [(5, 1, 1), (300, 1, 1), (600, 1, 1)]
         env(1)
-    else:
+    elif which == "ids":
         kernel, sig, cons, grid = ids_kernel, {"out_ptr": "*i32", "flag_ptr": "*i32"}, {"ROUNDS": 2}, (10, 3)
         args = {"out_ptr": 0x1000, "flag_ptr": 0x2000}
         grids = [(10, 3, 1), (7, 2, 1), (1, 3, 1)]
         env(3)
+    else:
+        bm, bn, bk = dense_tiles(128)
+        kernel, grid = dense_layer_kernel, (1800 // bm * (128 // bn),)
+        sig = dict.fromkeys(("x_ptr", "w_ptr", "bias_ptr", "y_ptr"), "*fp32")
+        sig["M"] = "i32"
+        cons = dict(N=128, K=64, BLOCK_SIZE_M=bm, BLOCK_SIZE_N=bn, BLOCK_SIZE_K=bk, GROUP_SIZE_M=1,
+                    ADD_BIAS=True, RELU=True)
+        args = {"x_ptr": 0x1000, "w_ptr": 0x2000, "bias_ptr": 0x3000, "y_ptr": 0x4000, "M": 4}
+        grids = [(2, 1, 1), (8, 1, 1), (128, 1, 1), (900, 1, 1)]
+        reloads = (False,)                  # (the build it chooses)
+        env(1)
     values = {n: (f2u(v) if isinstance(v, float) else v) for n, v in args.items()}
     real = compiler._compile_tile
-    for reload in (False, True):
+    for reload in reloads:
         monkeypatch.setattr(compiler, "_compile_tile", _only(real, reload))
         ck = compiler.compile(kernel, sig, cons, grid=grid)
         assert ck.stats["coarsen_reload"] == reload and ("coarsen", "coarsen0") in ck.uniforms
@@ -400,6 +413,8 @@ def test_generated_c_launcher(env, monkeypatch, tmp_path, which):
                 [f"SLOTS {8 * len(ck.words)} {8 * (len(ck.words) + len(init))}"] * len(grids)
     if which == "add":
         assert [launch_coarsen(ck, g) for g in grids] == [1, 1, 1, 2, 2, 2, 4, 4, 4]
+    if which == "dense":
+        assert [launch_coarsen(ck, g) for g in grids] == [1, 1, 1, 2]
 
 
 def test_generated_c_without_the_switch(env):
