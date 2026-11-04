@@ -22,7 +22,7 @@ import sys
 
 from .. import compiler
 from ..qpu.asm import find_vc4asm, vc4asm_assemble
-from ..runtime.launcher import semaphore_programs, slot_semaphores
+from ..runtime.launcher import semaphore_programs, slot_semaphores, slots_once
 
 
 def _load_kernel(path: str, name: str):
@@ -138,7 +138,9 @@ def emit_c(ck, out_name: str) -> tuple:
         elif kind == "self":
             body.append(f"        q[{j}] = self;")
     body += ["        unif_ptrs[p] = self;", "    }"]
-    if sems:
+    if sems and slots_once():
+        body.append(f"    return piton_launch_slots_once(code_buf.bus, unif_ptrs, n, code_buf.bus + {8 * len(words)});")
+    elif sems:
         body.append(f"    return piton_launch_slots(code_buf.bus, unif_ptrs, n, code_buf.bus + {8 * len(words)}, "
                     f"code_buf.bus + {8 * (len(words) + len(init))});")
     else:

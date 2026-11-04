@@ -10,6 +10,7 @@ with `device="pi"`.
 from __future__ import annotations
 
 import inspect
+import os
 from typing import Optional
 
 import numpy as np
@@ -108,6 +109,14 @@ def slot_semaphores(words) -> tuple:
     of its store slots (backend/lower.py, PITON_STORE_SLOTS), and each of them
     must be 1 (slot free) while the program runs."""
     return tuple(sorted({ins.sema for ins in map(isa.decode, words) if ins.kind == "sem" and ins.acquire}))
+
+
+def slots_once() -> bool:
+    """PITON_SLOTS_ONCE=1: the generated firmware sets the slot semaphores up
+    once per boot (piton_launch_slots_once, pi/runtime/piton_rt.c) instead of
+    with init and fini programs around every launch. The emulator keeps
+    running init and fini, which leaves the same counts between launches."""
+    return os.environ.get("PITON_SLOTS_ONCE", "0") != "0"
 
 
 def semaphore_programs(sems) -> tuple:

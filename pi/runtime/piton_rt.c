@@ -195,3 +195,16 @@ uint32_t piton_launch_slots(uint32_t code, const uint32_t *unifs, uint32_t n,
     t += piton_launch(code, unifs, n);
     return t + piton_launch(fini, &fini, 1);
 }
+
+uint32_t piton_launch_slots_once(uint32_t code, const uint32_t *unifs, uint32_t n, uint32_t init) {
+    // The semaphores are 0 after reset and every run of a slot kernel leaves
+    // them where it found them, so one init per boot (and no fini) keeps them
+    // at 1. A hung launch reboots the board (piton_launch), resetting them.
+    static int ready;
+    uint32_t t = 0;
+    if (!ready) {
+        t = piton_launch(init, &init, 1);
+        ready = 1;
+    }
+    return t + piton_launch(code, unifs, n);
+}
