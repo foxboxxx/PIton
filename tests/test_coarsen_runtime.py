@@ -16,6 +16,7 @@ import importlib.util
 import os
 import shutil
 import subprocess
+import tempfile
 import sys
 
 import numpy as np
@@ -422,6 +423,118 @@ def test_generated_c_without_the_switch(env):
     env(1, runtime=False)
     _, source = emit_c(_add(64), "kern")
     assert "unsigned hx = (gx + 3) / 4;" in source and "unsigned k" not in source
+
+
+COUNT_STUB = r"""
+#include <stdio.h>
+#include <stdlib.h>
+#include "kern.h"
+static piton_buf_t bufs[4096];
+static unsigned nbufs;
+static uint32_t next_bus = 0x40000000u;
+piton_buf_t piton_alloc(uint32_t size) {
+    piton_buf_t b = {.handle = nbufs + 1, .bus = next_bus, .cpu = calloc(size, 1), .size = size};
+    next_bus += (size + 4095u) & ~4095u;
+    bufs[nbufs++] = b;
+    return b;
+}
+void piton_free(piton_buf_t *b) { b->handle = 0; }
+static const volatile uint32_t *at(uint32_t bus) {
+    for (unsigned i = nbufs; i-- > 0;)
+        if (bus >= bufs[i].bus && bus < bufs[i].bus + bufs[i].size)
+            return (const volatile uint32_t *)bufs[i].cpu + (bus - bufs[i].bus) / 4;
+    abort();
+}
+/* per launch: programs, coarsen0 of each (one value or -1), ids covered, bad first ids */
+uint32_t piton_launch(uint32_t code, const uint32_t *unifs, uint32_t n) {
+    unsigned k = n ? at(unifs[0])[AT_COARSEN] : 0, covered = 0, bad = 0;
+    (void)code;
+    for (unsigned i = 0; i < n; i++) {
+        const volatile uint32_t *u = at(unifs[i]);
+        unsigned lo = u[AT_PID] * u[AT_COARSEN], hi = lo + u[AT_COARSEN];
+        if (u[AT_COARSEN] != k) k = ~0u;
+        if (lo >= u[AT_NPROG] || u[AT_PID] != i) bad++;
+        covered += (hi < u[AT_NPROG] ? hi : u[AT_NPROG]) - lo;
+    }
+    printf("%u %d %u %u\n", n, (int)k, covered, bad);
+    return 0;
+}
+uint32_t piton_launch_slots(uint32_t code, const uint32_t *unifs, uint32_t n, uint32_t init, uint32_t fini) {
+    (void)init; (void)fini;
+    return piton_launch(code, unifs, n);
+}
+"""
+
+
+def test_generated_c_factor_for_every_gx(env, tmp_path):
+    """The C launcher's k and hardware program count against launch_coarsen
+    and program_ids for every gx up to 1100 (and a few large ones): the
+    automatic factor 4, a forced 3, and a factor of 6 chosen per launch
+    (6 -> 3 -> 1, coarsen_launch set by hand); every id runs exactly once."""
+    cc = shutil.which("cc")
+    if cc is None:
+        pytest.skip("host C compiler is unavailable")
+    env(1)
+    auto = _add(64)
+    env(3)
+    forced = _add(64)
+    env(6)
+    six = dataclasses.replace(_add(64), coarsen_launch=(16, 4))
+    assert (auto.coarsen, forced.coarsen, six.coarsen) == (4, 3, 6) and forced.coarsen_launch is None
+    gxs = list(range(1101)) + [4095, 4096, 65537, 1 << 20]
+    for name, ck in (("auto", auto), ("forced", forced), ("six", six)):
+        d = tmp_path / name
+        d.mkdir()
+        header, source = emit_c(ck, "kern")
+        (d / "kern.h").write_text(header)
+        (d / "kern.c").write_text(source)
+        calls = "\n".join(f"    kern_launch(&a, {gx}, 1, 1);" for gx in gxs)
+        (d / "main.c").write_text(COUNT_STUB + f"int main(void) {{\n    kern_args_t a = {{0}};\n{calls}\n"
+                                  "    return 0;\n}\n")
+        at = [f"-DAT_{n.upper()}={ck.uniforms.index((n, n + '0'))}" for n in ("pid", "nprog", "coarsen")]
+        built = subprocess.run([cc, "-std=c99", "-O0", "-Wall", "-Werror", *at, "-I",
+                                os.path.join(ROOT, "pi", "runtime"), "-I", str(d), str(d / "main.c"),
+                                str(d / "kern.c"), "-o", str(d / "run")], capture_output=True, text=True)
+        assert built.returncode == 0, built.stderr
+        log = subprocess.run([str(d / "run")], check=True, capture_output=True, text=True).stdout.splitlines()
+        assert len(log) == len(gxs)
+        for gx, line in zip(gxs, log):
+            k = launch_coarsen(ck, (gx,))
+            programs = len(list(program_ids((gx,), k)))
+            assert [int(w) for w in line.split()] == [programs, k if gx else 0, gx, 0], (name, gx)
+    assert [launch_coarsen(six, (gx,)) for gx in (15, 16, 23, 24, 1100)] == [1, 3, 3, 6, 6]
+
+
+def test_generated_c_does_not_divide_by_k(env):
+    """The ARM1176 has no divide instruction and the bare-metal programs (libpi)
+    link no __aeabi_uidiv: the launcher divides only by constants, at any
+    optimization level (gcc -O0 / -Og kept `gx / k` as a library call)."""
+    env(1)
+    auto = _add(64)
+    env(3)
+    forced = _add(64)
+    env(6)
+    six = dataclasses.replace(_add(64), coarsen_launch=(16, 4))
+    import re
+    for ck in (auto, forced, six):
+        header, source = emit_c(ck, "kern")
+        code = re.sub(r"//.*", "", source)
+        assert all(c.isdigit() for c in re.findall(r"/=?\s*(\S)", code)), ck.coarsen
+        arm = shutil.which("arm-none-eabi-gcc")
+        nm = shutil.which("arm-none-eabi-nm")
+        if arm is None or nm is None:
+            continue
+        with tempfile.TemporaryDirectory() as d:
+            for name, text in (("kern.h", header), ("kern.c", source)):
+                with open(os.path.join(d, name), "w") as f:
+                    f.write(text)
+            for opt in ("-O0", "-Og"):
+                obj = os.path.join(d, "kern.o")
+                subprocess.run([arm, opt, "-std=gnu99", "-Wall", "-Werror", "-ffreestanding", "-nostdlib",
+                                "-mcpu=arm1176jzf-s", "-mhard-float", "-mfpu=vfp", "-I", os.path.join(ROOT, "pi", "runtime"),
+                                "-I", d, "-c", os.path.join(d, "kern.c"), "-o", obj], check=True, capture_output=True)
+                undefined = subprocess.run([nm, "-u", obj], check=True, capture_output=True, text=True).stdout
+                assert "div" not in undefined, (ck.coarsen, opt, undefined)
 
 
 # -- the Python launch paths to the Pi (a fake runner: nothing reaches the board) ---------------

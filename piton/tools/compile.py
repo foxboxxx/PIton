@@ -100,14 +100,22 @@ def emit_c(ck, out_name: str) -> tuple:
     hx = "gx"
     if ("coarsen", "coarsen0") in ck.uniforms:
         # the program reads its ids per hardware program (uniform coarsen0):
-        # as runtime/launcher.py launch_coarsen chooses them
+        # as runtime/launcher.py launch_coarsen chooses them. Nothing divides
+        # by the variable k: the ARM1176 has no divide instruction, and a
+        # bare-metal program on libpi links no __aeabi_uidiv (only -O2 and up
+        # would see that k is one of the factors below).
         hx = "hx"
+        factors = [ck.coarsen]
         body.append(f"    unsigned k = {ck.coarsen};   // program ids per hardware program")
         if ck.coarsen_launch is not None:
             min_grid, min_programs = ck.coarsen_launch
+            while factors[-1] > 1:
+                factors.append(factors[-1] // 2)
             body += [f"    if (gx < {min_grid}) k = 1;",
-                     f"    while (k > 1 && gx / k < {min_programs}) k /= 2;"]
-        body.append("    unsigned hx = (gx + k - 1) / k;   // hardware programs along x")
+                     f"    while (k > 1 && gx < {min_programs} * k) k /= 2;   // gx / k < {min_programs}"]
+        pick = (" : ".join(f"k == {f} ? (gx + {f - 1}) / {f}" for f in factors if f > 1) + " : gx"
+                if len(factors) > 1 else f"(gx + {ck.coarsen - 1}) / {ck.coarsen}")
+        body.append(f"    unsigned hx = {pick};   // hardware programs along x")
     elif ck.coarsen > 1:
         hx = "hx"
         body.append(f"    unsigned hx = (gx + {ck.coarsen - 1}) / {ck.coarsen};   // hardware programs along x")
