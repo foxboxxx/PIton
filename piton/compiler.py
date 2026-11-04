@@ -273,13 +273,22 @@ COARSEN_SHORT = 1500
 # idiv 0.940x at 1.9-2.7 bytes per instruction) while kernels that wait on
 # memory gain (add/mul/fma 1.21-1.29x, dense_relu 1.12x at 8.2-8.9).
 COARSEN_MIN_BYTES = 4              # bytes loaded and stored per executed instruction
+# A store through a shared slot waits for its DMAs before it releases the slot,
+# where a store to private rows lets the program run on. That pays when stores
+# are a large part of the work (copy 5.4 bytes stored per instruction: 1.48x)
+# and costs when they are rare (Pi, 2026-11-03, matmul 8x64x8: 256^3 at 0.17
+# bytes per instruction 1.05x faster with slots, 512^3 at 0.08 even, 1024^3 at
+# 0.04 0.95x).
+SLOTS_MIN_STORE_BYTES = 0.1        # bytes stored per executed instruction
 
 
-def _id_length(tile, prog: Program, mf) -> Optional[int]:
+def _id_length(tile, prog: Program, mf, upper: bool = True) -> Optional[int]:
     """Instructions one program id executes at most: code outside loops once,
     code inside them times the trip count of every loop (None when a loop runs
     a run-time count). (With store slots the store after a rerolled loop, with
-    its four slot copies of acquire and release, is ~40% of the program.)"""
+    its four slot copies of acquire and release, is ~40% of the program.)
+    upper=False: inside code times the largest single trip count instead, close
+    for loops one after another (softmax's passes) and low for nested ones."""
     trips = 1
     for op in tile.walk():
         if op.name != "scf.for":
@@ -288,7 +297,8 @@ def _id_length(tile, prog: Program, mf) -> Optional[int]:
                         for v in op.operands[:3])
         if lb is None or ub is None or not step or step < 0:
             return None
-        trips *= max(1, -(-(ub - lb) // step))
+        count = max(1, -(-(ub - lb) // step))
+        trips = trips * count if upper else max(trips, count)
     depth = {b.label: b.loop_depth for b in mf.blocks}
     starts = sorted((idx, label) for label, idx in prog.labels.items())
     bounds = [idx for idx, _ in starts] + [len(prog.instrs)]
@@ -299,13 +309,13 @@ def _id_length(tile, prog: Program, mf) -> Optional[int]:
     return n
 
 
-def _id_bytes(tile) -> Optional[int]:
-    """Bytes one program id loads and stores: every tensor load and store,
-    times the trip counts of its loops (None when a loop runs a run-time count)."""
+def _id_bytes(tile, kinds=("tt.load", "tt.store")) -> Optional[int]:
+    """Bytes one program id loads and stores (`kinds`): every tensor load and
+    store, times the trip counts of its loops (None when a loop runs a run-time count)."""
     def walk(block, trips):
         n = 0
         for op in block.ops:
-            if op.name in ("tt.load", "tt.store"):
+            if op.name in kinds:
                 n += trips * 4 * max(1, (op.result if op.name == "tt.load" else op.operands[1]).numel)
             inner = trips
             if op.name == "scf.for":
@@ -369,8 +379,11 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
         g = tuple(grid) if isinstance(grid, (tuple, list)) else (grid,)
         pid_max = tuple(max(1, int(x)) - 1 for x in g) + (0,) * (3 - len(g))
     options = {"num_stages": num_stages, "store_mutex": store_mutex,
-               # stores through shared 16-row VPM slots (backend/lower.py); PITON_STORE_SLOTS=0: private rows
+               # stores through shared 16-row VPM slots (backend/lower.py) where they are
+               # frequent (SLOTS_MIN_STORE_BYTES); PITON_STORE_SLOTS=0: private rows,
+               # =all: slots for every kernel
                "store_slots": os.environ.get("PITON_STORE_SLOTS", "1") not in ("", "0"),
+               "store_slots_all": os.environ.get("PITON_STORE_SLOTS", "1") == "all",
                # issue efficiency (presched.py flag groups, lower.py "Issue"); PITON_ISSUE=1: on
                "issue": os.environ.get("PITON_ISSUE", "0") not in ("", "0")}
     if os.environ.get("PITON_MANDEL_FAST", "1") not in ("", "0"):
@@ -495,6 +508,11 @@ def _compile_program(fn, signature, constants, name, pid_max, options):
     # them. (With slots every store waits for its DMAs before it releases the
     # slot, so only the start is saved; the private rows' last DMA of an id
     # still runs on into the next.)
+    if stats.get("store_slots") and not options.get("store_slots_all"):
+        length = _id_length(tile, prog, mf, upper=False)
+        stored = _id_bytes(tile, ("tt.store",))
+        if length and stored is not None and stored < SLOTS_MIN_STORE_BYTES * length:
+            return _compile_program(fn, signature, constants, name, pid_max, dict(options, store_slots=False))
     coarsen = _coarsening(tile, pid_max, lambda: _id_length(tile, prog, mf))
     if coarsen > 1:
         best = None

@@ -1,0 +1,202 @@
+{
+ "env": "PITON_STORE_SLOTS",
+ "off": "all",
+ "on": "1",
+ "targets": [],
+ "accept": false,
+ "why": "no target case more than 2% faster",
+ "rows": [
+  {
+   "name": "copy",
+   "instructions_off": 276,
+   "instructions_on": 276,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "add",
+   "instructions_off": 367,
+   "instructions_on": 367,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "mul",
+   "instructions_off": 364,
+   "instructions_on": 364,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "fma",
+   "instructions_off": 379,
+   "instructions_on": 379,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "scaled_relu",
+   "instructions_off": 419,
+   "instructions_on": 419,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "exp",
+   "instructions_off": 409,
+   "instructions_on": 409,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "exp2",
+   "instructions_off": 399,
+   "instructions_on": 399,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "log",
+   "instructions_off": 436,
+   "instructions_on": 436,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "log2",
+   "instructions_off": 420,
+   "instructions_on": 420,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "recip",
+   "instructions_off": 372,
+   "instructions_on": 372,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "rsqrt",
+   "instructions_off": 371,
+   "instructions_on": 371,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "sqrt",
+   "instructions_off": 354,
+   "instructions_on": 354,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "idiv",
+   "instructions_off": 692,
+   "instructions_on": 692,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "row_sum",
+   "instructions_off": 203,
+   "instructions_on": 203,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "row_max",
+   "instructions_off": 205,
+   "instructions_on": 205,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "transpose",
+   "instructions_off": 1043,
+   "instructions_on": 1040,
+   "off_us": 769,
+   "on_us": 773,
+   "speedup": 0.9948253557567918,
+   "off": [
+    {
+     "times_us": [
+      796,
+      769,
+      769,
+      771,
+      771
+     ],
+     "busy": 0.40971304724750757,
+     "tmu": 0.007008235804074556,
+     "idle": 0.06158647594278283,
+     "icache_miss": 0.032001441949253216
+    }
+   ],
+   "on": [
+    {
+     "times_us": [
+      792,
+      773,
+      773,
+      776,
+      774
+     ],
+     "busy": 0.40626821905993965,
+     "tmu": 0.007765416127641225,
+     "idle": 0.06066062958171626,
+     "icache_miss": 0.03185179400122491
+    }
+   ]
+  },
+  {
+   "name": "softmax",
+   "instructions_off": 532,
+   "instructions_on": 532,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "matmul_8x64x4",
+   "instructions_off": 1136,
+   "instructions_on": 1136,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "matmul_8x64x8",
+   "instructions_off": 1423,
+   "instructions_on": 1423,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "dense_relu",
+   "instructions_off": 573,
+   "instructions_on": 573,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "mandel_32x16",
+   "instructions_off": 493,
+   "instructions_on": 493,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "mandel_16x16x2",
+   "instructions_off": 480,
+   "instructions_on": 480,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "compute_peak",
+   "instructions_off": 150,
+   "instructions_on": 150,
+   "same": true,
+   "speedup": 1.0
+  }
+ ]
+}
