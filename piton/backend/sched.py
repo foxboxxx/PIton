@@ -688,7 +688,8 @@ def fix_block_boundaries(blocks_instrs: list, preds: dict, order: list) -> None:
 def schedule_function(fn, name: str, missed: Optional[list] = None, prefer_mul: bool = False) -> Program:
     """Schedule an allocated mir.Function into a Program (missed: see
     schedule_block; weighted by 100^loop depth, as compiler.py weighs blocks;
-    prefer_mul: see Bundle.try_add)."""
+    prefer_mul: also schedule each block with Bundle.try_add's prefer_mul and
+    keep the shorter version; `missed` comes from the plain one)."""
     fn.compute_cfg()
     preds = fn.preds()
     per_block = {}
@@ -703,7 +704,13 @@ def schedule_function(fn, name: str, missed: Optional[list] = None, prefer_mul: 
             term = insts.pop()
         ends = insts and insts[-1].sig == "thrend"
         end_inst = insts.pop() if ends else None
-        body = schedule_block(insts, missed=missed, weight=100 ** b.loop_depth, prefer_mul=prefer_mul)
+        body = schedule_block(insts, missed=missed, weight=100 ** b.loop_depth)
+        if prefer_mul:
+            # keep whichever is shorter (`missed` stays the plain schedule's, so
+            # port-aware allocation searches as without prefer_mul)
+            other = schedule_block(insts, weight=100 ** b.loop_depth, prefer_mul=True)
+            if len(other) < len(body):
+                body = other
         if term is not None:
             br = Instr(kind="branch", bcond=term.bcond, target=term.target, rel=True,
                        add=AluOp("mov", isa.NOP, isa.NOP), mul=AluOp("mov", isa.NOP, isa.NOP))
