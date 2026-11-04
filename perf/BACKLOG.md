@@ -29,7 +29,7 @@ Status: `todo`, `wip`, `accepted <commit>`, `rejected (<why>)`.
 |---|---|---|
 | B1 | both texture units (TMU0/TMU1 alternating) | wip (batch 1, opt/b1-tmu, with B2) |
 | B2 | deeper TMU prefetch | wip (with B1) |
-| B3 | bulk loads by VPM DMA read (VCD) for matmul's B | todo |
+| B3 | bulk loads by VPM DMA read (VCD) for matmul's B | rejected on analysis (opt/h6-mm-block): the 64 addressable VPM rows (4 KiB; all of them store slots where a kernel uses slots) hold two k steps of one program's 8x64 B tile, so with 4 private rows per QPU every DMA moves one B row (256 B) through the one VPM DMA engine of all 12 QPUs: 256^3 reads 8 MiB of B = 32768 DMAs, ~13 ms at the VDW's measured 0.18 us + 0.85 ns/B (1 KiB slot DMAs ~8.6 ms), against 3.9 ms for the whole kernel through the TMU caches |
 | B4 | fewer uniforms per program | todo |
 
 ## C. Instruction issue
