@@ -3706,7 +3706,7 @@ class Lowering:
         and _mm_prepare permuted the pointer's dense part into `tdense`, the
         loop's own: its preheader dominates no other loop)."""
         if isinstance(x, Affine) and x.dense is not None \
-                and tuple(id(r) for r in x.dense.regs) not in tdense:
+                and _dense_key(x.dense) not in tdense:
             # e.g. a dense part that depends on the loop variable: its view
             # would cost a permutation in every iteration
             raise MMUnsupported("PITON_MM: A pointer's dense part differs from the prologue's")
@@ -3722,7 +3722,7 @@ class Lowering:
                             wide=x.wide)
             return Pred(x.kind, vshape, None, [self.mm_view_a(a, shape, w, tdense) for a in x.args])
         if isinstance(x, Affine):
-            dense = None if x.dense is None else tdense[tuple(id(r) for r in x.dense.regs)]
+            dense = None if x.dense is None else tdense[_dense_key(x.dense)]
             c0, c1 = x.coeffs
             return Affine(vshape, x.dtype, x.base, [C(_wrap(c1.const * w)) if w > 1 else c1, c0, c1], dense)
         return Splat(vshape, getattr(x, "dtype", None), x if isinstance(x, S) else x.s)
@@ -4594,7 +4594,7 @@ class LoopStream:
             mask = lw.as_pred(lw.get(ld.operands[1])) if ld.attrs.get("has_mask") else None
             if _mm_a_view_ok(ptr, mask, plan.w):
                 if ptr.dense is not None:
-                    key = tuple(id(r) for r in ptr.dense.regs)
+                    key = _dense_key(ptr.dense)
                     if key not in self.tdense:
                         m, k, w = plan.M, plan.K, plan.w
                         self.tdense[key] = lw.permute_dense(ptr.dense, (k // w, m, w),
@@ -4795,6 +4795,12 @@ def _other_fixup(ld) -> bool:
     if isinstance(other, float):
         return other != 0.0 or math.copysign(1.0, other) < 0
     return int(other) != 0
+
+
+def _dense_key(d: Dense) -> tuple:
+    """A Dense by its registers (a received TMU token by the register it
+    was received into: reg_of swaps one for the other)."""
+    return tuple(id(r.vreg if isinstance(r, Token) and r.vreg is not None else r) for r in d.regs)
 
 
 class MMUnsupported(CompilationError):

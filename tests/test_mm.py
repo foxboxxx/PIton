@@ -113,6 +113,28 @@ def _a_mask_carried(a_ptr, b_ptr, out_ptr, k, BM: tl.constexpr, BN: tl.constexpr
 
 
 @piton.jit
+def _a_rows_gathered(a_ptr, idx_ptr, b_ptr, out_ptr, K: tl.constexpr, BM: tl.constexpr, BN: tl.constexpr,
+                     BK: tl.constexpr, CARRIED: tl.constexpr):
+    # A's rows through an index vector loaded before the loop; the pointer
+    # carried (one dense part) or written in the body (lowered again there)
+    rows = tl.load(idx_ptr + tl.arange(0, BM))
+    n = tl.arange(0, BN)[None, :]
+    ak = tl.arange(0, BK)[None, :]
+    bk = tl.arange(0, BK)[:, None]
+    acc = tl.zeros((BM, BN), tl.float32)
+    a_ptrs = a_ptr + rows[:, None] * K + ak
+    for i in range(K // BK):
+        if CARRIED:
+            a = tl.load(a_ptrs)
+        else:
+            a = tl.load(a_ptr + rows[:, None] * K + i * BK + ak)
+        b = tl.load(b_ptr + (i * BK + bk) * BN + n)
+        acc = tl.dot(a, b, acc)
+        a_ptrs += BK
+    tl.store(out_ptr + tl.arange(0, BM)[:, None] * BN + n, acc)
+
+
+@piton.jit
 def _two_dot_loops(a_ptr, b_ptr, out_ptr, M, n1, n2, K: tl.constexpr, BM: tl.constexpr, BN: tl.constexpr,
                    BK: tl.constexpr):
     # both loops' A pointers share one dense part (rows `% M`, hoisted)
@@ -493,3 +515,25 @@ def test_two_loops_share_a_dense_part(monkeypatch, bm, bn, bk, n1, n2):
                           ["out_ptr"])
     np.testing.assert_array_equal(out["out_ptr"], ref)
     assert ck.stats["mm_dots"] == 2 and ck.stats["mm_a_blocks"] == 2
+
+
+@pytest.mark.parametrize("bm,bn,bk", [(8, 32, 8), (4, 64, 8)])
+@pytest.mark.parametrize("carried", [True, False])
+def test_gathered_a_rows(monkeypatch, bm, bn, bk, carried):
+    """A's rows through loaded indices: a carried pointer keeps its dense
+    part (column blocks), a pointer written in the body gets a new one
+    there and falls back to the plain dot (it raised KeyError)."""
+    k, nrows = 3 * bk, 11
+    rng = np.random.default_rng(200 + bm + carried)
+    a = rng.integers(-3, 4, (nrows, k)).astype(np.float32)
+    idx = rng.integers(0, nrows, bm).astype(np.int32)
+    b = rng.integers(-3, 4, (k, bn)).astype(np.float32)
+    sig = {"a_ptr": "*fp32", "idx_ptr": "*i32", "b_ptr": "*fp32", "out_ptr": "*fp32"}
+    values = dict(a_ptr=a, idx_ptr=idx, b_ptr=b, out_ptr=np.full((bm, bn), np.nan, np.float32))
+    out, ck = _off_and_on(monkeypatch, "1", _a_rows_gathered, sig, dict(K=k, BM=bm, BN=bn, BK=bk, CARRIED=carried),
+                          (1,), values, ["out_ptr"])
+    np.testing.assert_array_equal(out["out_ptr"], a[idx] @ b)
+    if carried:
+        assert ck.stats["mm_a_blocks"] == 1 and not ck.stats.get("mm_fallback")
+    else:
+        assert ck.stats["mm_fallback"] == 1 and not ck.stats.get("mm_dots")
