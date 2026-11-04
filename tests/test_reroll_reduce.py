@@ -208,13 +208,16 @@ def layernorm_kernel(x_ptr, out_ptr, n, eps, BLOCK: tl.constexpr):
 @pytest.mark.parametrize("block,n,slots", [(256, 256, "1"), (256, 200, "1"), (128, 100, "0"), (128, 127, "0")])
 def test_layernorm_three_passes(monkeypatch, block, n, slots):
     """(BLOCK=128 with store slots stays unrolled: 463 instructions, the passes
-    with the store queued after them 475, so it is rerolled with private rows.)"""
+    with the store queued after them 475, so it is rerolled with private rows.
+    With PITON_PAIR its unrolled build with private rows is 415 instructions and
+    fits the cache, so a threshold of 360 keeps the passes; 461 without.)"""
     monkeypatch.setenv("PITON_STORE_SLOTS", slots)
     rows = 3
     x = (rng.standard_normal((rows, block)) * 2 + 1).astype(np.float32)
     values = {"x_ptr": x.ravel(), "out_ptr": np.full(rows * block, np.nan, np.float32), "n": n, "eps": 1e-5}
     sig = {"x_ptr": "*fp32", "out_ptr": "*fp32", "n": "i32", "eps": "fp32"}
-    ck, got = on_and_off(monkeypatch, layernorm_kernel, sig, {"BLOCK": block}, (rows,), values)
+    ck, got = on_and_off(monkeypatch, layernorm_kernel, sig, {"BLOCK": block}, (rows,), values,
+                         icache=360 if block == 128 else None)
     assert ck.stats["rerolled"] and ck.stats["reroll_carry"] == 1
     xs = x[:, :n].astype(np.float64)
     d = xs - xs.mean(axis=1, keepdims=True)
