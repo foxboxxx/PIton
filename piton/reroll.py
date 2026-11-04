@@ -72,8 +72,12 @@ ICACHE_INSTRUCTIONS = 450                 # unrolled programs above this miss on
 # on the Pi dense_relu (726 instructions) misses 13.8 times per program, twice
 # for each line past the 512th; scaled_relu (521 before rerolling) and
 # mandel_16x16x2 (543) miss < 0.25 times. The reduction passes use the whole
-# cache, since every chunk halving adds loop iterations and slot moves.
-ICACHE_CAPACITY = 512
+# cache and, as those two, one line more: every chunk halving adds loop
+# iterations and slot moves, and under store slots a halving to more than
+# QUEUE_CHUNKS chunks also loses the queued 1 KiB store (softmax at
+# BLOCK_SIZE=256: 532 instructions in 64-element chunks with the queue,
+# 1172 executed per row, against 332 and 1451 in 32-element chunks).
+ICACHE_CAPACITY = 544
 LANES = 16
 QUEUE_ELEMENTS = 256                      # `queue`: one store slot (16 VPM rows)
 QUEUE_CHUNKS = 4                          # `queue`: at most this many chunks shifted through
@@ -183,7 +187,7 @@ def _queued_stores(tensor_ops, n: int, sub: int):
     if not stores or n > QUEUE_ELEMENTS or n // sub > QUEUE_CHUNKS:
         return None
     producer = {r: op for op in tensor_ops for r in op.results}
-    if any(st.operands[1] not in producer for st in stores):
+    if any(st.operands[1] not in producer or not st.operands[1].is_tensor for st in stores):
         return None                           # (the stored value is not a chunked tensor)
     needed = set()
     work = [v for st in stores for i, v in enumerate(st.operands) if i != 1 and v is not None]
@@ -208,7 +212,7 @@ def run(fn: ir.Function, sub: int = SUB, reductions: bool = False, carry: bool =
     if reductions and has_reductions(fn):
         if sub % LANES:
             return False
-        _run_passes(fn, n, sub, carry)
+        _run_passes(fn, n, sub, carry, queue)
         return True
     scalar_ops, tensor_ops = [], []
     for op in fn.body.ops:
@@ -353,7 +357,7 @@ def _recomputed(op: ir.Op, memo: dict) -> bool:
     return memo[op]
 
 
-def _run_passes(fn: ir.Function, n: int, sub: int, carry: bool = True) -> None:
+def _run_passes(fn: ir.Function, n: int, sub: int, carry: bool = True, queue: bool = False) -> None:
     """Reroll a kernel with reductions: a loop per group of independent
     reductions, carrying their 16-lane partials, then a loop for the stores.
 
@@ -364,7 +368,14 @@ def _run_passes(fn: ir.Function, n: int, sub: int, carry: bool = True) -> None:
     still needs the value), so after a pass the slots hold the chunks in
     order again. A value whose last use is a pass hands its slots to a value
     that pass produces. Without `carry` every pass recomputes its chunks
-    from the loads (fewer registers, more instructions)."""
+    from the loads (fewer registers, more instructions).
+
+    With `queue`, stores that run() would queue (_queued_stores) leave the
+    store loop: it carries their values out in slots like any other value
+    (a value stored as computed by an earlier pass is used from its slots
+    as they are), and after the loop each store is emitted as written, of
+    the slots' chunks joined (`piton.concat`, no instructions), with its
+    addresses and mask computed for the whole block."""
     ops = list(fn.body.ops)
     order = {op: i for i, op in enumerate(ops)}
     tensor_ops = [op for op in ops if _is_tensor_op(op)]
@@ -372,6 +383,11 @@ def _run_passes(fn: ir.Function, n: int, sub: int, carry: bool = True) -> None:
     reductions = [op for op in tensor_ops if _is_reduction(op)]
     stores = [op for op in tensor_ops if op.name == "tt.store"]
     slots = n // sub
+    queued = _queued_stores(tensor_ops, n, sub) if queue else None
+    if queued is not None and any(_is_reduction(op) for op in queued[1]):
+        queued = None                         # (an address computed from a reduction)
+    after = queued[1] if queued is not None else []
+    stored = list(dict.fromkeys(st.operands[1].op for st in stores)) if after else []
 
     deps = {}                                 # value id -> the reductions it depends on
     for op in ops:
@@ -390,7 +406,10 @@ def _run_passes(fn: ir.Function, n: int, sub: int, carry: bool = True) -> None:
     memo, computed_at, plan = {}, {}, []
     for p, roots in enumerate(passes_):
         need, reads = set(), set()
-        stack = [v for op in roots for v in op.operands if v is not None and v.is_tensor]
+        if roots is stores and after:         # (addresses and masks: after the loop)
+            stack = [st.operands[1] for st in stores]
+        else:
+            stack = [v for op in roots for v in op.operands if v is not None and v.is_tensor]
         while stack:
             v = stack.pop()
             o = v.op
@@ -412,6 +431,8 @@ def _run_passes(fn: ir.Function, n: int, sub: int, carry: bool = True) -> None:
             last[o] = p
 
     for op in tensor_ops:                     # the originals are replaced by the loop bodies
+        if op in after:
+            continue                          # (emitted after the store loop, as they are)
         for v in op.operands:
             if v is not None and op in v.uses:
                 v.uses.remove(op)
@@ -437,11 +458,19 @@ def _run_passes(fn: ir.Function, n: int, sub: int, carry: bool = True) -> None:
         """scf.for over the chunks: the ops of pass p, then each root (a
         reduction folds its chunk into its partial)."""
         reds = [op for op in roots if _is_reduction(op)]
-        live = sorted((o for o in buffers if last[o] >= p), key=order.get)
+        queued_here = stored if roots is stores else []
+        used = {v for op in need for v in op.operands}
+        # (a queued value computed by an earlier pass and not otherwise needed
+        # here keeps its slots out of the loop)
+        live = sorted((o for o in buffers if last[o] >= p and not (o in queued_here and o.result not in used)),
+                      key=order.get)
         produced = sorted((o for o in computed_at if computed_at[o] == p and o in last), key=order.get)
+        produced += [o for o in queued_here if o in need]
         streams = []                          # (op whose slots come in or None, op shifted in or None)
         for o in live:
-            streams.append([o, o if last[o] > p else None])
+            streams.append([o, o if last[o] > p or o in queued_here else None])
+        if not (reds or streams or need or roots is stores and not after):
+            return []                         # (the queued values are all in slots already)
         for o in produced:
             free = next((s for s in streams if s[1] is None and last[s[0]] == p
                          and s[0].result.dtype == o.result.dtype), None)
@@ -474,7 +503,7 @@ def _run_passes(fn: ir.Function, n: int, sub: int, carry: bool = True) -> None:
             if old is not None and old in reads:
                 mapping[old.result] = stream_args[k * slots]
         for op in tensor_ops:
-            if op not in need and not (op in roots and op.name == "tt.store"):
+            if op not in need and not (op in roots and op.name == "tt.store" and op not in after):
                 continue
             operands = [mapping.get(v, v) if v is not None else None for v in op.operands]
             if op.name == "tt.make_range":
@@ -509,6 +538,15 @@ def _run_passes(fn: ir.Function, n: int, sub: int, carry: bool = True) -> None:
     for p, (roots, need, reads) in enumerate(plan):
         if roots is stores:
             chunk_loop(p, roots, need, reads)
+            for op in after:
+                if op in stores:              # the whole block's values, from the slots
+                    val = op.operands[1]
+                    if op in val.uses:
+                        val.uses.remove(op)
+                    chunks = buffers[val.op]
+                    op.operands[1] = b.create("piton.concat", chunks, [(val.dtype, val.shape)]).result
+                    op.operands[1].uses.append(op)
+                fn.body.append(op)
             break
         for red, acc in zip(roots, chunk_loop(p, roots, need, reads)):
             # the partial's lanes are folded as the unrolled reduction folds its last register

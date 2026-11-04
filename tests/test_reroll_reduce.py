@@ -15,13 +15,17 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "examples"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.dirname(__file__))
 import piton  # noqa: E402
 import piton.language as tl  # noqa: E402
 from piton import compiler, reroll  # noqa: E402
 from piton.backend.regalloc import RegAllocError  # noqa: E402
+from piton.qpu import emulator  # noqa: E402
 from piton.runtime.launcher import run_emulator  # noqa: E402
 from kernels import softmax_kernel  # noqa: E402
 from primitive_kernels import transpose_kernel  # noqa: E402
+from test_store_slots import contended, launch  # noqa: E402
+from test_store_slots_protocol import protocol_errors  # noqa: E402
 
 rng = np.random.default_rng(11)
 SOFTMAX = {"output_ptr": "*fp32", "input_ptr": "*fp32", "input_row_stride": "i32",
@@ -191,8 +195,11 @@ def layernorm_kernel(x_ptr, out_ptr, n, eps, BLOCK: tl.constexpr):
     tl.store(out_ptr + row * BLOCK + offs, d / tl.sqrt(var + eps), mask=mask)
 
 
-@pytest.mark.parametrize("block,n", [(256, 256), (256, 200), (128, 100), (128, 127)])
-def test_layernorm_three_passes(monkeypatch, block, n):
+@pytest.mark.parametrize("block,n,slots", [(256, 256, "1"), (256, 200, "1"), (128, 100, "0"), (128, 127, "0")])
+def test_layernorm_three_passes(monkeypatch, block, n, slots):
+    """(BLOCK=128 with store slots stays unrolled: 463 instructions, the passes
+    with the store queued after them 475, so it is rerolled with private rows.)"""
+    monkeypatch.setenv("PITON_STORE_SLOTS", slots)
     rows = 3
     x = (rng.standard_normal((rows, block)) * 2 + 1).astype(np.float32)
     values = {"x_ptr": x.ravel(), "out_ptr": np.full(rows * block, np.nan, np.float32), "n": n, "eps": 1e-5}
@@ -309,10 +316,12 @@ def carried_through_kernel(x_ptr, y_ptr, out_ptr, BLOCK: tl.constexpr):
     tl.store(out_ptr + offs, tl.where(pos, -x, x * s + y))
 
 
-@pytest.mark.parametrize("block,capacity,sub", [(64, None, 32), (128, None, 64), (128, 300, 32)])
+@pytest.mark.parametrize("block,capacity,sub", [(64, None, 32), (128, None, 64), (128, 400, 32)])
 def test_value_carried_past_a_pass(monkeypatch, block, capacity, sub):
     """x is loaded for the first pass and used again in the third: the second pass
-    rotates its slots; y is first needed (and loaded) in the second pass."""
+    rotates its slots; y is first needed (and loaded) in the second pass. (At
+    BLOCK=128 the store queued after the passes takes 463 instructions in
+    64-element chunks and 330 in 32-element ones.)"""
     rows = 3
     x = rng.standard_normal((rows, block)).astype(np.float32)
     y = (rng.standard_normal((rows, block)) * 2).astype(np.float32)
@@ -389,7 +398,8 @@ def test_recompute_fallback(monkeypatch):
     """Without carrying (reroll.run(..., carry=False)) the passes reload their chunks;
     still the unrolled kernel's bits."""
     real = reroll.run
-    monkeypatch.setattr(reroll, "run", lambda fn, sub, reductions=False, carry=True: real(fn, sub, reductions, False))
+    monkeypatch.setattr(reroll, "run", lambda fn, sub, reductions=False, carry=True, queue=False:
+                        real(fn, sub, reductions, False, queue))
     rows, block = 3, 256
     x, values = softmax_inputs(rows, 250, block, block)
     ck, got = on_and_off(monkeypatch, softmax_kernel, SOFTMAX, {"BLOCK_SIZE": block}, (rows,), values)
@@ -694,3 +704,151 @@ def test_transposed_load_across_16_mb(monkeypatch):
     want = np.full((bm, bn), -7, np.int32)
     want[:n_rows, :n_cols] = src[:, :n_cols]
     np.testing.assert_array_equal(got["out_ptr"].reshape(bn, bm), want.T)
+
+
+# -- with store slots (PITON_STORE_SLOTS, on by default): stores after the passes ----------
+
+
+def dma_sizes(monkeypatch):
+    """Bytes of every VDW DMA the emulator starts from now on."""
+    sizes, real = [], emulator.QPU.start_vdw
+
+    def start_vdw(self, addr):
+        before = self.stats["vdw_bytes"]
+        real(self, addr)
+        sizes.append(self.stats["vdw_bytes"] - before)
+    monkeypatch.setattr(emulator.QPU, "start_vdw", start_vdw)
+    return sizes
+
+
+def slot_on_and_off(monkeypatch, kernel, sig, cons, grid, values, seed=0, icache=None, capacity=None):
+    """(build with the switch and store slots on, its outputs launched with contended
+    DMAs) after checking the protocol on every path and the outputs bit for bit
+    against the unrolled slot build and the passes with private VPM rows."""
+    monkeypatch.setenv("PITON_STORE_SLOTS", "0")
+    private = build(monkeypatch, kernel, sig, cons, grid, "1", icache, capacity)
+    monkeypatch.setenv("PITON_STORE_SLOTS", "1")
+    off = build(monkeypatch, kernel, sig, cons, grid, None, icache, capacity)
+    on = build(monkeypatch, kernel, sig, cons, grid, "1", icache, capacity)
+    assert on.stats.get("store_slots") == 1 and protocol_errors(on.program) == []
+    wants = [run(off, grid, values), run(private, grid, values)]
+    got = {k: (v.copy() if isinstance(v, np.ndarray) else v) for k, v in values.items()}
+    launch(on, grid, got, contended(seed))
+    for want in wants:
+        for k, v in want.items():
+            if isinstance(v, np.ndarray):
+                np.testing.assert_array_equal(bits(got[k]), bits(v), err_msg=k)
+    return on, got
+
+
+@pytest.mark.parametrize("cols,rows", [(256, 13), (200, 3), (1, 1)])
+def test_softmax_store_queued_after_the_passes(monkeypatch, cols, rows):
+    """The suite's Pi softmax (BLOCK_SIZE=256): the division pass carries its
+    quotients out in the slots of the exponentials, and the row is stored after
+    the last loop through a store slot, one 1 KiB DMA (not four of 256 bytes);
+    64-element chunks, since 32-element ones (8 chunks) would lose the queue."""
+    stride = cols + 3
+    x, values = softmax_inputs(rows, cols, stride, 256)
+    ck, got = slot_on_and_off(monkeypatch, softmax_kernel, SOFTMAX, {"BLOCK_SIZE": 256}, (rows,), values, cols)
+    assert ck.stats["rerolled"] == 64 and ck.stats["reroll_carry"] == 1
+    assert len(ck.program.instrs) <= reroll.ICACHE_CAPACITY
+    ttir = ck.asm["ttir_opt"]
+    assert ttir.count("scf.for") == 3 and ttir.count("tt.load") == 1 and ttir.count("tt.store") == 1
+    assert ttir.index("piton.concat") > ttir.rindex("scf.yield") and ttir.index("tt.store") > ttir.rindex("scf.yield")
+    if cols == 256:
+        sizes = dma_sizes(monkeypatch)
+        run(ck, (rows,), values)
+        assert sizes == [1024] * rows
+    out = got["output_ptr"].reshape(rows, stride)
+    np.testing.assert_allclose(out[:, :cols], softmax_ref(x, cols), rtol=2e-5, atol=1e-8)
+    assert np.isnan(out[:, cols:]).all()
+
+
+def test_transpose_stores_through_a_slot(monkeypatch):
+    """The transposed-load tile is stored through a store slot: one 1 KiB DMA per tile."""
+    n = 48
+    t = rng.standard_normal((n, n)).astype(np.float32)
+    values = {"x_ptr": t.ravel(), "out_ptr": np.full(n * n, np.nan, np.float32), "n_rows": n, "n_cols": n,
+              "stride_x": n, "stride_out": n}
+    grid = ((n // 16) ** 2,)
+    ck, got = slot_on_and_off(monkeypatch, transpose_kernel, TRANSPOSE, {"BLOCK_M": 16, "BLOCK_N": 16}, grid, values)
+    assert "load_operand" in ck.asm["ttir_opt"]
+    sizes = dma_sizes(monkeypatch)
+    run(ck, grid, values)
+    assert sizes == [1024] * grid[0]
+    np.testing.assert_array_equal(got["out_ptr"].reshape(n, n), t.T)
+
+
+@piton.jit
+def stored_and_divided_kernel(x_ptr, e_ptr, out_ptr, n, BLOCK: tl.constexpr):
+    row = tl.program_id(0)
+    offs = tl.arange(0, BLOCK)
+    mask = offs < n
+    x = tl.load(x_ptr + row * BLOCK + offs, mask=mask, other=-float("inf"))
+    e = tl.exp(x - tl.max(x, axis=0))
+    s = tl.sum(e, axis=0)
+    tl.store(e_ptr + row * BLOCK + offs, e, mask=mask)         # e as the second pass computed it
+    tl.store(out_ptr + row * BLOCK + offs, e / s, mask=mask)
+
+
+@piton.jit
+def stored_as_carried_kernel(x_ptr, e_ptr, s_ptr, n, BLOCK: tl.constexpr):
+    row = tl.program_id(0)
+    offs = tl.arange(0, BLOCK)
+    mask = offs < n
+    x = tl.load(x_ptr + row * BLOCK + offs, mask=mask, other=-float("inf"))
+    e = tl.exp(x - tl.max(x, axis=0))
+    s = tl.sum(e, axis=0)
+    tl.store(e_ptr + row * BLOCK + offs, e, mask=mask)         # nothing left to compute per chunk
+    tl.store(s_ptr + row, s)
+
+
+@pytest.mark.parametrize("n", [256, 77])
+def test_queued_stores_of_carried_values(monkeypatch, n):
+    """A stored value an earlier pass computed: rotated through the store loop when
+    the loop also needs it (and the quotient gets fresh slots; two queued stores
+    take 685 instructions in 64-element chunks, so the cache limit is raised), or
+    stored from its slots with no store loop at all; the scalar store stays last."""
+    rows, block = 3, 256
+    x = (rng.standard_normal((rows, block)) * 3).astype(np.float32)
+    e = np.exp(x[:, :n].astype(np.float64) - x[:, :n].max(axis=1, keepdims=True))
+    values = {"x_ptr": x.ravel(), "e_ptr": np.full(rows * block, np.nan, np.float32),
+              "out_ptr": np.full(rows * block, np.nan, np.float32), "n": n}
+    sig = {"x_ptr": "*fp32", "e_ptr": "*fp32", "out_ptr": "*fp32", "n": "i32"}
+    ck, got = slot_on_and_off(monkeypatch, stored_and_divided_kernel, sig, {"BLOCK": block}, (rows,), values, n,
+                              capacity=700)
+    assert ck.stats["rerolled"] == 64 and ck.asm["ttir_opt"].count("scf.for") == 3
+    assert ck.asm["ttir_rerolled"].count("piton.concat") == 2
+    np.testing.assert_allclose(got["e_ptr"].reshape(rows, block)[:, :n], e, rtol=4e-6, atol=1e-30)
+    np.testing.assert_allclose(got["out_ptr"].reshape(rows, block)[:, :n], e / e.sum(axis=1, keepdims=True),
+                               rtol=2e-5, atol=1e-8)
+    values = {"x_ptr": x.ravel(), "e_ptr": np.full(rows * block, np.nan, np.float32),
+              "s_ptr": np.zeros(rows, np.float32), "n": n}
+    sig = {"x_ptr": "*fp32", "e_ptr": "*fp32", "s_ptr": "*fp32", "n": "i32"}
+    ck, got = slot_on_and_off(monkeypatch, stored_as_carried_kernel, sig, {"BLOCK": block}, (rows,), values, n + 1)
+    ttir = ck.asm["ttir_rerolled"]
+    assert ck.stats["rerolled"] == 64 and ttir.count("scf.for") == 2 and "piton.concat" in ttir
+    assert ttir.rindex("tt.store") > ttir.index("piton.concat")
+    np.testing.assert_allclose(got["e_ptr"].reshape(rows, block)[:, :n], e, rtol=4e-6, atol=1e-30)
+    np.testing.assert_allclose(got["s_ptr"], e.sum(axis=1), rtol=2e-5)
+
+
+def test_slot_fallback_keeps_the_rewrite(monkeypatch):
+    """When a store slot's registers (or the queued store's) do not fit, the build
+    falls back to private VPM rows (compiler._compile_tile): the fallback keeps
+    the passes and the transposed loads of the build it replaces."""
+    real = compiler._build
+
+    def no_slots(tile, ranges, options, interleave):
+        if options.get("store_slots"):
+            raise RegAllocError("store slot registers (test)")
+        return real(tile, ranges, options, interleave)
+    monkeypatch.setattr(compiler, "_build", no_slots)
+    ck = build(monkeypatch, softmax_kernel, SOFTMAX, {"BLOCK_SIZE": 256}, (13,))
+    assert ck.stats["rerolled"] == 64 and ck.stats["reroll_carry"] == 1 and not ck.stats.get("store_slots")
+    assert ck.asm["ttir_opt"].count("scf.for") == 3 and "piton.concat" not in ck.asm["ttir_opt"]
+    x, values = softmax_inputs(13, 250, 256, 256)
+    out = run(ck, (13,), values)["output_ptr"].reshape(13, 256)
+    np.testing.assert_allclose(out[:, :250], softmax_ref(x, 250), rtol=2e-5, atol=1e-8)
+    ck = build(monkeypatch, transpose_kernel, TRANSPOSE, {"BLOCK_M": 16, "BLOCK_N": 16}, (9,))
+    assert "load_operand" in ck.asm["ttir_opt"] and not ck.stats.get("store_slots")

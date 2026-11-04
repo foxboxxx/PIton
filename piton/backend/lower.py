@@ -3476,6 +3476,16 @@ class Lowering:
             regs.append(r)
         return Dense(res.shape, res.dtype, regs)
 
+    def op_piton_concat(self, op):
+        """The chunks a rerolled store pass carried out of its loop, as the
+        block they make up (reroll._run_passes with `queue`): their registers
+        in order, no instructions."""
+        regs = []
+        for v in op.operands:
+            d = self.materialize(self.get(v))
+            regs += [self.reg_of(d, j) for j in range(len(d.regs))]
+        return Dense(op.result.shape, op.result.dtype, regs)
+
     def carried_form(self, init, shape, dtype):
         """Loop-carried representation: (value used inside, list of (reg, source) copies)."""
         if isinstance(init, Affine):
