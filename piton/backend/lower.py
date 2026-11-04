@@ -88,8 +88,8 @@ _DIV_LAST = 0x40000000 - 4
 
 
 def fast_idiv_enabled() -> bool:
-    """PITON_FAST_IDIV: unset or "0" = branching division (the default)."""
-    return os.environ.get("PITON_FAST_IDIV", "0") != "0"
+    """Branch-free division (the default); PITON_FAST_IDIV=0: branching division."""
+    return os.environ.get("PITON_FAST_IDIV", "1") != "0"
 
 
 def _recip_down(b: int) -> float:

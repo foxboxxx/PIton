@@ -44,7 +44,7 @@ Status: `todo`, `wip`, `accepted <commit>`, `rejected (<why>)`.
 | C7 | MIR hoisting/CSE; pack ldtmu/ldunif signals onto ALU instructions | todo |
 | C8 | fill SFU latency with independent ops | todo |
 | C9 | opt-in fast-math (fewer Newton steps / shorter polynomials) | todo |
-| C10 | integer divide via float reciprocal + one correction | wip (batch 2, opt/c10-idiv) |
+| C10 | integer divide via float reciprocal + one correction | accepted, on by default (`PITON_FAST_IDIV=0` restores the branching division): idiv 2.78x, dense_relu 1.15x, matmul 1.03-1.05x |
 
 ## D. Instruction cache
 | # | change | status |
@@ -87,3 +87,4 @@ outputs; H6 matmul register blocking for more A reuse.
 | 2026-11-03 | A1 | store slots on top of C1: copy 1652 -> 1118 us (1.478x), scaled_relu 1.482x, sqrt 1.404x, recip 1.393x, rsqrt 1.379x, exp2 1.272x, exp 1.243x, log2 1.187x, log 1.164x, add 1.129x, mul 1.091x, fma 1.059x, matmul_8x64x8 1.033x; softmax 0.981x, transpose 0.996x (within the 2% rule); test_hw 10/10 (`ab-2026-11-03-store_slots.json`) |
 | 2026-11-03 | profile | after C1 + A1: geometric mean 1.165x over the 23 cases against the morning baseline (`pi-2026-11-03-c1a1.json`, `perf/compare.py`); exp/log/recip/rsqrt now 87-89% busy (compute bound), copy at the store engine's ~940 MB/s, add/mul/fma 22% busy (load side). row_sum/row_max 142/146 us is their usual range (141-146 in every profile since 11-02; the 138/139 baseline was a fast boot) |
 | 2026-11-03 | G1 | BLOCK sweep with slots: exp 256 -> 1356 us, 512 1695, 1024 1676; sqrt 256 1175, 512 1725, 1024 1638. Blocks above 256 lose the slots (the rerolled store queue holds one 16-row slot, at most 4 chunks), so 256 stays best (`tune-2026-11-03-{exp,sqrt}-BLOCK-c1a1.json`) |
+| 2026-11-03 | C10 | branch-free exact division (`//` and `%` share one estimate, constant divisors take shortcuts), on top of C1 + A1: idiv 7836 -> 2824 us (2.775x), dense_relu 4989 -> 4354 (1.146x), matmul_8x64x8 1.048x, matmul_8x64x4 1.028x, transpose 1.024x, nothing else changes; host tests both ways (684), test_hw 11/11 (`ab-2026-11-03-fast_idiv.json`) |

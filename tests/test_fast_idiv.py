@@ -710,8 +710,10 @@ def test_quotient_and_remainder_share_one_division(fast):
     assert "fast_idiv_fallback" not in ck.stats
 
 
-def test_switch_defaults_off(monkeypatch):
+def test_switch_defaults_on(monkeypatch):
     monkeypatch.delenv("PITON_FAST_IDIV", raising=False)
+    assert "div_full" not in piton.compiler.compile(idiv_kernel, IDIV_SIG, {"BLOCK": 64}).asm["qasm"]
+    monkeypatch.setenv("PITON_FAST_IDIV", "0")
     assert "div_full" in piton.compiler.compile(idiv_kernel, IDIV_SIG, {"BLOCK": 64}).asm["qasm"]
 
 
