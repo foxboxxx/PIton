@@ -9,7 +9,7 @@ from typing import Optional
 
 from . import frontend, ir, passes, reroll
 from .backend import opt, presched
-from .backend.lower import Lowering
+from .backend.lower import Lowering, fast_idiv_enabled
 from .backend.regalloc import PortHints, RegAllocError, allocate, clone_function
 from .backend.sched import schedule_function
 from .qpu.asm import Program
@@ -63,6 +63,25 @@ def _block_lengths(prog: Program) -> dict:
     for (idx, label), end in zip(starts, bounds[1:]):
         out[label] = end - idx
     return out
+
+
+def _misses_icache(tile, prog: Program, mf, stats: dict) -> bool:
+    """Does `prog` stream through the instruction cache (reroll.py)?  Any
+    program over ICACHE_INSTRUCTIONS, except (PITON_FAST_IDIV) a rerolled one
+    with branch-free divisions whose stores are queued (reroll.py `queue`):
+    the stores run once per program, after the loop, so only the loop has to
+    stay cached, and a smaller chunk shrinks only the loop or loses the queue
+    (idiv: 692 instructions with a 268-instruction loop and two 1 KiB DMAs;
+    in 32-element chunks 16 DMAs of 128 bytes).  Kept to the switch, so that
+    builds without it are unchanged (idiv's chunks with the branching division
+    do not fit the queue's registers anyway)."""
+    if len(prog.instrs) <= reroll.ICACHE_INSTRUCTIONS:
+        return False
+    fast = any(stats.get(k) for k in ("idiv_one_step", "idiv_short", "idiv_full"))
+    if not (fast and stats.get("rerolled") and any(o.name == "piton.shift_in" for o in tile.walk())):
+        return True
+    depth = {b.label: b.loop_depth for b in mf.blocks}
+    return sum(n for label, n in _block_lengths(prog).items() if depth.get(label, 0)) > reroll.ICACHE_INSTRUCTIONS
 
 
 def _likely_blocks(mf) -> set:
@@ -224,6 +243,31 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
     options = {"num_stages": num_stages, "store_mutex": store_mutex,
                # stores through shared 16-row VPM slots (backend/lower.py); PITON_STORE_SLOTS=0: private rows
                "store_slots": os.environ.get("PITON_STORE_SLOTS", "1") not in ("", "0")}
+    try:
+        tile, prog, lw, stats, asm = _compile_program(fn, signature, constants, name, pid_max, options)
+    except RegAllocError:
+        # PITON_FAST_IDIV: the straight-line division keeps a whole tile's operands,
+        # both results and the block's cached lane offsets and constants live at
+        # once; a tile that only fits the registers with the branching division
+        # (e.g. offs // N and offs % N of a 16x16 tile) gets that one
+        if not fast_idiv_enabled():
+            raise
+        tile, prog, lw, stats, asm = _compile_program(fn, signature, constants, name, pid_max,
+                                                      dict(options, fast_idiv=False))
+        stats["fast_idiv_fallback"] = 1
+    prog.header = [f"{tile.name}: compiled by PIton (Triton -> VideoCore IV QPU)",
+                   "uniforms: " + ", ".join(n for _, n in lw.uniforms),
+                   "constants: " + ", ".join(f"{k}={v}" for k, v in constants.items())]
+    asm["qasm"] = prog.qasm()
+    stats["instructions"] = len(prog.instrs)
+    ck = CompiledKernel(tile.name, prog, list(lw.uniforms), dict(signature), constants, asm, stats)
+    if verify:
+        prog.words()     # every instruction must encode
+    return ck
+
+
+def _compile_program(fn, signature, constants, name, pid_max, options):
+    """compile() up to the scheduled program: straight-line, else rerolled."""
     use_reroll = os.environ.get("PITON_REROLL", "1") != "0"
     sub = reroll.SUB
     try:
@@ -238,19 +282,11 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
     # A straight-line program larger than the instruction cache stalls on
     # every cache line (reroll.py); a loop over 64-element chunks fits, and
     # heavier bodies (exact division) get smaller chunks until theirs does.
-    while (len(prog.instrs) > reroll.ICACHE_INSTRUCTIONS and sub >= 16 and use_reroll
+    while (_misses_icache(tile, prog, mf, stats) and sub >= 16 and use_reroll
            and reroll.applicable(frontend.generate(fn, signature, constants, name=name), sub)):
         rerolled = _compile_tile(fn, signature, constants, name, pid_max, options, sub)
         if len(rerolled[1].instrs) >= len(prog.instrs):
             break
         tile, prog, mf, lw, stats, asm = rerolled
         sub //= 2
-    prog.header = [f"{tile.name}: compiled by PIton (Triton -> VideoCore IV QPU)",
-                   "uniforms: " + ", ".join(n for _, n in lw.uniforms),
-                   "constants: " + ", ".join(f"{k}={v}" for k, v in constants.items())]
-    asm["qasm"] = prog.qasm()
-    stats["instructions"] = len(prog.instrs)
-    ck = CompiledKernel(tile.name, prog, list(lw.uniforms), dict(signature), constants, asm, stats)
-    if verify:
-        prog.words()     # every instruction must encode
-    return ck
+    return tile, prog, lw, stats, asm
