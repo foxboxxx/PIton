@@ -56,7 +56,10 @@ on the Pi (emulator.py). Independent reductions share a loop; scalar
 stores move after the last loop, so kernels that load after any store, or
 store a tensor after a scalar, are left alone. As for elementwise blocks,
 the store loop interleaves the chunks' stores (and any loads it still
-needs) by chunk.
+needs) by chunk; with `queue` the stores `queue` would keep outside an
+elementwise loop leave the store loop too, which carries their values out
+in slots, and each is stored once after it (softmax at BLOCK_SIZE=256: one
+1 KiB DMA per row).
 
 transposed_loads() (PITON_REROLL_REDUCE=1 or "tiles") handles the 2-D tile
 that missed the cache, transpose: tl.trans of a loaded tile becomes a load
