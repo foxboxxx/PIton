@@ -32,3 +32,17 @@ def test_case_matches_reference(case):
     for name, expected in run.expected.items():
         error = default_check(run, name, values[name], expected)
         assert error is None, f"{case.name}.{name}: {error}"
+
+
+@pytest.mark.parametrize("name,constant", [("copy", "BLOCK"), ("add", "BLOCK_SIZE"), ("exp", "BLOCK"),
+                                           ("idiv", "BLOCK")])
+def test_blocks_too_large_for_registers_are_rerolled(name, constant):
+    """BLOCK=2048 runs out of registers straight-line; compile() falls back to the chunk loop."""
+    from perf.suite import CASES_BY_NAME
+    from perf.tune import variant
+    ck, run = compile_case(variant(CASES_BY_NAME[name], constant, 2048), "emu")
+    assert ck.stats["rerolled"]
+    values = {k: (v.copy() if isinstance(v, np.ndarray) else v) for k, v in run.inputs.values.items()}
+    run_emulator(ck, run.grid, values)
+    for out, expected in run.expected.items():
+        assert default_check(run, out, values[out], expected) is None

@@ -23,3 +23,5 @@ pi/examples/primitives/arm_kernel_vfp.S
 .DS_Store
 .vscode/
 tools/pi_power
+.claude/
+perf/loop/

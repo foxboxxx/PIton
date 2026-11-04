@@ -1,0 +1,150 @@
+[
+ {
+  "BLOCK_SIZE": 256,
+  "name": "add",
+  "note": "tutorial 01",
+  "instructions": 156,
+  "programs": 1024,
+  "times_us": [
+   1926,
+   1895,
+   1866,
+   1874,
+   1865
+  ],
+  "best_us": 1865,
+  "counters": {
+   "idle": 72176,
+   "valid": 1581056,
+   "tmu_stall": 908500,
+   "sb_stall": 0,
+   "icache_hit": 395264,
+   "icache_miss": 48,
+   "unif_miss": 817,
+   "tmu_quads": 524288,
+   "tmu_miss": 32768,
+   "vdw_stall": 0,
+   "l2_hit": 447,
+   "l2_miss": 33186
+  },
+  "busy": 0.28258373547810545,
+  "tmu": 0.16237712243074173,
+  "idle": 0.012900089365504915,
+  "icache_miss": 0.00012142307847978306,
+  "checked": {
+   "output_ptr": 1021
+  },
+  "errors": {}
+ },
+ {
+  "BLOCK_SIZE": 512,
+  "name": "add",
+  "note": "tutorial 01",
+  "instructions": 156,
+  "programs": 512,
+  "times_us": [
+   1783,
+   1769,
+   1742,
+   1755,
+   1759
+  ],
+  "best_us": 1742,
+  "counters": {
+   "idle": 75152,
+   "valid": 1527808,
+   "tmu_stall": 750920,
+   "sb_stall": 0,
+   "icache_hit": 381952,
+   "icache_miss": 48,
+   "unif_miss": 431,
+   "tmu_quads": 524288,
+   "tmu_miss": 32768,
+   "vdw_stall": 0,
+   "l2_hit": 226,
+   "l2_miss": 33021
+  },
+  "busy": 0.2923474933027172,
+  "tmu": 0.14368924607730577,
+  "idle": 0.014380405663987754,
+  "icache_miss": 0.00012565445026178012,
+  "checked": {
+   "output_ptr": 1021
+  },
+  "errors": {}
+ },
+ {
+  "BLOCK_SIZE": 1024,
+  "name": "add",
+  "note": "tutorial 01",
+  "instructions": 158,
+  "programs": 256,
+  "times_us": [
+   1765,
+   1745,
+   1739,
+   1749,
+   1748
+  ],
+  "best_us": 1739,
+  "counters": {
+   "idle": 88460,
+   "valid": 1502208,
+   "tmu_stall": 812768,
+   "sb_stall": 0,
+   "icache_hit": 375552,
+   "icache_miss": 48,
+   "unif_miss": 205,
+   "tmu_quads": 524288,
+   "tmu_miss": 32768,
+   "vdw_stall": 0,
+   "l2_hit": 93,
+   "l2_miss": 32928
+  },
+  "busy": 0.28794479585968946,
+  "tmu": 0.15579221774966456,
+  "idle": 0.016956105041211426,
+  "icache_miss": 0.00012779552715654952,
+  "checked": {
+   "output_ptr": 1021
+  },
+  "errors": {}
+ },
+ {
+  "BLOCK_SIZE": 2048,
+  "name": "add",
+  "note": "tutorial 01",
+  "instructions": 158,
+  "programs": 128,
+  "times_us": [
+   1795,
+   1771,
+   1757,
+   1759,
+   1776
+  ],
+  "best_us": 1757,
+  "counters": {
+   "idle": 148316,
+   "valid": 1488384,
+   "tmu_stall": 822056,
+   "sb_stall": 0,
+   "icache_hit": 372096,
+   "icache_miss": 48,
+   "unif_miss": 103,
+   "tmu_quads": 524288,
+   "tmu_miss": 32768,
+   "vdw_stall": 0,
+   "l2_hit": 55,
+   "l2_miss": 32864
+  },
+  "busy": 0.28237222538417756,
+  "tmu": 0.1559582621893379,
+  "idle": 0.028138114209827356,
+  "icache_miss": 0.00012898232942086933,
+  "checked": {
+   "output_ptr": 1021
+  },
+  "errors": {}
+ }
+]

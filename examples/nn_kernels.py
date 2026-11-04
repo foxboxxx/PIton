@@ -14,8 +14,10 @@ import piton.language as tl
 def dense_tiles(output_features):
     """Return (BM, BN, BK) for the hidden and final layers of the small MLP."""
     # Bias needs live registers in addition to the matmul accumulators. Halving
-    # BM from the plain-matmul winner leaves room for the fused epilogue.
-    return (4, 64, 8) if output_features >= 64 else (8, 16, 8)
+    # BM from the plain-matmul winner leaves room for the fused epilogue. With
+    # K of only 64-128, BK=4 beats the plain matmul's BK=8 (Pi, 2026-11-03:
+    # full batch 10.859 -> 9.881 ms; the dense_relu suite case 1.145x).
+    return (4, 64, 4) if output_features >= 64 else (8, 16, 4)
 
 
 @piton.jit

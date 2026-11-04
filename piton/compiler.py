@@ -10,9 +10,11 @@ from typing import Optional
 from . import frontend, ir, passes, reroll
 from .backend import opt, presched
 from .backend.lower import Lowering
-from .backend.regalloc import RegAllocError, allocate
+from .backend.regalloc import PortHints, RegAllocError, allocate, clone_function
 from .backend.sched import schedule_function
 from .qpu.asm import Program
+
+PORT_ROUNDS = 4         # port-aware allocation attempts per build (PITON_PORT_ALLOC)
 
 
 @dataclass
@@ -54,8 +56,81 @@ def _weighted_length(prog: Program, mf) -> int:
     return total
 
 
+def _block_lengths(prog: Program) -> dict:
+    starts = sorted((idx, label) for label, idx in prog.labels.items())
+    bounds = [idx for idx, _ in starts] + [len(prog.instrs)]
+    out = {None: bounds[0]}
+    for (idx, label), end in zip(starts, bounds[1:]):
+        out[label] = end - idx
+    return out
+
+
+def _likely_blocks(mf) -> set:
+    """Labels on the path that predicts forward conditional branches not
+    taken and backward ones taken: partial-store paths of ragged tails,
+    skipped chunks and the slow division path are off it."""
+    index = {b.label: i for i, b in enumerate(mf.blocks)}
+    likely, stack = set(), [mf.blocks[0].label] if mf.blocks else []
+    while stack:
+        label = stack.pop()
+        if label in likely:
+            continue
+        likely.add(label)
+        i = index[label]
+        last = mf.blocks[i].insts[-1] if mf.blocks[i].insts else None
+        if last is not None and last.sig == "thrend":
+            continue
+        if last is not None and last.kind == "branch":
+            if last.bcond == "always" or index[last.target] <= i:
+                stack.append(last.target)
+            if last.bcond == "always":
+                continue
+        if i + 1 < len(mf.blocks):
+            stack.append(mf.blocks[i + 1].label)
+    return likely
+
+
+def _port_better(new: Program, new_mf, old: Program, old_mf) -> bool:
+    """Is `new` shorter, weighting blocks by 100^loop depth and those off the
+    likely path at 1/1000 (plain 100^depth cannot tell a block every program
+    runs from a ragged-tail path: copy traded one instruction off each unused
+    partial-store block for three on its main path)."""
+    depth = {b.label: b.loop_depth for b in old_mf.blocks}
+    likely = _likely_blocks(old_mf)
+
+    def cost(prog):
+        return sum(n * 100 ** depth.get(label, 0) * (1000 if label in likely or label is None else 1)
+                   for label, n in _block_lengths(prog).items())
+    return cost(new) < cost(old)
+
+
+def _port_aware(original, name: str, missed: list, copy_of: dict, rounds: int = PORT_ROUNDS):
+    """Port-aware allocations of `original` (regalloc.py, "Port-aware file
+    choice"), starting from the pairs the scheduler could not form with the
+    plain allocation (`missed`, `copy_of`): each round allocates a fresh
+    clone, schedules it, and adds the pairs it still missed for the next.
+    Yields (program, mir, allocator, self moves dropped); stops when an
+    attempt fails to allocate or schedule (the plain allocation then stays)
+    or the scheduler misses nothing new."""
+    hints = PortHints()
+    hints.add(missed, copy_of)
+    for _ in range(rounds):
+        mf = clone_function(original)
+        try:
+            alloc = allocate(mf, hints=hints)
+            dropped = opt.drop_self_moves(mf)
+            missed = []
+            prog = schedule_function(mf, name, missed=missed)
+        except (RegAllocError, RuntimeError):
+            return
+        yield prog, mf, alloc, dropped
+        if not hints.add(missed, alloc.copy_of):
+            return
+
+
 def _build(tile, ranges, options: dict, interleave: bool):
     """Lower, allocate and schedule; returns (program, mir, lowering, stats, mir dumps)."""
+    port_alloc = os.environ.get("PITON_PORT_ALLOC", "1") != "0"     # PITON_PORT_ALLOC=0: plain allocation only
     for cache_dot_a in (True, False):
         lw = Lowering(tile, ranges, dict(options, cache_dot_a=cache_dot_a))
         mf = lw.run()
@@ -63,6 +138,7 @@ def _build(tile, ranges, options: dict, interleave: bool):
         stats.update(opt.run(mf))
         stats["presched_blocks"] = presched.run(mf) if interleave else 0
         mir = mf.dump()
+        original = clone_function(mf) if port_alloc else None
         try:
             alloc = allocate(mf)
         except RegAllocError:
@@ -77,7 +153,15 @@ def _build(tile, ranges, options: dict, interleave: bool):
     stats["copies_inserted"] = alloc.copies_inserted
     stats["self_moves_dropped"] = opt.drop_self_moves(mf)
     mir_alloc = mf.dump()
-    prog = schedule_function(mf, tile.name)
+    missed = [] if original is not None else None
+    prog = schedule_function(mf, tile.name, missed=missed)
+    if original is not None:
+        # The plain allocation stays unless a port-aware one schedules shorter.
+        stats["port_alloc"] = 0
+        for attempt, (p, f, a, dropped) in enumerate(_port_aware(original, tile.name, missed, alloc.copy_of), 1):
+            if _port_better(p, f, prog, mf):
+                prog, mf, mir_alloc = p, f, f.dump()
+                stats.update(port_alloc=attempt, copies_inserted=a.copies_inserted, self_moves_dropped=dropped)
     return prog, mf, lw, stats, mir, mir_alloc
 
 
@@ -91,14 +175,23 @@ def _compile_tile(fn, signature, constants, name, pid_max, options, chunk: int =
     if transposed:
         reroll.transposed_loads(tile)
     if chunk:
-        reroll.run(tile, chunk, reductions, carry)
+        # with store slots, a block's store of one slot or less waits after the loop
+        reroll.run(tile, chunk, reductions, carry, queue=bool(options.get("store_slots")))
         asm["ttir_rerolled"] = tile.dump()
     ranges = passes.optimize(tile, pid_max)
     asm["ttir_opt"] = tile.dump()
     # Interleaving independent chains before allocation (presched.py) usually
     # shortens the schedule but needs more registers; keep whichever version
     # allocates and runs shorter, weighting loop bodies by their depth.
-    prog, mf, lw, stats, asm["mir"], asm["mir_alloc"] = _build(tile, ranges, options, interleave=False)
+    try:
+        prog, mf, lw, stats, asm["mir"], asm["mir_alloc"] = _build(tile, ranges, options, interleave=False)
+    except RegAllocError:
+        if not options.get("store_slots"):
+            raise
+        # the store slot's registers (or a rerolled loop's store queue) did not
+        # fit: the private VPM rows need fewer
+        return _compile_tile(fn, signature, constants, name, pid_max, dict(options, store_slots=False), chunk,
+                             reductions, carry, transposed)
     stats["presched"] = 0
     candidate = None
     if os.environ.get("PITON_PRESCHED", "1") != "0":       # PITON_PRESCHED=0: A/B comparisons
@@ -133,27 +226,36 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
     if grid is not None:
         g = tuple(grid) if isinstance(grid, (tuple, list)) else (grid,)
         pid_max = tuple(max(1, int(x)) - 1 for x in g) + (0,) * (3 - len(g))
-    options = {"num_stages": num_stages, "store_mutex": store_mutex}
+    options = {"num_stages": num_stages, "store_mutex": store_mutex,
+               # stores through shared 16-row VPM slots (backend/lower.py); PITON_STORE_SLOTS=0: private rows
+               "store_slots": os.environ.get("PITON_STORE_SLOTS", "1") not in ("", "0")}
     # PITON_REROLL_REDUCE=1 (default off) also rerolls 1-D kernels with row
     # reductions (softmax: one loop per pass, reroll.py) and loads transposed
     # 2-D tiles through transposed pointers (transpose); "rows" / "tiles"
     # enable only one of the two.
     mode = os.environ.get("PITON_REROLL_REDUCE", "0")
     rows, tiles = mode not in ("", "0", "tiles"), mode not in ("", "0", "rows")
-    rerolling = os.environ.get("PITON_REROLL", "1") != "0"
+    use_reroll = os.environ.get("PITON_REROLL", "1") != "0"
 
     def generate():
         return frontend.generate(fn, signature, constants, name=name)
-    multipass = rows and rerolling and reroll.applicable(generate(), reroll.SUB // 4, True) \
+    multipass = rows and use_reroll and reroll.applicable(generate(), reroll.SUB // 4, True) \
         and reroll.has_reductions(generate())
+    sub = reroll.SUB
     try:
         tile, prog, mf, lw, stats, asm = _compile_tile(fn, signature, constants, name, pid_max, options)
     except RegAllocError as e:
-        # a row or tile too large for the registers: chunked passes, or loads
-        # that need no permutation temporaries, may still fit
-        if not (multipass or tiles and reroll.transposed_loads(generate())):
+        if use_reroll and reroll.applicable(generate(), sub):
+            # A large block does not fit the registers as straight-line code;
+            # as a loop over chunks only one chunk is live at a time.
+            tile, prog, mf, lw, stats, asm = _compile_tile(fn, signature, constants, name, pid_max, options, sub)
+            sub //= 2
+        elif multipass or tiles and reroll.transposed_loads(generate()):
+            # a row or tile too large for the registers: chunked passes, or loads
+            # that need no permutation temporaries, may still fit
+            prog, unrolled_error = None, e
+        else:
             raise
-        prog, unrolled_error = None, e
     if (tiles and (prog is None or len(prog.instrs) > reroll.ICACHE_INSTRUCTIONS)
             and reroll.transposed_loads(generate())):
         try:
@@ -189,9 +291,7 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
         # A straight-line program larger than the instruction cache stalls on
         # every cache line (reroll.py); a loop over 64-element chunks fits, and
         # heavier bodies (exact division) get smaller chunks until theirs does.
-        sub = reroll.SUB
-        while (len(prog.instrs) > reroll.ICACHE_INSTRUCTIONS and sub >= 16
-               and rerolling
+        while (len(prog.instrs) > reroll.ICACHE_INSTRUCTIONS and sub >= 16 and use_reroll
                and reroll.applicable(generate(), sub)):
             rerolled = _compile_tile(fn, signature, constants, name, pid_max, options, sub)
             if len(rerolled[1].instrs) >= len(prog.instrs):

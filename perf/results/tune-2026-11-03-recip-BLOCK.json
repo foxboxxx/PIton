@@ -1,0 +1,150 @@
+[
+ {
+  "BLOCK": 256,
+  "name": "recip",
+  "note": "sfu_kernel OP=2",
+  "instructions": 267,
+  "programs": 1024,
+  "times_us": [
+   1690,
+   1680,
+   1676,
+   1686,
+   1683
+  ],
+  "best_us": 1676,
+  "counters": {
+   "idle": 62832,
+   "valid": 3317760,
+   "tmu_stall": 217476,
+   "sb_stall": 0,
+   "icache_hit": 829440,
+   "icache_miss": 90,
+   "unif_miss": 576,
+   "tmu_quads": 262144,
+   "tmu_miss": 16384,
+   "vdw_stall": 0,
+   "l2_hit": 315,
+   "l2_miss": 16735
+  },
+  "busy": 0.6598568019093078,
+  "tmu": 0.043252983293556084,
+  "idle": 0.012496420047732697,
+  "icache_miss": 0.00010849517196484756,
+  "checked": {
+   "out_ptr": 1021
+  },
+  "errors": {}
+ },
+ {
+  "BLOCK": 512,
+  "name": "recip",
+  "note": "sfu_kernel OP=2",
+  "instructions": 267,
+  "programs": 512,
+  "times_us": [
+   1685,
+   1684,
+   1684,
+   1683,
+   1688
+  ],
+  "best_us": 1683,
+  "counters": {
+   "idle": 80416,
+   "valid": 3248128,
+   "tmu_stall": 208808,
+   "sb_stall": 0,
+   "icache_hit": 812032,
+   "icache_miss": 90,
+   "unif_miss": 288,
+   "tmu_quads": 262144,
+   "tmu_miss": 16384,
+   "vdw_stall": 0,
+   "l2_hit": 154,
+   "l2_miss": 16608
+  },
+  "busy": 0.6433210536739948,
+  "tmu": 0.04135630817983759,
+  "idle": 0.015927114280055457,
+  "icache_miss": 0.00011082078800968328,
+  "checked": {
+   "out_ptr": 1021
+  },
+  "errors": {}
+ },
+ {
+  "BLOCK": 1024,
+  "name": "recip",
+  "note": "sfu_kernel OP=2",
+  "instructions": 270,
+  "programs": 256,
+  "times_us": [
+   1733,
+   1735,
+   1732,
+   1729,
+   1733
+  ],
+  "best_us": 1729,
+  "counters": {
+   "idle": 140896,
+   "valid": 3230720,
+   "tmu_stall": 296920,
+   "sb_stall": 0,
+   "icache_hit": 807680,
+   "icache_miss": 90,
+   "unif_miss": 144,
+   "tmu_quads": 262144,
+   "tmu_miss": 16384,
+   "vdw_stall": 0,
+   "l2_hit": 97,
+   "l2_miss": 16521
+  },
+  "busy": 0.6228494312704839,
+  "tmu": 0.05724310776942356,
+  "idle": 0.027163292847503375,
+  "icache_miss": 0.00011141785409213018,
+  "checked": {
+   "out_ptr": 1021
+  },
+  "errors": {}
+ },
+ {
+  "BLOCK": 2048,
+  "name": "recip",
+  "note": "sfu_kernel OP=2",
+  "instructions": 270,
+  "programs": 128,
+  "times_us": [
+   1683,
+   1688,
+   1675,
+   1683,
+   1690
+  ],
+  "best_us": 1675,
+  "counters": {
+   "idle": 173276,
+   "valid": 3212800,
+   "tmu_stall": 293152,
+   "sb_stall": 0,
+   "icache_hit": 803200,
+   "icache_miss": 90,
+   "unif_miss": 73,
+   "tmu_quads": 262144,
+   "tmu_miss": 16384,
+   "vdw_stall": 0,
+   "l2_hit": 74,
+   "l2_miss": 16473
+  },
+  "busy": 0.639363184079602,
+  "tmu": 0.05833870646766169,
+  "idle": 0.034482786069651744,
+  "icache_miss": 0.00011203923863112948,
+  "checked": {
+   "out_ptr": 1021
+  },
+  "errors": {}
+ }
+]

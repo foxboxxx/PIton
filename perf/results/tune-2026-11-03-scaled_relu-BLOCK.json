@@ -1,0 +1,150 @@
+[
+ {
+  "BLOCK": 256,
+  "name": "scaled_relu",
+  "note": "tl.where",
+  "instructions": 169,
+  "programs": 1024,
+  "times_us": [
+   1668,
+   1660,
+   1656,
+   1658,
+   1659
+  ],
+  "best_us": 1656,
+  "counters": {
+   "idle": 69776,
+   "valid": 1802240,
+   "tmu_stall": 593392,
+   "sb_stall": 0,
+   "icache_hit": 450560,
+   "icache_miss": 108,
+   "unif_miss": 650,
+   "tmu_quads": 262144,
+   "tmu_miss": 16384,
+   "vdw_stall": 0,
+   "l2_hit": 337,
+   "l2_miss": 16805
+  },
+  "busy": 0.3627697262479871,
+  "tmu": 0.11944283413848632,
+  "idle": 0.014045088566827697,
+  "icache_miss": 0.00023964426140751064,
+  "checked": {
+   "out_ptr": 1021
+  },
+  "errors": {}
+ },
+ {
+  "BLOCK": 512,
+  "name": "scaled_relu",
+  "note": "tl.where",
+  "instructions": 169,
+  "programs": 512,
+  "times_us": [
+   1664,
+   1659,
+   1669,
+   1662,
+   1666
+  ],
+  "best_us": 1659,
+  "counters": {
+   "idle": 73964,
+   "valid": 1744896,
+   "tmu_stall": 578208,
+   "sb_stall": 0,
+   "icache_hit": 436224,
+   "icache_miss": 54,
+   "unif_miss": 320,
+   "tmu_quads": 262144,
+   "tmu_miss": 16384,
+   "vdw_stall": 0,
+   "l2_hit": 155,
+   "l2_miss": 16603
+  },
+  "busy": 0.3505919228450874,
+  "tmu": 0.11617600964436407,
+  "idle": 0.014861161342174,
+  "icache_miss": 0.00012377429070455076,
+  "checked": {
+   "out_ptr": 1021
+  },
+  "errors": {}
+ },
+ {
+  "BLOCK": 1024,
+  "name": "scaled_relu",
+  "note": "tl.where",
+  "instructions": 169,
+  "programs": 256,
+  "times_us": [
+   1655,
+   1646,
+   1640,
+   1647,
+   1647
+  ],
+  "best_us": 1640,
+  "counters": {
+   "idle": 118384,
+   "valid": 1717248,
+   "tmu_stall": 615796,
+   "sb_stall": 0,
+   "icache_hit": 429312,
+   "icache_miss": 57,
+   "unif_miss": 160,
+   "tmu_quads": 262144,
+   "tmu_miss": 16384,
+   "vdw_stall": 0,
+   "l2_hit": 72,
+   "l2_miss": 16529
+  },
+  "busy": 0.3490341463414634,
+  "tmu": 0.12516178861788618,
+  "idle": 0.02406178861788618,
+  "icache_miss": 0.00013275294676606835,
+  "checked": {
+   "out_ptr": 1021
+  },
+  "errors": {}
+ },
+ {
+  "BLOCK": 2048,
+  "name": "scaled_relu",
+  "note": "tl.where",
+  "instructions": 169,
+  "programs": 128,
+  "times_us": [
+   1631,
+   1632,
+   1636,
+   1629,
+   1635
+  ],
+  "best_us": 1629,
+  "counters": {
+   "idle": 148020,
+   "valid": 1702400,
+   "tmu_stall": 622780,
+   "sb_stall": 0,
+   "icache_hit": 425600,
+   "icache_miss": 57,
+   "unif_miss": 80,
+   "tmu_quads": 262144,
+   "tmu_miss": 16384,
+   "vdw_stall": 0,
+   "l2_hit": 48,
+   "l2_miss": 16473
+  },
+  "busy": 0.3483527726621649,
+  "tmu": 0.12743605483936976,
+  "idle": 0.03028852056476366,
+  "icache_miss": 0.00013391063696826318,
+  "checked": {
+   "out_ptr": 1021
+  },
+  "errors": {}
+ }
+]

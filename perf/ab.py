@@ -4,7 +4,8 @@ Every case is compiled both ways. Cases whose machine code and uniforms come
 out identical are not run (ratio 1.000) unless --runtime says the switch acts
 on the Pi side (launcher, generated C). The rest boot alternately off, on, on,
 off, ... (--rounds pairs), best of --repeats launches per boot, sampled outputs
-checked as in profile_pi.py. A hung or failing variant counts as a failure
+checked as in profile_pi.py; a case outside +-2% after --rounds gets more
+pairs, up to --max-rounds. A hung or failing variant counts as a failure
 (the runner power-cycles the board and goes on).
 
 Verdict, as for the overnight loop: accept when every result is correct, some
@@ -68,6 +69,7 @@ def main(argv=None):
     ap.add_argument("--runtime", action="store_true", help="the switch acts on the Pi side: run every case")
     ap.add_argument("--repeats", type=int, default=5)
     ap.add_argument("--rounds", type=int, default=1, help="off/on pairs per case")
+    ap.add_argument("--max-rounds", type=int, default=3, help="pairs when a case is outside the threshold")
     ap.add_argument("--label", default="")
     args = ap.parse_args(argv)
     cases = [CASES_BY_NAME[n] for n in args.cases] if args.cases else CASES
@@ -75,9 +77,15 @@ def main(argv=None):
     rows = []
     for case in cases:
         compiled = {}
-        for side, value in (("off", args.off), ("on", args.on)):
-            with switch(args.env, value):
-                compiled[side] = compile_case(case, "pi")
+        try:
+            for side, value in (("off", args.off), ("on", args.on)):
+                with switch(args.env, value):
+                    compiled[side] = compile_case(case, "pi")
+        except Exception as ex:                      # the switch broke compilation: a failure
+            rows.append(dict(name=case.name, instructions_off=0, instructions_on=0, speedup=0.0,
+                             failed=f"compile {side}: {type(ex).__name__}: {str(ex).splitlines()[0][:200]}"))
+            print(f"{case.name}: {rows[-1]['failed']}", file=sys.stderr, flush=True)
+            continue
         ck_off, ck_on = compiled["off"][0], compiled["on"][0]
         row = dict(name=case.name, instructions_off=len(ck_off.program.instrs),
                    instructions_on=len(ck_on.program.instrs))
@@ -89,21 +97,28 @@ def main(argv=None):
         best = {"off": math.inf, "on": math.inf}
         runs = {"off": [], "on": []}
         start = time.time()
-        order = []
-        for r in range(args.rounds):
-            order += ["off", "on"] if r % 2 == 0 else ["on", "off"]
-        for side in order:
-            value = args.off if side == "off" else args.on
-            try:
-                with switch(args.env, value):
-                    res = run_case(case, args.repeats, runner, compiled[side])
-            except Exception as ex:                  # a hang or crash: the variant failed
-                row["failed"] = f"{side}: {type(ex).__name__}: {str(ex).splitlines()[0][:200]}"
+        # Boot-to-boot differences reach 5% for a few cases (sqrt, row_sum:
+        # perf/loop/baseline-*.log) while one boot's repeats agree within 1%,
+        # so a result outside the threshold gets more off/on pairs (alternating
+        # order) before it counts.
+        for r in range(args.max_rounds):
+            if r >= args.rounds and (row.get("failed") or row.get("errors") or
+                                     abs(best["off"] / best["on"] - 1) <= THRESHOLD):
                 break
-            runs[side].append(res)
-            best[side] = min(best[side], res["best_us"])
-            if res["errors"]:
-                row.setdefault("errors", {})[side] = res["errors"]
+            for side in (["off", "on"] if r % 2 == 0 else ["on", "off"]):
+                value = args.off if side == "off" else args.on
+                try:
+                    with switch(args.env, value):
+                        res = run_case(case, args.repeats, runner, compiled[side])
+                except Exception as ex:              # a hang or crash: the variant failed
+                    row["failed"] = f"{side}: {type(ex).__name__}: {str(ex).splitlines()[0][:200]}"
+                    break
+                runs[side].append(res)
+                best[side] = min(best[side], res["best_us"])
+                if res["errors"]:
+                    row.setdefault("errors", {})[side] = res["errors"]
+            if row.get("failed"):
+                break
         row.update(off_us=best["off"], on_us=best["on"],
                    speedup=best["off"] / best["on"] if not row.get("failed") else 0.0,
                    off=[dict(times_us=x["times_us"], busy=x["busy"], tmu=x["tmu"], idle=x["idle"],

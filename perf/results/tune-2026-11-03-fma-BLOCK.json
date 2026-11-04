@@ -1,0 +1,150 @@
+[
+ {
+  "BLOCK": 256,
+  "name": "fma",
+  "note": "",
+  "instructions": 159,
+  "programs": 1024,
+  "times_us": [
+   1946,
+   1938,
+   1898,
+   1925,
+   1954
+  ],
+  "best_us": 1898,
+  "counters": {
+   "idle": 71992,
+   "valid": 1617920,
+   "tmu_stall": 649004,
+   "sb_stall": 0,
+   "icache_hit": 404480,
+   "icache_miss": 48,
+   "unif_miss": 904,
+   "tmu_quads": 524288,
+   "tmu_miss": 32768,
+   "vdw_stall": 0,
+   "l2_hit": 467,
+   "l2_miss": 33253
+  },
+  "busy": 0.28414471373375483,
+  "tmu": 0.113980330172111,
+  "idle": 0.012643484369511767,
+  "icache_miss": 0.0001186568049677649,
+  "checked": {
+   "out_ptr": 1021
+  },
+  "errors": {}
+ },
+ {
+  "BLOCK": 512,
+  "name": "fma",
+  "note": "",
+  "instructions": 159,
+  "programs": 512,
+  "times_us": [
+   1825,
+   1777,
+   1800,
+   1796,
+   1803
+  ],
+  "best_us": 1777,
+  "counters": {
+   "idle": 73836,
+   "valid": 1562624,
+   "tmu_stall": 507160,
+   "sb_stall": 0,
+   "icache_hit": 390656,
+   "icache_miss": 48,
+   "unif_miss": 446,
+   "tmu_quads": 524288,
+   "tmu_miss": 32768,
+   "vdw_stall": 0,
+   "l2_hit": 202,
+   "l2_miss": 33060
+  },
+  "busy": 0.29312024010504595,
+  "tmu": 0.09513412117801538,
+  "idle": 0.013850309510410806,
+  "icache_miss": 0.0001228551537737008,
+  "checked": {
+   "out_ptr": 1021
+  },
+  "errors": {}
+ },
+ {
+  "BLOCK": 1024,
+  "name": "fma",
+  "note": "",
+  "instructions": 159,
+  "programs": 256,
+  "times_us": [
+   1793,
+   1779,
+   1783,
+   1783,
+   1772
+  ],
+  "best_us": 1772,
+  "counters": {
+   "idle": 99528,
+   "valid": 1536000,
+   "tmu_stall": 494904,
+   "sb_stall": 0,
+   "icache_hit": 384000,
+   "icache_miss": 48,
+   "unif_miss": 258,
+   "tmu_quads": 524288,
+   "tmu_miss": 32768,
+   "vdw_stall": 0,
+   "l2_hit": 127,
+   "l2_miss": 32947
+  },
+  "busy": 0.28893905191873587,
+  "tmu": 0.09309706546275395,
+  "idle": 0.01872234762979684,
+  "icache_miss": 0.00012498437695288088,
+  "checked": {
+   "out_ptr": 1021
+  },
+  "errors": {}
+ },
+ {
+  "BLOCK": 2048,
+  "name": "fma",
+  "note": "",
+  "instructions": 160,
+  "programs": 128,
+  "times_us": [
+   1780,
+   1762,
+   1785,
+   1756,
+   1767
+  ],
+  "best_us": 1756,
+  "counters": {
+   "idle": 131688,
+   "valid": 1521664,
+   "tmu_stall": 551756,
+   "sb_stall": 0,
+   "icache_hit": 380416,
+   "icache_miss": 48,
+   "unif_miss": 111,
+   "tmu_quads": 524288,
+   "tmu_miss": 32768,
+   "vdw_stall": 0,
+   "l2_hit": 51,
+   "l2_miss": 32876
+  },
+  "busy": 0.2888504176157935,
+  "tmu": 0.10473728170083522,
+  "idle": 0.02499772209567198,
+  "icache_miss": 0.0001261617393498465,
+  "checked": {
+   "out_ptr": 1021
+  },
+  "errors": {}
+ }
+]

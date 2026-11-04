@@ -1,0 +1,113 @@
+[
+ {
+  "piton.reroll.SUB": 32,
+  "name": "sqrt",
+  "note": "sfu_kernel OP=5",
+  "instructions": 176,
+  "programs": 1024,
+  "times_us": [
+   2342,
+   2342,
+   2342,
+   2342,
+   2349
+  ],
+  "best_us": 2342,
+  "counters": {
+   "idle": 75660,
+   "valid": 3665920,
+   "tmu_stall": 1588100,
+   "sb_stall": 0,
+   "icache_hit": 916480,
+   "icache_miss": 54,
+   "unif_miss": 576,
+   "tmu_quads": 262144,
+   "tmu_miss": 16384,
+   "vdw_stall": 0,
+   "l2_hit": 290,
+   "l2_miss": 16724
+  },
+  "busy": 0.5217648733276402,
+  "tmu": 0.22603188158269286,
+  "idle": 0.010768573868488472,
+  "icache_miss": 5.891761789524448e-05,
+  "checked": {
+   "out_ptr": 1021
+  },
+  "errors": {}
+ },
+ {
+  "piton.reroll.SUB": 64,
+  "name": "sqrt",
+  "note": "sfu_kernel OP=5",
+  "instructions": 247,
+  "programs": 1024,
+  "times_us": [
+   1727,
+   1727,
+   1722,
+   1724,
+   1722
+  ],
+  "best_us": 1722,
+  "counters": {
+   "idle": 71668,
+   "valid": 3026944,
+   "tmu_stall": 229772,
+   "sb_stall": 0,
+   "icache_hit": 756736,
+   "icache_miss": 81,
+   "unif_miss": 576,
+   "tmu_quads": 262144,
+   "tmu_miss": 16384,
+   "vdw_stall": 0,
+   "l2_hit": 309,
+   "l2_miss": 16732
+  },
+  "busy": 0.5859357336430507,
+  "tmu": 0.04447773906310492,
+  "idle": 0.013873015873015874,
+  "icache_miss": 0.00010702719415657946,
+  "checked": {
+   "out_ptr": 1021
+  },
+  "errors": {}
+ },
+ {
+  "piton.reroll.SUB": 128,
+  "name": "sqrt",
+  "note": "sfu_kernel OP=5",
+  "instructions": 437,
+  "programs": 1024,
+  "times_us": [
+   1691,
+   1678,
+   1681,
+   1674,
+   1674
+  ],
+  "best_us": 1674,
+  "counters": {
+   "idle": 73688,
+   "valid": 2801664,
+   "tmu_stall": 3344,
+   "sb_stall": 0,
+   "icache_hit": 700416,
+   "icache_miss": 138,
+   "unif_miss": 576,
+   "tmu_quads": 262144,
+   "tmu_miss": 16384,
+   "vdw_stall": 0,
+   "l2_hit": 347,
+   "l2_miss": 16751
+  },
+  "busy": 0.5578781362007168,
+  "tmu": 0.0006658701712465153,
+  "idle": 0.014673038630027878,
+  "icache_miss": 0.0001969869560376502,
+  "checked": {
+   "out_ptr": 1021
+  },
+  "errors": {}
+ }
+]

@@ -1,0 +1,80 @@
+[
+ {
+  "BLOCK_SIZE_K": 4,
+  "name": "matmul_8x64x8",
+  "note": "tutorial 03, 8x64x8",
+  "instructions": 2246,
+  "programs": 128,
+  "times_us": [
+   4492,
+   4460,
+   4461,
+   4472,
+   4507
+  ],
+  "best_us": 4460,
+  "counters": {
+   "idle": 426320,
+   "valid": 6766592,
+   "tmu_stall": 4710216,
+   "sb_stall": 0,
+   "icache_hit": 1691648,
+   "icache_miss": 4032,
+   "unif_miss": 112,
+   "tmu_quads": 2375680,
+   "tmu_miss": 132112,
+   "vdw_stall": 0,
+   "l2_hit": 40764,
+   "l2_miss": 95492
+  },
+  "busy": 0.5057243647234678,
+  "tmu": 0.35203408071748876,
+  "idle": 0.03186248131539612,
+  "icache_miss": 0.0023778071334214002,
+  "checked": {
+   "c_ptr": 1009
+  },
+  "errors": {}
+ },
+ {
+  "BLOCK_SIZE_K": 8,
+  "name": "matmul_8x64x8",
+  "note": "tutorial 03, 8x64x8",
+  "instructions": 2707,
+  "programs": 128,
+  "times_us": [
+   4235,
+   4215,
+   4107,
+   4229,
+   4229
+  ],
+  "best_us": 4107,
+  "counters": {
+   "idle": 385948,
+   "valid": 6952448,
+   "tmu_stall": 3258560,
+   "sb_stall": 0,
+   "icache_hit": 1738112,
+   "icache_miss": 5376,
+   "unif_miss": 112,
+   "tmu_quads": 2375680,
+   "tmu_miss": 99584,
+   "vdw_stall": 0,
+   "l2_hit": 38387,
+   "l2_miss": 66685
+  },
+  "busy": 0.5642762762762763,
+  "tmu": 0.26447203960717475,
+  "idle": 0.03132440548656765,
+  "icache_miss": 0.0030834740474267675,
+  "checked": {
+   "c_ptr": 1009
+  },
+  "errors": {}
+ },
+ {
+  "BLOCK_SIZE_K": 16,
+  "failed": "RegAllocError: out of registers (peak pressure ~38 per file); reduce block sizes"
+ }
+]
