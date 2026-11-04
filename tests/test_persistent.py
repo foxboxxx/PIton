@@ -29,6 +29,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "examples"))
 from kernels import add_kernel, matmul_kernel, row_sum_kernel  # noqa: E402
 from primitive_kernels import copy_kernel, fma_kernel, idiv_kernel  # noqa: E402
 from sfu_tests import sfu_kernel  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from perf.suite import CASES_BY_NAME, compile_case  # noqa: E402
 
 ADD_SIG = {"x_ptr": "*fp32", "y_ptr": "*fp32", "output_ptr": "*fp32", "n_elements": "i32"}
 COPY_SIG = {"x_ptr": "*fp32", "out_ptr": "*fp32", "n": "i32"}
@@ -355,17 +357,19 @@ ROW_SIG = {"x_ptr": "*fp32", "out_ptr": "*fp32", "n_cols": "i32", "stride": "i32
     (None, add_kernel, ADD_SIG, {"BLOCK_SIZE": 16}, (1024,), 1),
     ("0", add_kernel, ADD_SIG, {"BLOCK_SIZE": 16}, (1024,), 1),
     # automatic: known 1-D grids of >= 256 programs, keeping >= 128 hardware programs
-    ("1", add_kernel, ADD_SIG, {"BLOCK_SIZE": 16}, (1024,), 4),
-    ("1", add_kernel, ADD_SIG, {"BLOCK_SIZE": 16}, (4096,), 4),
-    ("1", add_kernel, ADD_SIG, {"BLOCK_SIZE": 16}, (512,), 4),
-    ("1", add_kernel, ADD_SIG, {"BLOCK_SIZE": 16}, (256,), 2),
-    ("1", add_kernel, ADD_SIG, {"BLOCK_SIZE": 16}, (255,), 1),
-    ("1", add_kernel, ADD_SIG, {"BLOCK_SIZE": 16}, None, 1),
-    ("1", add_kernel, ADD_SIG, {"BLOCK_SIZE": 16}, (1024, 2), 1),
-    # store slots (1 KiB DMAs; rerolled exp stores its queue after the loop): ids as short as without
+    ("1", add_kernel, ADD_SIG, {"BLOCK_SIZE": 256}, (1024,), 4),
+    ("1", add_kernel, ADD_SIG, {"BLOCK_SIZE": 256}, (4096,), 4),
+    ("1", add_kernel, ADD_SIG, {"BLOCK_SIZE": 256}, (512,), 4),
+    ("1", add_kernel, ADD_SIG, {"BLOCK_SIZE": 256}, (256,), 2),
+    ("1", add_kernel, ADD_SIG, {"BLOCK_SIZE": 256}, (255,), 1),
+    ("1", add_kernel, ADD_SIG, {"BLOCK_SIZE": 256}, None, 1),
+    ("1", add_kernel, ADD_SIG, {"BLOCK_SIZE": 256}, (1024, 2), 1),
+    # store slots (1 KiB DMAs): ids as short as without
     ("1", copy_kernel, COPY_SIG, {"BLOCK": 256}, (1024,), 4),
-    ("1", sfu_kernel, COPY_SIG, {"OP": 4, "BLOCK": 256}, (1024,), 4),
-    ("1", sfu_kernel, COPY_SIG, {"OP": 4, "BLOCK": 256}, (256,), 2),
+    # compute bound (under COARSEN_MIN_BYTES per instruction: rerolled exp, a
+    # 16-element add whose id is mostly program-id and address arithmetic)
+    ("1", sfu_kernel, COPY_SIG, {"OP": 4, "BLOCK": 256}, (1024,), 1),
+    ("1", add_kernel, ADD_SIG, {"BLOCK_SIZE": 16}, (1024,), 1),
     # run-time loops: at most 2 (long ids: test_factor_long_ids)
     ("1", row_sum_kernel, ROW_SIG, {"BLOCK_M": 4, "BLOCK_N": 64}, (1024,), 2),
     ("1", row_sum_kernel, ROW_SIG, {"BLOCK_M": 4, "BLOCK_N": 64}, (64,), 1),
@@ -381,14 +385,15 @@ def test_factor(persistent, value, kernel, sig, cons, grid, k):
 
 
 def test_factor_long_ids(persistent, monkeypatch):
-    """Long program ids get at most 2: the branching exact division runs ~6000
-    instructions per id; the branch-free one (PITON_FAST_IDIV, the default)
-    ~1100, short enough for 4."""
+    """Long program ids get at most 2 (the suite's dense layer, ~2100
+    instructions and ~18 KiB per id); compute-bound ones none, however long:
+    exact division with either lowering (~6000 and ~1500 instructions per id
+    for 4 KiB)."""
     persistent("1")
-    monkeypatch.setenv("PITON_FAST_IDIV", "0")
-    assert compiler.compile(idiv_kernel, IDIV_SIG, {"BLOCK": 256}, grid=(1024,)).coarsen == 2
-    monkeypatch.delenv("PITON_FAST_IDIV")
-    assert compiler.compile(idiv_kernel, IDIV_SIG, {"BLOCK": 256}, grid=(1024,)).coarsen == 4
+    assert compile_case(CASES_BY_NAME["dense_relu"], "pi")[0].coarsen == 2
+    for fast in ("0", "1"):
+        monkeypatch.setenv("PITON_FAST_IDIV", fast)
+        assert compiler.compile(idiv_kernel, IDIV_SIG, {"BLOCK": 256}, grid=(1024,)).coarsen == 1
 
 
 @pytest.mark.parametrize("slots", ["0", "1"])

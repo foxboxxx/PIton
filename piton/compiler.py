@@ -239,6 +239,11 @@ COARSEN_MIN_PROGRAMS = 128
 COARSEN_MAX = 4
 COARSEN_MAX_LONG = 2
 COARSEN_SHORT = 1500
+# Fewer hardware programs leave a less even last round on the 12 QPUs, which
+# costs compute-bound kernels 2-6% (Pi, 2026-11-03: recip 0.975x, rsqrt 0.966x,
+# idiv 0.940x at 1.9-2.7 bytes per instruction) while kernels that wait on
+# memory gain (add/mul/fma 1.21-1.29x, dense_relu 1.12x at 8.2-8.9).
+COARSEN_MIN_BYTES = 4              # bytes loaded and stored per executed instruction
 
 
 def _id_length(tile, prog: Program, mf) -> Optional[int]:
@@ -265,6 +270,30 @@ def _id_length(tile, prog: Program, mf) -> Optional[int]:
     return n
 
 
+def _id_bytes(tile) -> Optional[int]:
+    """Bytes one program id loads and stores: every tensor load and store,
+    times the trip counts of its loops (None when a loop runs a run-time count)."""
+    def walk(block, trips):
+        n = 0
+        for op in block.ops:
+            if op.name in ("tt.load", "tt.store"):
+                n += trips * 4 * max(1, (op.result if op.name == "tt.load" else op.operands[1]).numel)
+            inner = trips
+            if op.name == "scf.for":
+                lb, ub, step = (v.op.attrs["value"] if v.op is not None and v.op.name == "arith.constant" else None
+                                for v in op.operands[:3])
+                if lb is None or ub is None or not step or step < 0:
+                    return None
+                inner = trips * max(1, -(-(ub - lb) // step))
+            for r in op.regions:
+                m = walk(r, inner)
+                if m is None:
+                    return None
+                n += m
+        return n
+    return walk(tile.body, 1)
+
+
 def _coarsening(tile, pid_max, id_length) -> int:
     """Logical program ids per hardware program along axis 0 (PITON_PERSISTENT):
     unset or 0 -> 1 (one hardware program per id), 1 -> automatic, k >= 2 -> k
@@ -284,6 +313,8 @@ def _coarsening(tile, pid_max, id_length) -> int:
     if bound is None or any(pid_max[1:]) or bound < COARSEN_MIN_GRID:
         return 1
     length = id_length()
+    if length is not None and (_id_bytes(tile) or 0) < COARSEN_MIN_BYTES * length:
+        return 1
     k = COARSEN_MAX if length is not None and length <= COARSEN_SHORT else COARSEN_MAX_LONG
     while k > 1 and bound // k < COARSEN_MIN_PROGRAMS:
         k //= 2
