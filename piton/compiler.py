@@ -65,6 +65,25 @@ def _block_lengths(prog: Program) -> dict:
     return out
 
 
+def _misses_icache(tile, prog: Program, mf, stats: dict) -> bool:
+    """Does `prog` stream through the instruction cache (reroll.py)?  Any
+    program over ICACHE_INSTRUCTIONS, except (PITON_FAST_IDIV) a rerolled one
+    with branch-free divisions whose stores are queued (reroll.py `queue`):
+    the stores run once per program, after the loop, so only the loop has to
+    stay cached, and a smaller chunk shrinks only the loop or loses the queue
+    (idiv: 692 instructions with a 268-instruction loop and two 1 KiB DMAs;
+    in 32-element chunks 16 DMAs of 128 bytes).  Kept to the switch, so that
+    builds without it are unchanged (idiv's chunks with the branching division
+    do not fit the queue's registers anyway)."""
+    if len(prog.instrs) <= reroll.ICACHE_INSTRUCTIONS:
+        return False
+    fast = any(stats.get(k) for k in ("idiv_one_step", "idiv_short", "idiv_full"))
+    if not (fast and stats.get("rerolled") and any(o.name == "piton.shift_in" for o in tile.walk())):
+        return True
+    depth = {b.label: b.loop_depth for b in mf.blocks}
+    return sum(n for label, n in _block_lengths(prog).items() if depth.get(label, 0)) > reroll.ICACHE_INSTRUCTIONS
+
+
 def _likely_blocks(mf) -> set:
     """Labels on the path that predicts forward conditional branches not
     taken and backward ones taken: partial-store paths of ragged tails,
@@ -263,7 +282,7 @@ def _compile_program(fn, signature, constants, name, pid_max, options):
     # A straight-line program larger than the instruction cache stalls on
     # every cache line (reroll.py); a loop over 64-element chunks fits, and
     # heavier bodies (exact division) get smaller chunks until theirs does.
-    while (len(prog.instrs) > reroll.ICACHE_INSTRUCTIONS and sub >= 16 and use_reroll
+    while (_misses_icache(tile, prog, mf, stats) and sub >= 16 and use_reroll
            and reroll.applicable(frontend.generate(fn, signature, constants, name=name), sub)):
         rerolled = _compile_tile(fn, signature, constants, name, pid_max, options, sub)
         if len(rerolled[1].instrs) >= len(prog.instrs):

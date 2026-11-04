@@ -713,3 +713,47 @@ def test_quotient_and_remainder_share_one_division(fast):
 def test_switch_defaults_off(monkeypatch):
     monkeypatch.delenv("PITON_FAST_IDIV", raising=False)
     assert "div_full" in piton.compiler.compile(idiv_kernel, IDIV_SIG, {"BLOCK": 64}).asm["qasm"]
+
+
+# -- with store slots (PITON_STORE_SLOTS, on by default) ------------------------------
+
+@pytest.mark.parametrize("n,extra,seed", [(4096, 0, 1), (4096, 0, 2), (4096 - 37, 1, 3), (100, 0, 4)])
+def test_idiv_queues_its_stores_through_slots(fast, monkeypatch, n, extra, seed):
+    """The suite's idiv in 64-element chunks fits the store queue (reroll.py
+    `queue`): both 256-element stores leave the loop, one 1 KiB DMA each from
+    this QPU's shared slot.  The program (692 instructions) is over the
+    instruction-cache threshold but its loop is not, and 32-element chunks
+    (where the 450-instruction rule alone went) lose the queue: 16 DMAs of
+    128 bytes per program.  All 12 QPUs on one jittered DMA engine, so the
+    three sharing a slot wait for each other; full blocks, a ragged tail, a
+    program past the end; the slot protocol holds on every path."""
+    sys.path.insert(0, os.path.dirname(__file__))
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    from perf.suite import CASES_BY_NAME, compile_case
+    from piton import reroll
+    from piton.qpu import isa
+    from test_store_slots import contended, launch
+    from test_store_slots_protocol import _writes, protocol_errors
+    monkeypatch.setenv("PITON_STORE_SLOTS", "1")
+    ck, _ = compile_case(CASES_BY_NAME["idiv"], "emu")
+    assert ck.stats["rerolled"] == 64 and ck.stats.get("store_slots") == 1 and "fast_idiv_fallback" not in ck.stats
+    assert len(ck.program.instrs) > reroll.ICACHE_INSTRUCTIONS
+    assert protocol_errors(ck.program) == []
+    grid = (piton.cdiv(n, 256) + extra,)
+    x, y = _random(grid[0] * 256)
+    q, r = (np.full(grid[0] * 256, 7, np.int32) for _ in range(2))
+    v3d = contended(seed)
+    v3d.pc_counts = [0] * len(ck.program.instrs)
+    launch(ck, grid, {"x_ptr": x.view(np.int32), "y_ptr": y.view(np.int32), "q_ptr": q, "r_ptr": r, "n": n}, v3d)
+    want_q, want_r = _ref(x[:n], y[:n], True)
+    np.testing.assert_array_equal(q[:n].view(np.uint32), want_q)
+    np.testing.assert_array_equal(r[:n].view(np.uint32), want_r)
+    assert (q[n:] == 7).all() and (r[n:] == 7).all()
+    if n % 256 == 0:
+        dmas = sum(c for c, ins in zip(v3d.pc_counts, ck.program.instrs) if _writes(ins, isa.VW_ADDR))
+        assert dmas == 2 * grid[0]
+    # without slots: private rows, the stores in the loop, the chunks as before
+    monkeypatch.setenv("PITON_STORE_SLOTS", "0")
+    ck0, _ = compile_case(CASES_BY_NAME["idiv"], "emu")
+    assert ck0.stats["rerolled"] == 64 and "store_slots" not in ck0.stats
+    assert len(ck0.program.instrs) <= reroll.ICACHE_INSTRUCTIONS
