@@ -49,6 +49,57 @@ values in registers and stores them after the loop: one DMA, not one per
 each program id runs every store's acquire ... release itself, so no slot is
 held from one id into the next or into the thread end, and no id leaves a
 slot DMA running for the next id to overlap.
+
+Issue (PITON_ISSUE=1)
+---------------------
+The math kernels are bound by instruction issue on the Pi, mostly by add-ALU
+work in their special-value checks. With the switch on, these produce the
+same bits with fewer (add-ALU) operations:
+
+  * a / b with a constant a (1.0 / x): the zero / denormal case of recip is
+    the Newton result itself (three steps double the seed, >= 2**125 for
+    +-0 and denormals, past 2**128: +-inf, as recip sets), |b| >= 2**126
+    (and inf, NaN) gives +0 (a * +-0 is +0 for every a that is not NaN),
+    recip's keep_nan is overwritten by the quotient's NaN, and the three
+    NaN checks of the quotient reduce to compares of |b| (one for a normal
+    a); a quotient by 1.0 also skips the multiply (1.0 * r = r for every r
+    a multiply produces: normal, +0, +-inf).
+  * a / b with b equal in every lane (softmax's row sum): the three NaN
+    checks become two compares of |a| against limits computed once from b.
+  * exp, exp2: no upper clamp of x (fmin with 89 / 128): the overflow check
+    sets inf for every x it changes (x > 88.7228 / x >= 128) and keep_nan
+    the NaNs, so every result that is kept was computed from the same xc.
+  * exp: the `or` of 0x3F000000 into a sign bit is a byte-wise add without
+    carries (v8adds, on the mul ALU); the two shifts by 23 are mul24 by the small
+    immediate 1.0, whose low 24 bits are 2**23 ((x mod 2**24) * 2**23 =
+    x << 23 mod 2**32).
+  * log: e = (x - bits(sqrt(1/2))) >> 23 and m = x - (e << 23) (mul24 again)
+    give the same e and m in [sqrt(1/2), sqrt(2)) for every positive normal
+    x as masking, a compare and two conditional subtracts (every other x
+    takes a special value after).
+  * the clamp of n in a mask (max, min) gets SSA registers, so LICM hoists
+    it out of rerolled loops; the prefetch index of a unit-step loop with a
+    constant bound is min(iv + 1, ub - 1) instead of a compare and two
+    moves.
+  * an index (lane register + offset) compared with a uniform n is
+    offset - (n - lane) (lane_cmp_operands): the same 32-bit difference, so
+    the same flags, with n - lane computed once instead of an add per
+    register and mask.
+  * option loop_lanes (compiler.py builds with and without it and keeps the
+    shorter): inside a loop, the registers of a 1-D block get one lane
+    register per column block (lane + 16 j, as 2-D tiles already do), which
+    LICM hoists, so their addresses and masks (n - lane - 16 j) need no
+    per-iteration offset chain; it costs a register per column block.
+  * rsqrt / sqrt: each Newton step r (1.5 - 0.5 (x r) r) on s = c r is
+    s (3 c^2 - (x s) s) = 2 c^3 r', three multiplies instead of four; with
+    c = 1, 2, 16 and a final multiply by 2**-13, the 9 + 1 multiplies give
+    the same bits as the 12 (every product is normal for the normal x the
+    core serves, so scaling by a power of two commutes with the
+    round-toward-zero rounding: 0.5 (3 - t) is rounded as 3 - t is).
+  * passes.drop_dead_other: a masked float load whose value only reaches
+    stores under the same mask loses its `other` (the math kernels' 1.0),
+    so its masked lanes read the zero page without a compare and
+    conditional move per register.
 """
 
 from __future__ import annotations
@@ -326,6 +377,8 @@ class Lowering:
         # (options["fast_idiv"] = False: compiler.compile's fallback when it runs out of registers)
         self.fast_idiv = options.get("fast_idiv", fast_idiv_enabled())
         self.div_epoch = 0
+        self.issue = bool(options.get("issue"))       # PITON_ISSUE (module docstring, "Issue")
+        self.loop_lanes = self.issue and bool(options.get("loop_lanes"))
         self.in_pipelined_body = False
         self.exit_ifs = {}           # scf.if -> exit label of the loop it guards (fast_branches)
         self.use_counts = {}
@@ -602,12 +655,13 @@ class Lowering:
         self.keep_nan(r, b)
         return r
 
-    def recip_core(self, b) -> VReg:
-        """1/b for normal b (no special values)."""
+    def recip_core(self, b, dst=None) -> VReg:
+        """1/b for normal b (no special values); the last step writes dst if given."""
         r = self.new("nr", True)
         self.op("sub", r, self.const_reg(0x7EF311C3), b)
-        for _ in range(3):
-            t, e, r2 = self.new("nr", True), self.new("nr", True), self.new("nr", True)
+        for k in range(3):
+            t, e = self.new("nr", True), self.new("nr", True)
+            r2 = dst if dst is not None and k == 2 else self.new("nr", True)
             self.op("fmul", t, b, r)
             self.op("fsub", e, Imm(_f2u(2.0)), t)
             self.op("fmul", r2, r, e)
@@ -644,12 +698,90 @@ class Lowering:
         self.op("sub", isa.NOP, t, self.const_reg(0x7F800000), setf=True, unit="add")
         self.op("mov", dst, nan, cond="ifnn")                      # inf / inf
 
+    def fdiv_issue(self, dst, x, y, a, b):
+        """x / y (registers of a / b) with the cheaper special-value checks of a
+        constant a or a b equal in every lane (PITON_ISSUE, module docstring)."""
+        ca = a.s.const if isinstance(a, Splat) and a.s.is_const else None
+        if ca is not None and _imm_const_f(y) is None and not np.isnan(np.float32(ca)):
+            return self.fdiv_const(dst, x, y, np.float32(ca))
+        if isinstance(b, Splat) and isinstance(x, VReg) and isinstance(y, VReg) and y.cls != "r4":
+            return self.fdiv_uniform(dst, x, y)
+        return self.fdiv(dst, x, y)
+
+    def fdiv_const(self, dst, a, b, ca):
+        """a / b for a constant a (not NaN), the same bits as fdiv."""
+        if isinstance(b, Imm) or (isinstance(b, VReg) and b.cls == "r4"):
+            bb = self.new("d", True)
+            self.op("mov", bb, b)
+            b = bb
+        one = ca == np.float32(1.0)
+        r = self.recip_core(b, dst if one else None)
+        mb = self.new("dv")
+        self.op("and", mb, b, self.const_reg(0x7FFFFFFF))
+        # |b| >= 2**126, inf, NaN: a * +-0 = +0 (recip_core already gives +-inf for +-0)
+        self.op("sub", isa.NOP, mb, self.const_reg(0x7E800000), setf=True, unit="add")
+        self.op("mov", r, Imm(0), cond="ifnn")
+        if not one:
+            self.op("fmul", dst, a, r)
+        nan = self.const_reg(0x7FC00000)
+        # b is NaN (and for an infinite a, b is inf too)
+        self.op("sub", isa.NOP, mb, self.const_reg(0x7F800000 if np.isinf(ca) else 0x7F800001),
+                setf=True, unit="add")
+        self.op("mov", dst, nan, cond="ifnn")
+        if abs(ca) < np.float32(2.0 ** -126):
+            # 0 / 0 (denormals are 0)
+            self.op("sub", isa.NOP, mb, self.const_reg(0x00800000), setf=True, unit="add")
+            self.op("mov", dst, nan, cond="ifn")
+
+    def fdiv_uniform(self, dst, a, b):
+        """a / b for a register b equal in every lane, the same bits as fdiv: NaN
+        where |a| >= limit (0 for a NaN b, inf for an infinite b, else just above
+        inf) or |a| < 2**-126 while b is 0 or denormal (limit 2**-126, else 0)."""
+        key = ("recip", id(b), self.cur.label)
+        if key not in self.consts:
+            self.consts[key] = self.recip(b)
+        self.op("fmul", dst, a, self.consts[key])
+        lkey = ("divlimits", id(b), self.cur.label)
+        if lkey not in self.consts:
+            mb, hi, lo = self.new("dv"), self.new("dv"), self.new("dv")
+            self.op("and", mb, b, self.const_reg(0x7FFFFFFF))
+            self.op("mov", hi, self.const_reg(0x7F800001))
+            self.op("sub", isa.NOP, mb, self.const_reg(0x7F800000), setf=True, unit="add")
+            self.op("mov", hi, self.const_reg(0x7F800000), cond="ifz")
+            self.op("sub", isa.NOP, mb, self.const_reg(0x7F800001), setf=True, unit="add")
+            self.op("mov", hi, Imm(0), cond="ifnn")
+            self.op("mov", lo, Imm(0))
+            self.op("sub", isa.NOP, mb, self.const_reg(0x00800000), setf=True, unit="add")
+            self.op("mov", lo, self.const_reg(0x00800000), cond="ifn")
+            self.consts[lkey] = (hi, lo)
+        hi, lo = self.consts[lkey]
+        ma = self.new("dv")
+        self.op("and", ma, a, self.const_reg(0x7FFFFFFF))
+        nan = self.const_reg(0x7FC00000)
+        self.op("sub", isa.NOP, ma, hi, setf=True, unit="add")
+        self.op("mov", dst, nan, cond="ifnn")                      # NaN operand, inf / inf
+        self.op("sub", isa.NOP, ma, lo, setf=True, unit="add")
+        self.op("mov", dst, nan, cond="ifn")                       # 0 / 0
+
     def rsqrt_core(self, x) -> VReg:
         """1/sqrt(x) for x > 0 normal: integer seed (3.4% error), three Newton steps."""
         h = self.new("rs")
         self.op("shr", h, x, Imm(1))
         r = self.new("rs", True)
         self.op("sub", r, self.const_reg(0x5F375A86), h)
+        if self.issue:
+            # (module docstring, "Issue") s = c r, c = 1, 2, 16, 8192: s (3 c^2 - (x s) s) = 2 c^3 r'
+            c = 1
+            for _ in range(3):
+                t1, t2, u, s = (self.new("rs", True) for _ in range(4))
+                self.op("fmul", t1, x, r)
+                self.op("fmul", t2, t1, r)
+                self.op("fsub", u, self.fk(3.0 * c * c), t2)
+                self.op("fmul", s, r, u)
+                r, c = s, 2 * c ** 3
+            out = self.new("rs", True)
+            self.op("fmul", out, r, self.fk(1.0 / c))
+            return out
         for _ in range(3):
             # r * (1.5 - 0.5 * (x * r) * r): x * r ~ sqrt(x) and (x * r) * r ~ 1 stay
             # normal for every normal x (r * r or 0.5 * x would underflow at the ends)
@@ -1323,7 +1455,11 @@ class Lowering:
             # by several rows and there are few column blocks
             nblocks = max(1, a.shape[-1] // LANES) if a.shape else 1
             rows = numel(a.shape[:-1]) if len(a.shape) > 1 else 1
-            if lr is None or nblocks > 4 or rows < 2:
+            looped = self.issue and rows < 2 and self.loop_depth > 0 and lr is not None and nblocks <= 4
+            if looped:
+                self.stats["loop_lanes"] = self.stats.get("loop_lanes", 0) + 1
+            # (PITON_ISSUE "loop_lanes": in a loop every iteration reuses them, LICM hoists them)
+            if lr is None or nblocks > 4 or (rows < 2 and not (looped and self.loop_lanes)):
                 row = self.s_add(row, col) if not (col.is_const and row.is_const) else \
                     C(_wrap(col.const + row.const))
             else:
@@ -1623,6 +1759,38 @@ class Lowering:
         d = self.materialize(x)
         return self.reg_of(d, j)
 
+    def lane_cmp_operands(self, pred, a, b, j):
+        """(PITON_ISSUE) x', y' for register j of a signed or equality compare of
+        x = lane register + offset against a uniform y, with x' - y' == x - y
+        (mod 2**32, so the same flags): offset - (y - lane), or (lane - y) -
+        (-offset) for a constant offset (a small immediate up to 16), where
+        y - lane and lane - y are computed once per block (LICM hoists them),
+        so the compare needs no add per register. None where it does not apply."""
+        if pred[0] == "u":
+            return None
+        for aff, uni, swap in ((a, b, False), (b, a, True)):
+            u = _uniform_scalar(uni)
+            if not isinstance(aff, Affine) or u is None or _uniform_scalar(aff) is not None:
+                continue
+            lr, off = self.affine_reg(aff, j)
+            if lr is None or (off.is_const and off.const == 0):
+                x, y = (self.operand(off) if lr is None else lr), self.operand(u)
+                return (y, x) if swap else (x, y)
+
+            def diff(p, q, name):
+                key = ("lanecmp", name, lr.id, repr(u), self.cur.label)
+                if key not in self.consts:
+                    v = self.new("lc")
+                    self.op("sub", v, p, q)
+                    self.consts[key] = v
+                return self.consts[key]
+            if swap:
+                return diff(self.operand(u), lr, "u-l"), self.operand(off)          # (y - lane) - offset
+            if off.is_const:
+                return diff(lr, self.operand(u), "l-u"), self.operand(C(_wrap(-off.const)))
+            return self.operand(off), diff(self.operand(u), lr, "u-l")
+        return None
+
     def set_flags(self, p: Pred, j: int) -> str:
         """Emit flag computation for register j of predicate p; return the
         condition code that is true where p holds."""
@@ -1632,8 +1800,12 @@ class Lowering:
             pred, a, b, is_float = p.value
             if is_float:
                 return self.float_cmp_flags(pred, a, b, j)
-            x = self.pred_elem_operands(a, j)
-            y = self.pred_elem_operands(b, j)
+            xy = self.lane_cmp_operands(pred, a, b, j) if self.issue and not p.wide else None
+            if xy is not None:
+                x, y = xy
+            else:
+                x = self.pred_elem_operands(a, j)
+                y = self.pred_elem_operands(b, j)
             if pred in ("ult", "ule", "ugt", "uge"):
                 x, y = self.flip_sign(x), self.flip_sign(y)
                 pred = "s" + pred[1:]
@@ -2210,7 +2382,10 @@ class Lowering:
                 regs.append(dst)
                 continue
             dst = self.new("e", is_float)
-            self.elementwise(kind, dst, x, y, is_float, ra=ra, rb=rb)
+            if self.issue and is_float and kind == "div":
+                self.fdiv_issue(dst, x, y, a, b)
+            else:
+                self.elementwise(kind, dst, x, y, is_float, ra=ra, rb=rb)
             seen[key] = dst
             regs.append(dst)
         return Dense(res.shape, res.dtype, regs)
@@ -2366,8 +2541,9 @@ class Lowering:
         key = ("clamp", id(x.reg), lo, hi, self.cur.label)
         if key not in self.consts:
             t = self.new("cl")
-            self.op("max", t, x.reg, self.operand(C(lo)))
-            self.op("min", t, t, self.operand(C(hi)))
+            u = self.new("cl") if self.issue else t      # (one definition each: LICM hoists it)
+            self.op("max", u, x.reg, self.operand(C(lo)))
+            self.op("min", t, u, self.operand(C(hi)))
             self.consts[key] = t
         return S(reg=self.consts[key])
 
@@ -2504,15 +2680,25 @@ class Lowering:
         f = lambda: self.new("ex", True)
         i = lambda: self.new("ex")
         xc = f()
-        self.op("fmin", xc, x, self.fk(128.0 if base2 else 89.0))
-        self.op("fmax", xc, xc, self.fk(-150.0 if base2 else -104.0))
+        if self.issue:
+            # (module docstring, "Issue") the overflow check below overwrites every x the
+            # upper clamp changes (x > 89 > 88.7228, x >= 128) and NaN
+            self.op("fmax", xc, x, self.fk(-150.0 if base2 else -104.0))
+        else:
+            self.op("fmin", xc, x, self.fk(128.0 if base2 else 89.0))
+            self.op("fmax", xc, xc, self.fk(-150.0 if base2 else -104.0))
         y = xc
         if not base2:
             y = f()
             self.op("fmul", y, xc, self.fk(1.4426950408889634))
         half = i()                                    # +-0.5 with the sign of y
         self.op("and", half, y, self.const_reg(0x80000000))
-        self.op("or", half, half, self.const_reg(0x3F000000))
+        # (bytes 0x00 / 0x80 + 0x3F: no carry, so v8adds is the or on the mul ALU; on
+        # the add ALU vc4asm would encode it differently)
+        if self.issue:
+            self.op("v8adds", half, half, self.const_reg(0x3F000000), unit="mul")
+        else:
+            self.op("or", half, half, self.const_reg(0x3F000000))
         t = f()
         self.op("fadd", t, y, half)
         n = i()
@@ -2545,11 +2731,14 @@ class Lowering:
         self.op("min", nc, nc, self.operand(C(127)))
         c = i()
         self.op("sub", c, n, nc)
-        self.op("shl", c, c, Imm(_shift_imm(23)))
+        # x << 23 == mul24(x, 1.0): the low 24 bits of 1.0 are 2**23 (on the mul ALU)
+        shl23 = (lambda d, x: self.op("mul24", d, x, Imm(_f2u(1.0)))) if self.issue else \
+            (lambda d, x: self.op("shl", d, x, Imm(_shift_imm(23))))
+        shl23(c, c)
         q2 = f()
         self.op("add", q2, q, c)
         self.op("add", nc, nc, self.operand(C(127)))
-        self.op("shl", nc, nc, Imm(_shift_imm(23)))
+        shl23(nc, nc)
         self.op("fmul", d, q2, nc)
         # overflow: round-toward-zero multiplies saturate at FLT_MAX, so set inf
         # explicitly (from 2**128, or e**x above the largest finite float32 result)
@@ -2573,6 +2762,14 @@ class Lowering:
         s = (m - 1) / (m + 1), as an odd polynomial in s."""
         f = lambda: self.new("lg", True)
         i = lambda: self.new("lg")
+        if self.issue:
+            # (module docstring, "Issue") e = (x - bits(sqrt(1/2))) >> 23, m = x - (e << 23)
+            t, e, e23, m = i(), i(), i(), f()
+            self.op("sub", t, x, self.const_reg(0x3F3504F3))
+            self.op("asr", e, t, Imm(_shift_imm(23)))
+            self.op("mul24", e23, e, Imm(_f2u(1.0)))
+            self.op("sub", m, x, e23)
+            return self._log_tail(d, x, base2, e, m)
         e = i()
         self.op("shr", e, x, Imm(_shift_imm(23)))
         self.op("and", e, e, self.const_reg(0xFF))
@@ -2585,6 +2782,12 @@ class Lowering:
         self.op("fmul", m, mb, Imm(_f2u(0.5)), cond="ifnn")
         self.op("sub", e, e, self.operand(C(126)), cond="ifnn")
         self.op("sub", e, e, self.operand(C(127)), cond="ifn")
+        self._log_tail(d, x, base2, e, m)
+
+    def _log_tail(self, d, x, base2: bool, e, m):
+        """_log_core from e and m in [sqrt(1/2), sqrt(2)) on."""
+        f = lambda: self.new("lg", True)
+        i = lambda: self.new("lg")
         num, den = f(), f()
         self.op("fsub", num, m, self.fk(1.0))
         self.op("fadd", den, m, self.fk(1.0))
@@ -4502,6 +4705,12 @@ class LoopStream:
                 nexts.append((arg, form, kind, [(old, lw.operand(src)) for old, src in moves]))
         iv_next = lw.new("ivn")
         lw.iv_step(iv_next, self.iv, self.step, self.sat)
+        if lw.issue and not nexts and not self.sat and not self.wide and self.step.is_const and \
+                self.step.const == 1 and self.ub.is_const:
+            # iv < ub in the body: iv + 1 < ub ? iv + 1 : iv is min(iv + 1, ub - 1)
+            ivp = lw.new("ivp")
+            lw.op("min", ivp, iv_next, lw.operand(C(self.ub.const - 1)))
+            return self.scoped_env({body.args[0].id: S(reg=ivp)})
         # flags: cond holds <=> iv_next < ub (another iteration follows)
         cond = lw.loop_lt_flags(iv_next, self.ub, wide=self.wide)
         ivp = lw.new("ivp")

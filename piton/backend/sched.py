@@ -367,7 +367,21 @@ class Bundle:
         return Instr(kind="alu", add=self.add, mul=self.mul, sig=self.sig, setf=self.setf,
                      comment="; ".join(c for c in self.comment if c))
 
-    def try_add(self, n: Node) -> bool:
+    def try_add(self, n: Node, prefer_mul: bool = False) -> bool:
+        """Add n if it fits; prefer_mul puts an op that runs on either ALU on
+        the mul ALU when both are free (PITON_ISSUE: an add-only op is waiting).
+        Not a move of an immediate or a discarded result (a peripheral read):
+        vc4asm assembles those on the mul ALU to other bits (a load immediate,
+        another condition)."""
+        aop = n.alu_ops[0] if len(n.alu_ops) == 1 else None
+        if prefer_mul and len(n.mops) == 1 and n.mops[0].unit == "any" and self.kind == "alu" \
+                and self.add is None and self.mul is None and n.minst.kind == "alu" \
+                and aop.dst != isa.NOP and not any(isinstance(x, Imm) for x in (aop.a, aop.b)):
+            if self._try_add(n, "mul"):
+                return True
+        return self._try_add(n)
+
+    def _try_add(self, n: Node, any_unit: Optional[str] = None) -> bool:
         m = n.minst
         if self.kind != "alu":
             return False
@@ -411,7 +425,7 @@ class Bundle:
         for op, aop in zip(n.mops, n.alu_ops):
             unit = op.unit
             if unit == "any":
-                unit = "add" if free_add else ("mul" if free_mul else None)
+                unit = any_unit or ("add" if free_add else ("mul" if free_mul else None))
             if unit == "add" and free_add:
                 free_add = False
             elif unit == "mul" and free_mul:
@@ -477,7 +491,7 @@ def _missed_pair(bundle: Bundle, ready: list):
 
 
 def schedule_block(minsts, terminator: Optional[MInst] = None, missed: Optional[list] = None,
-                   weight: float = 1):
+                   weight: float = 1, prefer_mul: bool = False):
     """Returns list[Instr] for one block (terminator branch excluded).
 
     missed: if given, collects (weight, [(unit, MOp)]) for every instruction
@@ -497,8 +511,10 @@ def schedule_block(minsts, terminator: Optional[MInst] = None, missed: Optional[
             progress = False
             cands = sorted((n for n in ready if earliest[n.idx] <= cycle),
                            key=lambda n: (-n.prio, n.idx))
+            # (PITON_ISSUE) an op for either ALU leaves the add ALU to a waiting add-only op
+            pm = prefer_mul and any(c.mops and all(o.unit == "add" for o in c.mops) for c in cands)
             for n in cands:
-                if bundle.try_add(n):
+                if bundle.try_add(n, pm):
                     n.cycle = cycle
                     ready.remove(n)
                     remaining.discard(n.idx)
@@ -674,9 +690,11 @@ def fix_block_boundaries(blocks_instrs: list, preds: dict, order: list) -> None:
                     changed = True
 
 
-def schedule_function(fn, name: str, missed: Optional[list] = None) -> Program:
+def schedule_function(fn, name: str, missed: Optional[list] = None, prefer_mul: bool = False) -> Program:
     """Schedule an allocated mir.Function into a Program (missed: see
-    schedule_block; weighted by 100^loop depth, as compiler.py weighs blocks)."""
+    schedule_block; weighted by 100^loop depth, as compiler.py weighs blocks;
+    prefer_mul: also schedule each block with Bundle.try_add's prefer_mul and
+    keep the shorter version; `missed` comes from the plain one)."""
     fn.compute_cfg()
     preds = fn.preds()
     per_block = {}
@@ -692,6 +710,12 @@ def schedule_function(fn, name: str, missed: Optional[list] = None) -> Program:
         ends = insts and insts[-1].sig == "thrend"
         end_inst = insts.pop() if ends else None
         body = schedule_block(insts, missed=missed, weight=100 ** b.loop_depth)
+        if prefer_mul:
+            # keep whichever is shorter (`missed` stays the plain schedule's, so
+            # port-aware allocation searches as without prefer_mul)
+            other = schedule_block(insts, weight=100 ** b.loop_depth, prefer_mul=True)
+            if len(other) < len(body):
+                body = other
         if term is not None:
             br = Instr(kind="branch", bcond=term.bcond, target=term.target, rel=True,
                        add=AluOp("mov", isa.NOP, isa.NOP), mul=AluOp("mov", isa.NOP, isa.NOP))

@@ -320,8 +320,9 @@ def test_port_aware_clones_keep_the_id_loop_out_of_licm(persistent, monkeypatch)
     real = compiler._build
     seen = []
 
-    def build(tile, ranges, options, interleave):
-        out = real(tile, ranges, options, interleave)
+    # pass on the pre-scheduling variant (_build's alphas and flags, PITON_ISSUE)
+    def build(tile, ranges, options, interleave, *args, **kw):
+        out = real(tile, ranges, options, interleave, *args, **kw)
         seen.append(out[1])
         return out
     monkeypatch.setattr(compiler, "_build", build)
@@ -783,8 +784,9 @@ def test_generated_c_launcher(persistent, monkeypatch, tmp_path, kernel, sig, co
 
 def _compile_tile_only(real, reload):
     """_compile_tile that refuses the coarsened builds with the other uniform protocol."""
-    def build(fn, signature, constants, name, pid_max, options, chunk=0):
+    # (the PITON_ISSUE fallback in _compile_tile passes the whole variant on)
+    def build(fn, signature, constants, name, pid_max, options, *variant, **kw):
         if options.get("coarsen", 1) > 1 and options["coarsen_reload"] != reload:
             raise RegAllocError("forced by the test")
-        return real(fn, signature, constants, name, pid_max, options, chunk)
+        return real(fn, signature, constants, name, pid_max, options, *variant, **kw)
     return build
