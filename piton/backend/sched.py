@@ -72,11 +72,11 @@ LAT_VPM_READ = 4
 LAT_UNIF_ADDR = 3
 # Soft latency used only for priorities: keep TMU requests far from their reads.
 SOFT_TMU = 10
-# Destinations a register move may write from either ALU (the mul ALU spells
-# it `v8min x, x`). Not the write-only peripherals whose address differs
-# between the A and B write spaces, nor a discarded result: vc4asm assembles
-# a discarded move (a peripheral read) or a move of an immediate on the mul
-# ALU to other bits.
+# Special destinations a register move may write from either ALU (PITON_PAIR;
+# the mul ALU spells it `v8min x, x`), besides accumulators and register
+# files. Not a discarded result or a move of an immediate, which vc4asm
+# assembles to other bits on the mul ALU; VPM, DMA, uniform-address and mutex
+# writes keep the ALU the plain packing gives them.
 _EITHER_DSTS = frozenset([isa.R5QUAD, isa.R5REP, isa.TMU0_S, isa.TMU1_S] + list(isa.SFU_REGS))
 
 
