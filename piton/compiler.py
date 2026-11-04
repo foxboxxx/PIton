@@ -15,6 +15,7 @@ from .backend.sched import schedule_function
 from .qpu.asm import Program
 
 PORT_ROUNDS = 4         # port-aware allocation attempts per build (PITON_PORT_ALLOC)
+PRESCHED_BIASES = [(3.0,), (3.0, 1.0, 0.5)]     # PITON_ISSUE: presched.py _cycle_order biases per build
 
 
 @dataclass
@@ -151,15 +152,18 @@ def _port_aware(original, name: str, missed: list, copy_of: dict, rounds: int = 
             return
 
 
-def _build(tile, ranges, options: dict, interleave: bool):
-    """Lower, allocate and schedule; returns (program, mir, lowering, stats, mir dumps)."""
+def _build(tile, ranges, options: dict, interleave: bool, alphas=None, flags=None):
+    """Lower, allocate and schedule; returns (program, mir, lowering, stats, mir dumps).
+    flags: presched.py flag groups (default: with PITON_ISSUE)."""
     port_alloc = os.environ.get("PITON_PORT_ALLOC", "1") != "0"     # PITON_PORT_ALLOC=0: plain allocation only
+    issue = options.get("issue", False)
     for cache_dot_a in (True, False):
         lw = Lowering(tile, ranges, dict(options, cache_dot_a=cache_dot_a))
         mf = lw.run()
         stats = dict(lw.stats)
-        stats.update(opt.run(mf))
-        stats["presched_blocks"] = presched.run(mf) if interleave else 0
+        stats.update(opt.run(mf, issue=issue))
+        flags_ = issue if flags is None else flags
+        stats["presched_blocks"] = presched.run(mf, flags=flags_, alphas=alphas) if interleave else 0
         mir = mf.dump()
         original = clone_function(mf) if port_alloc else None
         try:
@@ -185,6 +189,10 @@ def _build(tile, ranges, options: dict, interleave: bool):
             if _port_better(p, f, prog, mf):
                 prog, mf, mir_alloc = p, f, f.dump()
                 stats.update(port_alloc=attempt, copies_inserted=a.copies_inserted, self_moves_dropped=dropped)
+    if issue:
+        # the chosen allocation again, each block also with either-ALU ops on the
+        # mul ALU (sched.py prefer_mul; never longer)
+        prog = schedule_function(mf, tile.name, prefer_mul=True)
     return prog, mf, lw, stats, mir, mir_alloc
 
 
@@ -197,6 +205,8 @@ def _compile_tile(fn, signature, constants, name, pid_max, options, chunk: int =
     asm = {"ttir": tile.dump()}
     if transposed:
         reroll.transposed_loads(tile)
+    if options.get("issue"):
+        passes.drop_dead_other(tile)          # (PITON_ISSUE: masked lanes no store reads)
     if chunk:
         # with store slots, a block's store of one slot or less waits after the loop
         reroll.run(tile, chunk, reductions, carry, queue=bool(options.get("store_slots")))
@@ -209,6 +219,9 @@ def _compile_tile(fn, signature, constants, name, pid_max, options, chunk: int =
     try:
         prog, mf, lw, stats, asm["mir"], asm["mir_alloc"] = _build(tile, ranges, options, interleave=False)
     except RegAllocError:
+        if options.get("issue"):
+            # PITON_ISSUE values (CSE, hoisted compares) can need more registers: the default build
+            return _compile_tile(fn, signature, constants, name, pid_max, dict(options, issue=False), chunk)
         if not options.get("store_slots"):
             raise
         # the store slot's registers (or a rerolled loop's store queue) did not
@@ -216,15 +229,25 @@ def _compile_tile(fn, signature, constants, name, pid_max, options, chunk: int =
         return _compile_tile(fn, signature, constants, name, pid_max, dict(options, store_slots=False), chunk,
                              reductions, carry, transposed)
     stats["presched"] = 0
-    candidate = None
     if os.environ.get("PITON_PRESCHED", "1") != "0":       # PITON_PRESCHED=0: A/B comparisons
-        try:
-            candidate = _build(tile, ranges, options, interleave=True)
-        except RegAllocError:
-            pass
-    if candidate is not None and _weighted_length(candidate[0], candidate[1]) < _weighted_length(prog, mf):
-        prog, mf, lw, stats, asm["mir"], asm["mir_alloc"] = candidate
-        stats["presched"] = 1
+        # PITON_ISSUE: flag groups ordered by the cycle model (presched.py), close to
+        # program order and also the best of three biases per block
+        sets = PRESCHED_BIASES if options.get("issue") else [None]
+        variants = [(alphas, options, None) for alphas in sets]
+        if options.get("issue"):
+            # and the plain pre-scheduling order (no flag groups), with lane registers per
+            # column block in loops (lower.py "Issue")
+            variants.append((None, options, False))
+            if stats.get("loop_lanes"):
+                variants += [(alphas, dict(options, loop_lanes=True), None) for alphas in sets]
+        for k, (alphas, opts, flags) in enumerate(variants, 1):
+            try:
+                candidate = _build(tile, ranges, opts, interleave=True, alphas=alphas, flags=flags)
+            except RegAllocError:
+                continue
+            if _weighted_length(candidate[0], candidate[1]) < _weighted_length(prog, mf):
+                prog, mf, lw, stats, asm["mir"], asm["mir_alloc"] = candidate
+                stats["presched"] = k
     stats["rerolled"] = chunk
     if chunk and reductions:
         stats["reroll_carry"] = int(carry)
@@ -346,7 +369,9 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
         pid_max = tuple(max(1, int(x)) - 1 for x in g) + (0,) * (3 - len(g))
     options = {"num_stages": num_stages, "store_mutex": store_mutex,
                # stores through shared 16-row VPM slots (backend/lower.py); PITON_STORE_SLOTS=0: private rows
-               "store_slots": os.environ.get("PITON_STORE_SLOTS", "1") not in ("", "0")}
+               "store_slots": os.environ.get("PITON_STORE_SLOTS", "1") not in ("", "0"),
+               # issue efficiency (presched.py flag groups, lower.py "Issue"); PITON_ISSUE=1: on
+               "issue": os.environ.get("PITON_ISSUE", "0") not in ("", "0")}
     if os.environ.get("PITON_MANDEL_FAST", "1") not in ("", "0"):
         # `if tl.max(x) > c` branches on the lanes of x, and a loop guarded by
         # such an if exits when it fails (examples/mandelbrot.py)
