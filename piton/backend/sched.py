@@ -196,7 +196,9 @@ def resources_of(alu_ops, sig=None, kind="alu", setf=False, cond_any=False) -> R
         r.tmu_recv = True
         r.periph += 1
     if kind == "sem":
-        r.writes.add(("sem",))
+        # a store slot's semaphore fences the VPM writes, DMAs and vw_wait
+        # (lower.py slot_acquire / slot_release): nothing crosses it
+        r.writes.update((("sem",), ("vpm",), ("mem",), ("mutex",)))
         r.periph += 1
     if setf:
         r.setf = True
@@ -553,7 +555,7 @@ def fill_delay_slots(body: list, branch: Instr) -> list:
     while k < 3 and k < len(body):
         cand = body[len(body) - 1 - k]
         r = instr_res(cand)
-        if r.setf or cand.kind == "branch" or cand.sig == "thrend":
+        if r.setf or cand.kind in ("branch", "sem") or cand.sig == "thrend":
             break
         k += 1
     moved = body[len(body) - k:] if k else []

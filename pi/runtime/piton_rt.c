@@ -187,3 +187,11 @@ uint32_t piton_launch(uint32_t code, const uint32_t *unifs, uint32_t n) {
     }
     return timer_get_usec() - t0;
 }
+
+uint32_t piton_launch_slots(uint32_t code, const uint32_t *unifs, uint32_t n,
+                            uint32_t init, uint32_t fini) {
+    // init and fini read no uniforms: their own address stands in for them
+    uint32_t t = piton_launch(init, &init, 1);
+    t += piton_launch(code, unifs, n);
+    return t + piton_launch(fini, &fini, 1);
+}
