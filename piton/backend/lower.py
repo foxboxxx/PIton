@@ -63,10 +63,14 @@ same bits with fewer (add-ALU) operations:
     a multiply produces: normal, +0, +-inf).
   * a / b with b equal in every lane (softmax's row sum): the three NaN
     checks become two compares of |a| against limits computed once from b.
-  * exp: `or` of 0x3F000000 into a sign bit and log's `or` of 0x3F800000
-    into a mantissa are byte-wise adds without carries (v8adds, either ALU);
-    the two shifts by 23 are mul24 by the small immediate 1.0, whose low 24
-    bits are 2**23 ((x mod 2**24) * 2**23 = x << 23 mod 2**32).
+  * exp: the `or` of 0x3F000000 into a sign bit is a byte-wise add without
+    carries (v8adds, either ALU); the two shifts by 23 are mul24 by the small
+    immediate 1.0, whose low 24 bits are 2**23 ((x mod 2**24) * 2**23 =
+    x << 23 mod 2**32).
+  * log: e = (x - bits(sqrt(1/2))) >> 23 and m = x - (e << 23) (mul24 again)
+    give the same e and m in [sqrt(1/2), sqrt(2)) for every positive normal
+    x as masking, a compare and two conditional subtracts (every other x
+    takes a special value after).
   * the clamp of n in a mask (max, min) gets SSA registers, so LICM hoists
     it out of rerolled loops; the prefetch index of a unit-step loop with a
     constant bound is min(iv + 1, ub - 1) instead of a compare and two
@@ -2339,19 +2343,32 @@ class Lowering:
         s = (m - 1) / (m + 1), as an odd polynomial in s."""
         f = lambda: self.new("lg", True)
         i = lambda: self.new("lg")
+        if self.issue:
+            # (module docstring, "Issue") e = (x - bits(sqrt(1/2))) >> 23, m = x - (e << 23)
+            t, e, e23, m = i(), i(), i(), f()
+            self.op("sub", t, x, self.const_reg(0x3F3504F3))
+            self.op("asr", e, t, Imm(_shift_imm(23)))
+            self.op("mul24", e23, e, Imm(_f2u(1.0)))
+            self.op("sub", m, x, e23)
+            return self._log_tail(d, x, base2, e, m)
         e = i()
         self.op("shr", e, x, Imm(_shift_imm(23)))
         self.op("and", e, e, self.const_reg(0xFF))
         mb = i()
         self.op("and", mb, x, self.const_reg(0x007FFFFF))
-        # m in [1, 2) (byte 3 is 0 and byte 2 < 0x80: v8adds is the or)
-        self.op("v8adds" if self.issue else "or", mb, mb, self.const_reg(0x3F800000))
+        self.op("or", mb, mb, self.const_reg(0x3F800000))  # m in [1, 2)
         self.op("sub", isa.NOP, mb, self.const_reg(0x3FB504F3), setf=True, unit="add")
         m = f()
         self.op("mov", m, mb)
         self.op("fmul", m, mb, Imm(_f2u(0.5)), cond="ifnn")
         self.op("sub", e, e, self.operand(C(126)), cond="ifnn")
         self.op("sub", e, e, self.operand(C(127)), cond="ifn")
+        self._log_tail(d, x, base2, e, m)
+
+    def _log_tail(self, d, x, base2: bool, e, m):
+        """_log_core from e and m in [sqrt(1/2), sqrt(2)) on."""
+        f = lambda: self.new("lg", True)
+        i = lambda: self.new("lg")
         num, den = f(), f()
         self.op("fsub", num, m, self.fk(1.0))
         self.op("fadd", den, m, self.fk(1.0))

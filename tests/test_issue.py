@@ -217,6 +217,26 @@ def test_scaled_newton_rsqrt():
     np.testing.assert_array_equal(fmul(s, full(1.0 / c)), r)
 
 
+def test_log_exponent_split():
+    """lower.py _log_core (PITON_ISSUE): (x - bits(sqrt(1/2))) >> 23 and
+    x - (e << 23) give the e and m of the masked version for every mantissa
+    (three exponents) and random positive normals."""
+    m = np.arange(1 << 23, dtype=np.uint32)
+    x = np.concatenate([(np.uint32(e) << np.uint32(23)) | m for e in (1, 127, 254)] +
+                       [rng.integers(0x00800000, 0x7F800000, 1 << 20, dtype=np.uint32)])
+    mb = (x & np.uint32(0x007FFFFF)) | np.uint32(0x3F800000)
+    ge = mb >= np.uint32(0x3FB504F3)
+    half = emulator.alu_mul("fmul", mb, np.full(x.shape, 0x3F000000, np.uint32))[0]
+    m_old = np.where(ge, half, mb)
+    e_old = (x >> np.uint32(23)).astype(np.int64) - np.where(ge, 126, 127)
+    t = (x.astype(np.int64) - 0x3F3504F3).astype(np.int32)
+    e_new = t >> 23
+    shifted = emulator.alu_mul("mul24", e_new.astype(np.uint32), np.full(x.shape, 0x3F800000, np.uint32))[0]
+    m_new = (x.astype(np.int64) - shifted.astype(np.int64)).astype(np.uint32)
+    np.testing.assert_array_equal(e_new, e_old)
+    np.testing.assert_array_equal(m_new, m_old)
+
+
 def test_v8adds_and_mul24_identities():
     """The byte-wise add and the mul24 shift that exp and log use instead of or / shl."""
     sgn = np.array([0, 0x80000000] * 8, np.uint32)
