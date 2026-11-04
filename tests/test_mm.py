@@ -361,8 +361,6 @@ def test_no_pipelining_no_mm(monkeypatch):
 
 def test_registers_that_do_not_fit_fall_back(monkeypatch):
     """A build of the MM dot that runs out of registers is redone without it."""
-    real = lower.Lowering.dot_mm
-
     def refuse(self, *args, **kwargs):
         raise RegAllocError("test: no registers")
     monkeypatch.setattr(lower.Lowering, "dot_mm", refuse)
@@ -375,7 +373,6 @@ def test_registers_that_do_not_fit_fall_back(monkeypatch):
                 dict(BM=bm, BN=bn, BK=bk, k=k), (1,))
     assert ck.stats["mm_fallback"] == 1 and not ck.stats.get("mm_dots")
     np.testing.assert_array_equal(_run(ck, (1,), values)["out_ptr"], a @ b)
-    monkeypatch.setattr(lower.Lowering, "dot_mm", real)
 
 
 def test_plan_order_and_spacing():
