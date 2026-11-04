@@ -45,6 +45,7 @@ Status: `todo`, `wip`, `accepted <commit>`, `rejected (<why>)`.
 | C8 | fill SFU latency with independent ops | todo |
 | C9 | opt-in fast-math (fewer Newton steps / shorter polynomials) | todo |
 | C10 | integer divide via float reciprocal + one correction | accepted, on by default (`PITON_FAST_IDIV=0` restores the branching division): idiv 2.78x, dense_relu 1.15x, matmul 1.03-1.05x |
+| C11 | pair the add-only / mul-only neighbours the list scheduler left apart: moves step over to the mul ALU, ALU-balanced priorities (shortest of five schedules), the add before each dot broadcast may join it, the missed pairs of every schedule go to the port-aware allocation, loop-entry hazards padded in the preheader | built (opt/c11-pair, `PITON_PAIR=1`, off by default; Pi A/B pending): emulator executed instructions geomean 0.945 (recip 0.876, add 0.881, mul/fma 0.886, copy 0.910, transpose 0.926, mandel_32x16 0.931, softmax 0.938, rsqrt 0.920, mandel_16x16x2 0.963, matmul 0.973/0.986, dense_relu 0.976, compute_peak 0.983, none above 0.990), paired share up in every case; compile ~1.7x slower |
 
 ## D. Instruction cache
 | # | change | status |

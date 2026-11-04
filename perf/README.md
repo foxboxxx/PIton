@@ -74,3 +74,18 @@ add/mul pair that could share an instruction did.
 5. **matmul is at its structure bound** (pack 0.88-0.89): the A broadcast into
    r5 needs the mul unit once per four MACs, and the hardware run is limited by
    the B stream through the TMU, not by issue.
+6. **Neighbours the scheduler left apart** (C11, `PITON_PAIR=1`, off by
+   default; sched.py "Pairing"). Most "free" unpaired neighbours were not free:
+   a mul-output rotation takes the B read port (matmul 8x64x8's A broadcasts
+   next to TMU address adds that read B: 72% of its unpaired neighbours) and
+   row_sum/row_max's were a register-file latency; analyze.py now says so. The
+   losses that were the scheduler's: a move took the add ALU from a ready
+   add-only op (elementwise and math kernels), the critical-path priority ran
+   add-bound blocks out of add work (Mandelbrot: 225 add-only to 128 mul-only
+   ops per loop body), each dot broadcast's add ALU stayed idle because the
+   lowering pre-pairs every add with the next multiply, the port-aware
+   allocation saw the pairs only one schedule missed, and a nop for a hazard on
+   the way into a loop ran on every iteration (compute_peak, Mandelbrot).
+   Executed instructions geomean 0.945 (recip 0.876, add 0.881, mandel_32x16
+   0.931, transpose 0.926, softmax 0.938, matmul 0.973/0.986), never more; the
+   paired share rises in every kernel (mandel_32x16 39 -> 49%, recip 30 -> 48%).
