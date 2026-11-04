@@ -13,9 +13,13 @@ each instruction is weighted by how often it really executes. For each kernel
               every add/mul could pair; executed / bound is the packing loss
 
 For every add-only instruction next to a mul-only one (or the reverse) it
-says why the two could not share an instruction: a data dependency, both
-needing a different register in file A (or B), conflicting write files,
-two signals or two flag writes. "free" means none of these applied.
+says why the two could not share an instruction: a data dependency, a
+latency (the second reads a register file location, or rotates an
+accumulator, that the instruction before the first wrote), both needing a
+different register in file A (or B: a small immediate or a mul-output
+rotation takes the B read port), conflicting write files, two peripheral
+accesses (TMU / SFU writes, TMU loads), two signals or two flag writes.
+"free" means none of these applied.
 
     .venv/bin/python perf/analyze.py                 # every case
     .venv/bin/python perf/analyze.py matmul_8x64x8 -v  # one case, hottest region listed
@@ -81,6 +85,8 @@ def _port_conflict(ops) -> str | None:
     """Can these ALU ops' sources share one instruction's two read ports?"""
     a, b, either = set(), set(), set()
     for op in ops:
+        if op.rot is not None:
+            b.add(("rot", op.rot))                          # the rotation code is raddr_b
         for s in _reads(op):
             if isinstance(s, isa.Imm):
                 b.add(("imm", s.value if hasattr(s, "value") else repr(s)))
@@ -106,8 +112,21 @@ def _port_conflict(ops) -> str | None:
     return None
 
 
-def pair_blocker(x, y) -> str:
-    """Why can't single-op instructions x (first) and y (next) merge into one?"""
+def _periph(ins) -> int:
+    """TMU / SFU writes and TMU loads: one per instruction."""
+    n = int(ins.sig in ("ldtmu0", "ldtmu1"))
+    for op in (ins.add, ins.mul):
+        n += _busy(op) and op.dst.waddr is not None and 52 <= op.dst.waddr <= 63
+    return n
+
+
+def _written(ins) -> set:
+    return {op.dst for op in (ins.add, ins.mul) if ins.kind != "branch" and _busy(op) and op.dst != isa.NOP}
+
+
+def pair_blocker(x, y, before=None) -> str:
+    """Why can't single-op instructions x (first) and y (next) merge into one?
+    before: the instruction ahead of x (latencies)."""
     xo = x.add if _busy(x.add) else x.mul
     yo = y.add if _busy(y.add) else y.mul
     if xo.dst in _reads(yo) or (xo.dst.acc is not None and any(
@@ -117,8 +136,14 @@ def pair_blocker(x, y) -> str:
         return "dependency"                                 # y reads x's flags
     if xo.dst == yo.dst and xo.dst != isa.NOP:
         return "same_dst"
+    if before is not None:
+        early = _written(before)
+        if any(s in early and (s.is_regfile or yo.rot is not None) for s in _reads(yo) if isinstance(s, isa.Reg)):
+            return "latency"                                # merged, y would follow `before` directly
     if x.sig != "none" and y.sig != "none":
         return "signal"
+    if _periph(x) + _periph(y) > 1:
+        return "periph"
     # A shared instruction takes its flags from the add unit.
     if (x if _busy(x.mul) else y).setf:
         return "flags"
@@ -170,7 +195,8 @@ def summarize(instrs, counts, lo=0, hi=None) -> dict:
                 movs += w if op.op == "mov" else 0
                 ops[f"{unit}:{op.op}{'.setf' if ins.setf and unit == 'add' else ''}"] += w
         if i + 1 < hi and cls[i] in ("add", "mul") and cls[i + 1] in ("add", "mul") and cls[i] != cls[i + 1]:
-            blockers[pair_blocker(ins, instrs[i + 1])] += min(w, counts[i + 1])
+            before = instrs[i - 1] if i > lo else None
+            blockers[pair_blocker(ins, instrs[i + 1], before)] += min(w, counts[i + 1])
     bound = max(add_ops, mul_ops) + ldi + br
     return dict(executed=total, mix={k: v / total for k, v in mix.items()} if total else {},
                 add_ops=add_ops, mul_ops=mul_ops, movs=movs, ldi=ldi, branches=br,
@@ -221,7 +247,8 @@ def table(results) -> str:
 
 
 def blockers_table(results) -> str:
-    keys = ["dependency", "port_A", "port_B", "port", "write_file", "flags", "signal", "same_dst", "free"]
+    keys = ["dependency", "latency", "port_A", "port_B", "port", "write_file", "periph", "flags", "signal",
+            "same_dst", "free"]
     rows = [f"{'case':16} " + " ".join(f"{k:>10}" for k in keys)]
     total = Counter()
     for r in results:
