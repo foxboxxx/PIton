@@ -77,9 +77,15 @@ def main(argv=None):
     rows = []
     for case in cases:
         compiled = {}
-        for side, value in (("off", args.off), ("on", args.on)):
-            with switch(args.env, value):
-                compiled[side] = compile_case(case, "pi")
+        try:
+            for side, value in (("off", args.off), ("on", args.on)):
+                with switch(args.env, value):
+                    compiled[side] = compile_case(case, "pi")
+        except Exception as ex:                      # the switch broke compilation: a failure
+            rows.append(dict(name=case.name, instructions_off=0, instructions_on=0, speedup=0.0,
+                             failed=f"compile {side}: {type(ex).__name__}: {str(ex).splitlines()[0][:200]}"))
+            print(f"{case.name}: {rows[-1]['failed']}", file=sys.stderr, flush=True)
+            continue
         ck_off, ck_on = compiled["off"][0], compiled["on"][0]
         row = dict(name=case.name, instructions_off=len(ck_off.program.instrs),
                    instructions_on=len(ck_on.program.instrs))

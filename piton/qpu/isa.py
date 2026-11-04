@@ -456,7 +456,11 @@ def _encode_alu(ins: Instr) -> int:
     ws, waddr_add, waddr_mul = _waddr_fields(ins)
     op_add = ADD_OPS["or" if add is not None and add.op == "mov" else (add.op if add else "nop")]
     op_mul = MUL_OPS["v8min" if mul is not None and mul.op == "mov" else (mul.op if mul else "nop")]
-    cond_mul = _alu_cond(mul, ins.setf)
+    # The flags come from the add op unless it is a nop (format_instr prints
+    # .setf on it), so vc4asm encodes a discarded mul result next to an add
+    # .setf as `never`, e.g. `or.setf -, r1, r2; mov -, vw_wait`.
+    setf_on_add = ins.setf and add is not None and add.op != "nop"
+    cond_mul = _alu_cond(mul, ins.setf and not setf_on_add)
     if mul is None and add is not None and add.op == "xor" and add.a == add.b:
         # vc4asm reads `xor x, s, s` as its zero-move idiom and sets the (unused)
         # mul condition to always; match it so the .qasm assembles to these bits

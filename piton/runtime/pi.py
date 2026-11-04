@@ -29,6 +29,7 @@ from typing import Optional
 import numpy as np
 
 from . import power
+from .launcher import semaphore_programs, slot_semaphores
 
 RUNTIME_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "pi", "runtime")
 
@@ -130,7 +131,8 @@ class PiRunner:
 
     def run(self, code_words, buffers: list, programs: list, outputs: list, repeats: int = 1,
             label: str = "piton", sample: Optional[dict] = None,
-            perf_events: Optional[list] = None, setup_c: str = "") -> PiResult:
+            perf_events: Optional[list] = None, setup_c: str = "",
+            semaphores: Optional[tuple] = None) -> PiResult:
         """Execute `code_words` once per entry of `programs`.
 
         buffers  -- list[Buffer]
@@ -138,9 +140,13 @@ class PiRunner:
         outputs  -- buffer names to read back after the last repeat
         perf_events -- V3D performance counter ids (piton_rt.h) read around each launch
         setup_c     -- C statements run after piton_init() (hardware experiments)
+        semaphores  -- store-slot semaphores set to 1 around each launch
+                       (piton_launch_slots); None: the ones the code acquires
         """
+        if semaphores is None:
+            semaphores = slot_semaphores(code_words)
         src = self._generate(code_words, buffers, programs, outputs, repeats, label, sample or {},
-                             perf_events or [], setup_c)
+                             perf_events or [], setup_c, semaphores)
         workdir = tempfile.mkdtemp(prefix="piton-pi-")
         try:
             with open(os.path.join(workdir, "main.c"), "w") as f:
@@ -168,10 +174,15 @@ class PiRunner:
     # -- program generation ----------------------------------------------------
 
     def _generate(self, code_words, buffers, programs, outputs, repeats, label, sample,
-                  perf_events=(), setup_c="") -> str:
+                  perf_events=(), setup_c="", semaphores=()) -> str:
         code32 = []
         for w in code_words:
             code32 += [w & 0xFFFFFFFF, w >> 32]
+        slot_code = []                      # byte offsets of the init / fini programs
+        for words in semaphore_programs(semaphores) if semaphores else ():
+            slot_code.append(4 * len(code32))
+            for w in words:
+                code32 += [w & 0xFFFFFFFF, w >> 32]
         out = ['#include "rpi.h"', '#include "piton_rt.h"', ""]
         out.append(_c_words("qpu_code", code32))
         offset = (len(code32) * 4 + 4095) & ~4095
@@ -266,7 +277,11 @@ class PiRunner:
         out.append(f"    for (unsigned r = 0; r < {repeats}; r++) {{")
         if perf_events:
             out.append(f"        piton_perf_start(perf_events, {len(perf_events)});")
-        out.append(f"        uint32_t t = piton_launch(m.bus, unif_ptrs, {len(programs)});")
+        if slot_code:
+            out.append(f"        uint32_t t = piton_launch_slots(m.bus, unif_ptrs, {len(programs)}, "
+                       f"m.bus + {slot_code[0]}u, m.bus + {slot_code[1]}u);")
+        else:
+            out.append(f"        uint32_t t = piton_launch(m.bus, unif_ptrs, {len(programs)});")
         if perf_events:
             out.append(f"        piton_perf_read(perf, {len(perf_events)});")
         out.append("        printk(\"PITON_TIME %d\\n\", t);")

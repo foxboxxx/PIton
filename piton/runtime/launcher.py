@@ -16,6 +16,8 @@ import numpy as np
 
 from ..compiler import CompiledKernel, compile
 from ..language.core import constexpr
+from ..qpu import isa
+from ..qpu.asm import Program
 from ..qpu.emulator import V3D
 from ..qpu.isa import f2u
 
@@ -101,9 +103,36 @@ def program_ids(grid, coarsen: int = 1):
                 yield (x, y, z), (gx, gy, gz)
 
 
+def slot_semaphores(words) -> tuple:
+    """Semaphores a program acquires.  PIton code acquires only the semaphores
+    of its store slots (backend/lower.py, PITON_STORE_SLOTS), and each of them
+    must be 1 (slot free) while the program runs."""
+    return tuple(sorted({ins.sema for ins in map(isa.decode, words) if ins.kind == "sem" and ins.acquire}))
+
+
+def semaphore_programs(sems) -> tuple:
+    """(init, fini) machine words for a launch of a kernel with store slots.
+
+    The hardware semaphores keep their counts across programs and launches
+    and are 0 after a reset.  `init` releases each slot semaphore once and
+    runs to completion before the kernel's programs are queued; every kernel
+    program releases what it acquires; `fini`, queued after all of them have
+    finished, acquires each once more.  So a launch leaves the semaphores as
+    it found them (0), and neither program can wait: init only releases
+    (counts 0 -> 1) and fini finds every slot free (1 -> 0).
+    """
+    def prog(name, acquire):
+        code = [isa.Instr(kind="sem", acquire=acquire, sema=s) for s in sems]
+        code += [isa.Instr(kind="alu", sig="thrend"), isa.Instr.nop(), isa.Instr.nop()]
+        return Program(name, code).words()
+    return prog("slots_init", False), prog("slots_fini", True)
+
+
 def run_emulator(ck: CompiledKernel, grid, values: dict, num_qpus: int = 12, strict: bool = True,
                  v3d: Optional[V3D] = None):
     v = v3d or V3D(num_qpus=num_qpus, strict=strict)
+    words = ck.words
+    sems = slot_semaphores(words)
     addrs = {}
     for name, val in values.items():
         if isinstance(val, np.ndarray):
@@ -118,7 +147,22 @@ def run_emulator(ck: CompiledKernel, grid, values: dict, num_qpus: int = 12, str
         if u:
             v.mem.write_words(a, np.array(u, dtype=np.uint32))
         unifs.append(a)
-    stats = v.run(v.load(ck.words), unifs)
+    if sems:
+        # as piton_launch_slots (pi/runtime/piton_rt.c): init, the kernel, fini
+        init, fini = semaphore_programs(sems)
+        before, counts = list(v.sems), v.pc_counts
+        v.pc_counts = None
+        v.run(v.load(init), [zero])
+        v.pc_counts = counts
+    stats = v.run(v.load(words), unifs)
+    if sems:
+        expected = [c + (i in sems) for i, c in enumerate(before)]
+        if v.sems != expected:
+            raise RuntimeError(f"store slot semaphores unbalanced after the kernel: {v.sems}, "
+                               f"expected {expected}")
+        v.pc_counts = None
+        v.run(v.load(fini), [zero])
+        v.pc_counts = counts
     for name, val in values.items():
         if isinstance(val, np.ndarray):
             val[...] = v.mem.read_array(addrs[name], val.shape, val.dtype)

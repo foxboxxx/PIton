@@ -1,0 +1,245 @@
+DEBUG:done with options: dev name=</dev/cu.usbserial-110>, pi-prog=</Users/adamalhusaiki/Desktop/CS340LX/PIton/build/digits/main.bin>, trace=0
+opened tty port </dev/cu.usbserial-110>.
+DEBUG:/Users/adamalhusaiki/binPi verified: 1743/1797 correct (96.99%); all 28,752 logits and all predictions passed
+Batch    1 (padded    4): QPU 0.194 ms, ARM VFP 0.721 ms, 3.72x speedup, 5,155 images/s
+Batch   16 (padded   16): QPU 0.243 ms, ARM VFP 1.450 ms, 5.97x speedup, 65,844 images/s
+Batch   64 (padded   64): QPU 0.515 ms, ARM VFP 4.502 ms, 8.74x speedup, 124,272 images/s
+Batch  256 (padded  256): QPU 1.584 ms, ARM VFP 18.615 ms, 11.75x speedup, 161,616 images/s
+Batch 1797 (padded 1800): QPU 9.881 ms, ARM VFP 133.745 ms, 13.54x speedup, 181,864 images/s
+Saved /private/tmp/claude-501/-Users-adamalhusaiki-Desktop-CS340LX/1fd44599-c83e-476e-ab81-3f9ea94b0005/scratchpad/digits-bk4.json
+O, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <0>: discarding.
+expected initial GET_PROG_INFO, got <22111122>: discarding.
+expected initial GET_PROG_INFO, got <22221111>: discarding.
+expected initial GET_PROG_INFO, got <11222211>: discarding.
+BOOT:bootloader: Done.
+redzone checking: init
+PIton neural network: 64 -> 128 ReLU -> 64 ReLU -> 10 classes (16 stored), 12 QPUs
+NN_MODEL test_count=1797 padded_count=1800 repeats=5
+NN_CLOCK name=arm mhz=700
+NN_CLOCK name=core mhz=250
+NN_CLOCK name=v3d mhz=250
+NN_CLOCK name=sdram mhz=400
+NN_MEMORY arm_mb=128 gpu_mb=128 gpu_base=0x8000000
+NN_SETUP us=41824
+NN_VALIDATE impl=gpu checked=28752 failures=0 pred_mismatch=0 correct=1743 max_abs_error=0.000102
+NN_TIME impl=gpu batch=1 padded=4 us=214
+NN_TIME impl=gpu batch=1 padded=4 us=194
+NN_TIME impl=gpu batch=1 padded=4 us=194
+NN_TIME impl=gpu batch=1 padded=4 us=193
+NN_TIME impl=gpu batch=1 padded=4 us=196
+NN_BATCH_CHECK impl=gpu batch=1 checked=16 failures=0 pred_mismatch=0 correct=1 max_abs_error=0.000066
+NN_TIME impl=gpu batch=16 padded=16 us=246
+NN_TIME impl=gpu batch=16 padded=16 us=242
+NN_TIME impl=gpu batch=16 padded=16 us=245
+NN_TIME impl=gpu batch=16 padded=16 us=242
+NN_TIME impl=gpu batch=16 padded=16 us=243
+NN_BATCH_CHECK impl=gpu batch=16 checked=256 failures=0 pred_mismatch=0 correct=15 max_abs_error=0.000085
+NN_TIME impl=gpu batch=64 padded=64 us=511
+NN_TIME impl=gpu batch=64 padded=64 us=515
+NN_TIME impl=gpu batch=64 padded=64 us=514
+NN_TIME impl=gpu batch=64 padded=64 us=534
+NN_TIME impl=gpu batch=64 padded=64 us=515
+NN_BATCH_CHECK impl=gpu batch=64 checked=1024 failures=0 pred_mismatch=0 correct=61 max_abs_error=0.000102
+NN_TIME impl=gpu batch=256 padded=256 us=1595
+NN_TIME impl=gpu batch=256 padded=256 us=1559
+NN_TIME impl=gpu batch=256 padded=256 us=1570
+NN_TIME impl=gpu batch=256 padded=256 us=1584
+NN_TIME impl=gpu batch=256 padded=256 us=1589
+NN_BATCH_CHECK impl=gpu batch=256 checked=4096 failures=0 pred_mismatch=0 correct=250 max_abs_error=0.000102
+NN_TIME impl=gpu batch=1797 padded=1800 us=10019
+NN_TIME impl=gpu batch=1797 padded=1800 us=9886
+NN_TIME impl=gpu batch=1797 padded=1800 us=9859
+NN_TIME impl=gpu batch=1797 padded=1800 us=9881
+NN_TIME impl=gpu batch=1797 padded=1800 us=9759
+NN_BATCH_CHECK impl=gpu batch=1797 checked=28752 failures=0 pred_mismatch=0 correct=1743 max_abs_error=0.000102
+NN_VALIDATE impl=gpu_timed checked=28752 failures=0 pred_mismatch=0 correct=1743 max_abs_error=0.000102
+NN_VALIDATE impl=arm_c checked=28752 failures=0 pred_mismatch=0 correct=1743 max_abs_error=0.000007
+NN_TIME impl=arm_c batch=1 padded=4 us=1046
+NN_TIME impl=arm_c batch=1 padded=4 us=816
+NN_TIME impl=arm_c batch=1 padded=4 us=808
+NN_TIME impl=arm_c batch=1 padded=4 us=815
+NN_TIME impl=arm_c batch=1 padded=4 us=803
+NN_BATCH_CHECK impl=arm_c batch=1 checked=16 failures=0 pred_mismatch=0 correct=1 max_abs_error=0.000001
+NN_TIME impl=arm_c batch=16 padded=16 us=1841
+NN_TIME impl=arm_c batch=16 padded=16 us=1807
+NN_TIME impl=arm_c batch=16 padded=16 us=1799
+NN_TIME impl=arm_c batch=16 padded=16 us=1795
+NN_TIME impl=arm_c batch=16 padded=16 us=1797
+NN_BATCH_CHECK impl=arm_c batch=16 checked=256 failures=0 pred_mismatch=0 correct=15 max_abs_error=0.000004
+NN_TIME impl=arm_c batch=64 padded=64 us=6031
+NN_TIME impl=arm_c batch=64 padded=64 us=5953
+NN_TIME impl=arm_c batch=64 padded=64 us=5931
+NN_TIME impl=arm_c batch=64 padded=64 us=5931
+NN_TIME impl=arm_c batch=64 padded=64 us=5946
+NN_BATCH_CHECK impl=arm_c batch=64 checked=1024 failures=0 pred_mismatch=0 correct=61 max_abs_error=0.000004
+NN_TIME impl=arm_c batch=256 padded=256 us=24046
+NN_TIME impl=arm_c batch=256 padded=256 us=24109
+NN_TIME impl=arm_c batch=256 padded=256 us=24118
+NN_TIME impl=arm_c batch=256 padded=256 us=24119
+NN_TIME impl=arm_c batch=256 padded=256 us=24107
+NN_BATCH_CHECK impl=arm_c batch=256 checked=4096 failures=0 pred_mismatch=0 correct=250 max_abs_error=0.000005
+NN_TIME impl=arm_c batch=1797 padded=1800 us=171565
+NN_TIME impl=arm_c batch=1797 padded=1800 us=171572
+NN_TIME impl=arm_c batch=1797 padded=1800 us=171493
+NN_TIME impl=arm_c batch=1797 padded=1800 us=171533
+NN_TIME impl=arm_c batch=1797 padded=1800 us=171614
+NN_BATCH_CHECK impl=arm_c batch=1797 checked=28752 failures=0 pred_mismatch=0 correct=1743 max_abs_error=0.000007
+NN_VALIDATE impl=arm_c_timed checked=28752 failures=0 pred_mismatch=0 correct=1743 max_abs_error=0.000007
+NN_VALIDATE impl=arm_vfp checked=28752 failures=0 pred_mismatch=0 correct=1743 max_abs_error=0.000009
+NN_TIME impl=arm_vfp batch=1 padded=4 us=966
+NN_TIME impl=arm_vfp batch=1 padded=4 us=729
+NN_TIME impl=arm_vfp batch=1 padded=4 us=721
+NN_TIME impl=arm_vfp batch=1 padded=4 us=720
+NN_TIME impl=arm_vfp batch=1 padded=4 us=716
+NN_BATCH_CHECK impl=arm_vfp batch=1 checked=16 failures=0 pred_mismatch=0 correct=1 max_abs_error=0.000002
+NN_TIME impl=arm_vfp batch=16 padded=16 us=1493
+NN_TIME impl=arm_vfp batch=16 padded=16 us=1450
+NN_TIME impl=arm_vfp batch=16 padded=16 us=1456
+NN_TIME impl=arm_vfp batch=16 padded=16 us=1446
+NN_TIME impl=arm_vfp batch=16 padded=16 us=1445
+NN_BATCH_CHECK impl=arm_vfp batch=16 checked=256 failures=0 pred_mismatch=0 correct=15 max_abs_error=0.000003
+NN_TIME impl=arm_vfp batch=64 padded=64 us=4577
+NN_TIME impl=arm_vfp batch=64 padded=64 us=4515
+NN_TIME impl=arm_vfp batch=64 padded=64 us=4490
+NN_TIME impl=arm_vfp batch=64 padded=64 us=4502
+NN_TIME impl=arm_vfp batch=64 padded=64 us=4482
+NN_BATCH_CHECK impl=arm_vfp batch=64 checked=1024 failures=0 pred_mismatch=0 correct=61 max_abs_error=0.000004
+NN_TIME impl=arm_vfp batch=256 padded=256 us=18588
+NN_TIME impl=arm_vfp batch=256 padded=256 us=18638
+NN_TIME impl=arm_vfp batch=256 padded=256 us=18614
+NN_TIME impl=arm_vfp batch=256 padded=256 us=18651
+NN_TIME impl=arm_vfp batch=256 padded=256 us=18615
+NN_BATCH_CHECK impl=arm_vfp batch=256 checked=4096 failures=0 pred_mismatch=0 correct=250 max_abs_error=0.000005
+NN_TIME impl=arm_vfp batch=1797 padded=1800 us=133740
+NN_TIME impl=arm_vfp batch=1797 padded=1800 us=133736
+NN_TIME impl=arm_vfp batch=1797 padded=1800 us=133764
+NN_TIME impl=arm_vfp batch=1797 padded=1800 us=133786
+NN_TIME impl=arm_vfp batch=1797 padded=1800 us=133745
+NN_BATCH_CHECK impl=arm_vfp batch=1797 checked=28752 failures=0 pred_mismatch=0 correct=1743 max_abs_error=0.000009
+NN_VALIDATE impl=arm_vfp_timed checked=28752 failures=0 pred_mismatch=0 correct=1743 max_abs_error=0.000009
+NN_PRED 1797
+01234967890123456789012345678909
+55650589841773510022786012633733
+46664915095281001763217163139176
+84314053696175447282257954884908
+91012345678901234567890123456789
+09556509898417735100227820126337
+33466649150952820017632173139176
+84314053696175447282255488490898
+01234567890123456789012345678909
+55650989841773510022782012633733
+46664915095282001763217463139176
+84314053696175447282257954884908
+93012345698901234569890120456589
+09556509898419735100229820126335
+33466649150952820015632174631391
+96843140536981554452822599548849
+08980122456789012345678901234567
+89095565098984177351002278201263
+37234666491509528200176221746813
+91768431405369617544728225795488
+49089801234567890123456789012345
+67890955650989841773510022782012
+63373346664915095282001763217463
+13917684314053646175447282257954
+88490898012345678901234547190123
+45678909556509899417735100227820
+12633733466049150952820017632174
+63139176843140536961754472922579
+54884908911234567890123456889012
+34567890955650989841773512782012
+63373346664915095282001762214631
+39176843140536961754472822579544
+90898012345678301234567890123456
+78909556509898417735100782012633
+73346664915095282001763217463199
+17684314053696175447282257954184
+90898012345678901234567890123456
+78909556509895417735100227520126
+33733466649155952820017632174631
+39176843140536961754472822579548
+84908980123456789012345678901234
+56789095565098984177351002278201
+26337334666491509528200176321746
+31391768431405369617544728225795
+48849080123456789012345678901234
+56789095565098984177351002279201
+26337334666491509529200176321746
+31391769431405369619544728225795
+48849089801234569190123456901234
+56759095565098984177351002248201
+26337734666491509528017632174631
+99176843140536961754472257854450
+89801234567890123456789012545678
+90955650989841773510022782012632
+73346664915095282001763217463139
+17684514053696175447282257954814
+90898
+NN_PRED_END
+NN_CHECK_OK
+PITON_DONE
+DONE!!!
