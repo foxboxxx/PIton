@@ -39,11 +39,9 @@ rng = np.random.default_rng(5)
 
 @pytest.fixture
 def persistent(monkeypatch):
+    """persistent(value): PITON_PERSISTENT=value; None = the plain build ("0")."""
     def set_k(value):
-        if value is None:
-            monkeypatch.delenv("PITON_PERSISTENT", raising=False)
-        else:
-            monkeypatch.setenv("PITON_PERSISTENT", str(value))
+        monkeypatch.setenv("PITON_PERSISTENT", "0" if value is None else str(value))
     return set_k
 
 
@@ -335,6 +333,11 @@ def test_falls_back_when_no_version_allocates(persistent, monkeypatch):
     assert list(ck.words) == list(plain.words) and ck.uniforms == plain.uniforms
 
 
+def test_automatic_by_default(monkeypatch):
+    monkeypatch.delenv("PITON_PERSISTENT", raising=False)
+    assert compiler.compile(add_kernel, ADD_SIG, {"BLOCK_SIZE": 256}, grid=(1024,)).coarsen == 4
+
+
 @pytest.mark.parametrize("value", [None, "0"])
 def test_switch_off(persistent, value):
     persistent(value)
@@ -509,7 +512,7 @@ def _variants(monkeypatch, k, kernel, sig, cons, grid, values, compile_grid="lau
     registers or re-read; constants hoisted out of the id loop or not) that
     allocates."""
     compile_grid = grid if compile_grid == "launch" else compile_grid
-    monkeypatch.delenv("PITON_PERSISTENT", raising=False)
+    monkeypatch.setenv("PITON_PERSISTENT", "0")
     want, _ = _run(compiler.compile(kernel, sig, cons, grid=compile_grid), grid, values)
     monkeypatch.setenv("PITON_PERSISTENT", str(k))
     real = compiler._compile_tile

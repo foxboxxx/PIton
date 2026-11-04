@@ -296,10 +296,10 @@ def _id_bytes(tile) -> Optional[int]:
 
 def _coarsening(tile, pid_max, id_length) -> int:
     """Logical program ids per hardware program along axis 0 (PITON_PERSISTENT):
-    unset or 0 -> 1 (one hardware program per id), 1 -> automatic, k >= 2 -> k
+    unset or 1 -> automatic, 0 -> 1 (one hardware program per id), k >= 2 -> k
     for every grid. Kernels that never read tl.program_id(0) are not coarsened.
     id_length() is _id_length of the plain build."""
-    env = os.environ.get("PITON_PERSISTENT", "0")
+    env = os.environ.get("PITON_PERSISTENT", "1")
     try:
         want = int(env)
     except ValueError:

@@ -37,15 +37,12 @@ rng = np.random.default_rng(77)
 
 @pytest.fixture
 def env(monkeypatch):
-    """env(PITON_PERSISTENT value or None); store slots and port-aware allocation at their defaults."""
+    """env(PITON_PERSISTENT value, None = the plain build); store slots and port-aware allocation at their defaults."""
     monkeypatch.delenv("PITON_STORE_SLOTS", raising=False)
     monkeypatch.delenv("PITON_PORT_ALLOC", raising=False)
 
     def set_k(value):
-        if value is None:
-            monkeypatch.delenv("PITON_PERSISTENT", raising=False)
-        else:
-            monkeypatch.setenv("PITON_PERSISTENT", str(value))
+        monkeypatch.setenv("PITON_PERSISTENT", "0" if value is None else str(value))
     return set_k
 
 
