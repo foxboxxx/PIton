@@ -24,16 +24,20 @@ Pairing (PITON_PAIR=1)
 ----------------------
 The greedy packing fills the add ALU with the highest-priority op that
 fits, so a register move that could run on either ALU often takes the add
-ALU, and the add-only op ready in the same cycle waits for the next
-instruction; and an add-only op whose operands conflict on the read ports
-with every ready mul op leaves the mul ALU idle although a slightly lower
-op would pair. With the switch:
+ALU while an add-only op of the same cycle waits for the next instruction,
+and in blocks with far more add-only than mul-only work (or the reverse)
+the critical-path order runs out of ops for the busy ALU at the end. With
+the switch:
   * a move on the add ALU steps over to the idle mul ALU (as `v8min x, x`,
     bit-exact) when an add-only op needs the add ALU (Bundle.try_add);
-  * each block is also scheduled with priorities that favour the ALU with
-    more single-unit work left, and with a choice of the first op of each
-    instruction that fills both ALUs (among the top PAIR_FIRST ready ops),
-    and the shortest of these schedules is kept (the plain one on ties).
+  * each block is scheduled with several priority functions (PAIR_MODES:
+    the plain one, the move, and the move with a bonus of 1, 2 or 5 cycles
+    for ops of the ALU with more single-unit ops left) and the shortest
+    schedule is kept (the earlier one on ties);
+  * the pairs every one of those schedules missed for the read ports go to
+    the port-aware allocation (regalloc.PortHints), each weighted by the
+    share of schedules that missed it, so its next attempt does not depend
+    on which schedule happened to be kept.
 Every schedule is built from the same dependence DAG and Bundle checks, so
 all latency and hazard rules hold for each.
 """
@@ -58,9 +62,6 @@ LAT_VPM_READ = 4
 LAT_UNIF_ADDR = 3
 # Soft latency used only for priorities: keep TMU requests far from their reads.
 SOFT_TMU = 10
-# PITON_PAIR: ready ops tried as the first op of an instruction that would
-# otherwise leave an ALU idle
-PAIR_FIRST = 8
 # Destinations a register move may write from either ALU (the mul ALU spells
 # it `v8min x, x`). Not the write-only peripherals whose address differs
 # between the A and B write spaces, nor a discarded result: vc4asm assembles
@@ -538,27 +539,29 @@ def schedule_block(minsts, terminator: Optional[MInst] = None, missed: Optional[
     left with an idle ALU that a ready operation could have filled but for
     the encoding (register allocation reads these, regalloc.PortHints).
     With PITON_PAIR the shortest of the PAIR_MODES schedules (module
-    docstring), the plain one first; `missed` describes the one kept."""
+    docstring; the later ones only while none reaches _lower_bound), and
+    `missed` gets the pairs of all those built, each at weight / their
+    number."""
     nodes = build_dag(minsts)
     if not pair_enabled():
         return _list_schedule(nodes, missed, weight)
-    best = None
+    best, pairs, built = None, [], 0
     bound = _lower_bound(nodes)
-    for mode in PAIR_MODES:
-        local = [] if missed is not None else None
-        out = _list_schedule(nodes, local, weight, **mode)
-        if best is None or len(out) < len(best[0]):
-            best = (out, local)
-        if len(best[0]) <= bound:
+    for swap, balance in PAIR_MODES:
+        out = _list_schedule(nodes, pairs if missed is not None else None, weight, swap, balance)
+        built += 1
+        if best is None or len(out) < len(best):
+            best = out
+        if len(best) <= bound:
             break
     if missed is not None:
-        missed.extend(best[1])
-    return best[0]
+        missed.extend((w / built, p) for w, p in pairs)
+    return best
 
 
-# PITON_PAIR: the schedules schedule_block compares, in order of preference
-PAIR_MODES = ({}, {"swap": True}, {"swap": True, "balance": True}, {"swap": True, "first": PAIR_FIRST},
-              {"swap": True, "balance": True, "first": PAIR_FIRST})
+# PITON_PAIR: (move to the mul ALU, balance bonus) of the schedules
+# schedule_block compares, in order of preference
+PAIR_MODES = ((False, 0), (True, 0), (True, 1), (True, 2), (True, 5))
 
 
 def _lower_bound(nodes) -> int:
@@ -580,13 +583,11 @@ def _lower_bound(nodes) -> int:
     return max(max(start.values(), default=-1) + 1, full + alu)
 
 
-def _list_schedule(nodes, missed, weight, swap=False, balance=False, first=0):
+def _list_schedule(nodes, missed, weight, swap=False, balance=0):
     """Cycle-by-cycle list schedule of build_dag's nodes (schedule_block).
-    swap: Bundle's move to the mul ALU; balance: an op for the ALU with more
-    single-unit ops left goes ahead of others of its priority; first: try up
-    to `first` ready ops as an instruction's first op when the greedy one
-    leaves an ALU idle, and keep the one that fills more ALUs (then the
-    higher priority sum)."""
+    swap: Bundle's move to the mul ALU (PITON_PAIR); balance: priority bonus
+    of an op for the ALU with more single-unit ops left (PITON_PAIR)."""
+    pair = swap or balance
     for n in nodes:
         n.cycle = None
     remaining = set(range(len(nodes)))
@@ -605,21 +606,15 @@ def _list_schedule(nodes, missed, weight, swap=False, balance=False, first=0):
         if balance and len(n.mops) == 1:
             u = n.mops[0].unit
             if u in left and left[u] > left["mul" if u == "add" else "add"]:
-                return (-n.prio - 1, n.idx)
+                return (-n.prio - balance, n.idx)
         return (-n.prio, n.idx)
     while remaining:
         bundle = Bundle(swap)
+        refused = set()     # (PITON_PAIR) an op a bundle refused it refuses with more ops too
         progress = True
-        lead = None
-        if first:
-            lead = _pair_lead(ready, earliest, cycle, key, swap, first)
         while progress:
             progress = False
-            cands = sorted((n for n in ready if earliest[n.idx] <= cycle), key=key)
-            if lead is not None:
-                cands.remove(lead)
-                cands.insert(0, lead)
-                lead = None
+            cands = sorted((n for n in ready if earliest[n.idx] <= cycle and n.idx not in refused), key=key)
             for n in cands:
                 if bundle.try_add(n):
                     n.cycle = cycle
@@ -634,6 +629,8 @@ def _list_schedule(nodes, missed, weight, swap=False, balance=False, first=0):
                             ready.append(s)
                     progress = True
                     break
+                if pair:
+                    refused.add(n.idx)
         if bundle.empty:
             stuck = [n for n in ready if earliest[n.idx] <= cycle]
             if stuck:
@@ -649,29 +646,6 @@ def _list_schedule(nodes, missed, weight, swap=False, balance=False, first=0):
     while out and _is_nop(out[-1]):
         out.pop()
     return out
-
-
-def _pair_lead(ready, earliest, cycle, key, swap, first):
-    """The ready op an instruction should start with (_list_schedule's
-    `first`), or None for the highest-priority one."""
-    cands = sorted((n for n in ready if earliest[n.idx] <= cycle), key=key)
-    if len(cands) < 2:
-        return None
-    best = None
-    for lead in cands[:first]:
-        trial = Bundle(swap)
-        if not trial.try_add(lead):
-            continue
-        for n in cands[:2 * first]:
-            if n is not lead:
-                trial.try_add(n)
-        units = 2 if trial.kind != "alu" else (trial.add is not None) + (trial.mul is not None)
-        score = (units, sum(n.prio for n in trial.nodes))
-        if best is None or score > best[0]:
-            best = (score, lead)
-        if units == 2 and lead is cands[0]:
-            return None                     # the greedy instruction already fills both ALUs
-    return None if best is None or best[1] is cands[0] else best[1]
 
 
 def _is_nop(ins: Instr) -> bool:
