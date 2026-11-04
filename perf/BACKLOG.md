@@ -41,8 +41,8 @@ Status: `todo`, `wip`, `accepted <commit>`, `rejected (<why>)`.
 | C4 | software pipelining of loop bodies | todo |
 | C5 | unroll rerolled loops 2x when they still fit the icache | rejected with C3 |
 | C6 | unmasked full-block loads + one induction variable | todo |
-| C7 | MIR hoisting/CSE; pack ldtmu/ldunif signals onto ALU instructions | todo |
-| C8 | fill SFU latency with independent ops | todo |
+| C7 | MIR hoisting/CSE; pack ldtmu/ldunif signals onto ALU instructions | accepted with C8, on by default (`PITON_ISSUE=0` turns it off): MIR CSE, cheaper special-value checks, either-ALU ops on the mul ALU, flag groups in pre-scheduling; log 1.26x, log2 1.24x, softmax 1.21x, exp 1.20x, exp2 1.15x, idiv 1.12x |
+| C8 | fill SFU latency with independent ops | accepted with C7 (`PITON_ISSUE`) |
 | C9 | opt-in fast-math (fewer Newton steps / shorter polynomials) | todo |
 | C10 | integer divide via float reciprocal + one correction | accepted, on by default (`PITON_FAST_IDIV=0` restores the branching division): idiv 2.78x, dense_relu 1.15x, matmul 1.03-1.05x |
 
@@ -98,3 +98,4 @@ outputs; H6 matmul register blocking for more A reuse.
 | 2026-11-04 | A1 runtime | slot semaphores set up once per boot (`piton_launch_slots_once`; `PITON_SLOTS_ONCE=0` keeps init / fini around every launch, two one-program launches with cache clears, ~10 us each): digits batch 1 0.235 -> 0.218 ms (1.078x), batch 16 0.338 -> 0.318 (1.063x), full batch unchanged (9.289 ms); suite slot kernels 1.007-1.020x, nothing below 0.984x (`ab-2026-11-04-slots-once.json`); test_hw 12/12 |
 | 2026-11-03 | digits | with C1 + A1 + C10 + E1 + H2 + D1 (`benchmarks/results/digits-pi-2026-11-03-all.{json,log}`): full batch 9.881 -> 9.281 ms (1.065x, 14.42x over ARM VFP), batch 256 1.05x, but batch 1 0.194 -> 0.235 ms and batch 16 0.243 -> 0.338: E1's compile-time k (the layers are compiled for the largest batch) halves small launches' hardware programs (PITON_PERSISTENT=0: 0.195 / 0.249 ms), and slot init/fini launches add ~20 us (PITON_STORE_SLOTS=0: 0.213 / 0.317). Fixes: once-per-boot slot setup (accepted), launch-time k (in progress) |
 | 2026-11-04 | profile | after C1 + A1 (+ sparse-store rule, once-per-boot setup) + C10 + E1 + H2 + D1: geometric mean 1.328x over the 23 cases against the 11-03 baseline (`pi-2026-11-04-d1once.json`): idiv 2.78x, softmax 1.89x, mandel 1.47-1.51x, copy/scaled_relu 1.48x, recip/rsqrt/sqrt 1.41-1.42x, fma 1.40x, add/mul 1.34x, exp/exp2 1.28-1.33x, dense_relu 1.27x, log/log2 1.19-1.21x, transpose 1.16x, matmul 1.04-1.07x; row_sum/row_max/compute_peak unchanged (their usual 141-146 us) |
+| 2026-11-04 | C7 | issue efficiency (`PITON_ISSUE`) on top of the 11-04 perf-loop: exp 1345 -> 1118 us (1.203x), exp2 1.149x, log 1443 -> 1144 (1.261x), log2 1.237x, recip 1.041x, rsqrt 1.043x, idiv 2814 -> 2521 (1.116x), softmax 478 -> 396 (1.207x), transpose 1.049x, mandel_32x16 1.017x; nothing below 0.984x (`ab-2026-11-04-issue.txt`; the JSON was lost when the machine restarted); host tests both ways (1079), test_hw 12/12. recip is coarsened by 4 with it (straight-line, 5.1 bytes per instruction): coarsening off vs on 0.997x, neutral |

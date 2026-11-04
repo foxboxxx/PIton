@@ -1,0 +1,32 @@
+perf/accept.py PITON_ISSUE --skip-host --target exp exp2 log log2 recip rsqrt sqrt scaled_relu softmax
+(on try/c7 75d202f; the run's JSON was in a temporary worktree the 12:02 restart removed, this is its printed table)
+hardware tests, PITON_ISSUE=1: 12 passed
+
+case              instr off/on   off_us    on_us  speedup
+copy                276/249        1110     1116   0.995x
+add                 367/333        1383     1368   1.011x
+mul                 364/332        1396     1417   0.985x
+fma                 379/312        1399     1381   1.013x
+scaled_relu         419/401        1119     1137   0.984x
+exp                 409/347        1345     1118   1.203x
+exp2                399/328        1306     1137   1.149x
+log                 436/344        1443     1144   1.261x
+log2                420/337        1407     1137   1.237x
+recip               372/414        1177     1131   1.041x
+rsqrt               371/312        1187     1138   1.043x
+sqrt                354/304        1163     1152   1.010x
+idiv                692/629        2814     2521   1.116x
+row_sum             203/187         142      140   1.014x
+row_max             205/188         146      145   1.007x
+transpose          1061/1021        786      749   1.049x
+softmax             532/483         478      396   1.207x
+matmul_8x64x4      1136/1124       4204     4232   0.993x
+matmul_8x64x8      1423/1383       3861     3844   1.004x
+dense_relu          573/549        3968     3964   1.001x
+mandel_32x16        493/487       28140    27665   1.017x
+mandel_16x16x2      480/478       27992    27989   1.000x
+compute_peak        150/148        1132     1131   1.001x
+
+verdict: ACCEPT (faster: exp 1.203x, exp2 1.149x, log 1.261x, log2 1.237x, recip 1.041x, rsqrt 1.043x, softmax 1.207x)
+
+recip, PITON_ISSUE=1, perf/ab.py PITON_PERSISTENT --off 0 --on 1: 399/414 instructions, 1127 -> 1130 us, 0.997x

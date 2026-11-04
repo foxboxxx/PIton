@@ -384,8 +384,8 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
                # =all: slots for every kernel
                "store_slots": os.environ.get("PITON_STORE_SLOTS", "1") not in ("", "0"),
                "store_slots_all": os.environ.get("PITON_STORE_SLOTS", "1") == "all",
-               # issue efficiency (presched.py flag groups, lower.py "Issue"); PITON_ISSUE=1: on
-               "issue": os.environ.get("PITON_ISSUE", "0") not in ("", "0")}
+               # issue efficiency (presched.py flag groups, lower.py "Issue"); PITON_ISSUE=0: off
+               "issue": os.environ.get("PITON_ISSUE", "1") not in ("", "0")}
     if os.environ.get("PITON_MANDEL_FAST", "1") not in ("", "0"):
         # `if tl.max(x) > c` branches on the lanes of x, and a loop guarded by
         # such an if exits when it fails (examples/mandelbrot.py)
