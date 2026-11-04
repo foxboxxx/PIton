@@ -575,3 +575,122 @@ def test_elementwise_reroll_keeps_scalar_memory_order(monkeypatch, mode, kernel,
     if kernel is load_then_scalar_store_kernel:
         assert (got["x_ptr"].reshape(rows, block)[:, 0] == -1.0).all()
     np.testing.assert_allclose(out, e, rtol=1e-6)
+
+
+# -- review: carried slots read by pipelined loads, and odd transposed tiles -------------
+
+
+@piton.jit
+def rot3_kernel(x_ptr, out_ptr, BLOCK: tl.constexpr):
+    offs = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    x = tl.load(x_ptr + offs)
+    m = tl.max(x, axis=0)
+    s = tl.sum(x - m, axis=0)
+    v = tl.sum((x - m) * (x - m) + s, axis=0)
+    tl.store(out_ptr + offs, x * v + s)
+
+
+def test_row_rotated_through_two_passes(monkeypatch):
+    """x is read by all four passes: the two middle ones rotate its slots fully."""
+    rows, block = 3, 256
+    x = rng.standard_normal((rows, block)).astype(np.float32)
+    values = {"x_ptr": x.ravel(), "out_ptr": np.zeros(rows * block, np.float32)}
+    ck, got = on_and_off(monkeypatch, rot3_kernel, {"x_ptr": "*fp32", "out_ptr": "*fp32"}, {"BLOCK": block},
+                         (rows,), values, icache=60)
+    assert ck.stats["rerolled"] and ck.stats["reroll_carry"] == 1 and ck.asm["ttir_opt"].count("scf.for") == 4
+    xd = x.astype(np.float64)
+    m = xd.max(1, keepdims=True)
+    s = (xd - m).sum(1, keepdims=True)
+    v = ((xd - m) ** 2 + s).sum(1, keepdims=True)
+    np.testing.assert_allclose(got["out_ptr"].reshape(rows, block), xd * v + s, rtol=1e-3, atol=1e-2)
+
+
+@piton.jit
+def slot_gather_kernel(idx_ptr, x_ptr, out_ptr, BLOCK: tl.constexpr):
+    offs = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    idx = tl.load(idx_ptr + offs)
+    k = tl.max(idx, axis=0)
+    v = tl.load(x_ptr + tl.minimum(idx, k))             # loaded in the second pass, through idx's slots
+    w = idx * 1000003 + 7                               # takes over idx's slots there: no valid index
+    s = tl.sum(v, axis=0) + tl.sum(w, axis=0).to(tl.float32)
+    tl.store(out_ptr + offs, w.to(tl.float32) + s)
+
+
+def test_prefetch_through_handed_over_slots(monkeypatch):
+    """The second pass's loads are prefetched through slot 0 of idx while w shifts
+    into its slots: the last prefetch must reuse the current chunk's addresses (an
+    out-of-range read would fault in the emulator)."""
+    rows, block = 2, 256
+    table = rng.standard_normal(300).astype(np.float32)
+    idx = rng.integers(0, 300, rows * block).astype(np.int32)
+    values = {"idx_ptr": idx, "x_ptr": table, "out_ptr": np.zeros(rows * block, np.float32)}
+    sig = {"idx_ptr": "*i32", "x_ptr": "*fp32", "out_ptr": "*fp32"}
+    ck, got = on_and_off(monkeypatch, slot_gather_kernel, sig, {"BLOCK": block}, (rows,), values, icache=60,
+                         off_fails=True)
+    assert ck.stats["rerolled"] and ck.stats["reroll_carry"] == 1
+    ii = idx.reshape(rows, block).astype(np.int64)
+    w = (ii * 1000003 + 7 + 2 ** 31) % 2 ** 32 - 2 ** 31
+    s = table[idx].reshape(rows, block).astype(np.float64).sum(1, keepdims=True) + \
+        ((w.sum(1, keepdims=True) + 2 ** 31) % 2 ** 32 - 2 ** 31)
+    np.testing.assert_allclose(got["out_ptr"].reshape(rows, block), w.astype(np.float32) + s, rtol=1e-5)
+
+
+def transposed_build(kernel, sig, cons, grid):
+    """The transposed-load build even where compile() keeps the unrolled one."""
+    fn = compiler._pyfn(kernel)
+    pid_max = tuple(g - 1 for g in grid) + (0,) * (3 - len(grid))
+    tile, prog, mf, lw, stats, asm = compiler._compile_tile(fn, sig, cons, kernel.__name__, pid_max,
+                                                            {"num_stages": 2, "store_mutex": True}, transposed=True)
+    return compiler.CompiledKernel(tile.name, prog, list(lw.uniforms), dict(sig), cons, asm, stats)
+
+
+@piton.jit
+def trans_dense_mask_kernel(x_ptr, m_ptr, out_ptr, n, BM: tl.constexpr, BN: tl.constexpr):
+    r = tl.arange(0, BM)[:, None]
+    c = tl.arange(0, BN)[None, :]
+    mask = ((tl.load(m_ptr + r * BN + c) > 0) | (r >= n)) & ~(c == 1)
+    t = tl.trans(tl.load(x_ptr + r * BN + c, mask=mask, other=float("nan")))
+    tl.store(out_ptr + tl.arange(0, BN)[:, None] * BM + tl.arange(0, BM)[None, :], t)
+
+
+@pytest.mark.parametrize("bm,bn", [(16, 16), (8, 4), (2, 8)])
+def test_transposed_load_of_a_loaded_mask(monkeypatch, bm, bn):
+    """A mask computed from loaded values (or-ed, negated): its registers are permuted."""
+    n = bm // 2
+    x = rng.standard_normal((bm, bn)).astype(np.float32)
+    mv = rng.integers(-1, 2, (bm, bn)).astype(np.int32)
+    values = {"x_ptr": x.ravel(), "m_ptr": mv.ravel(), "out_ptr": np.zeros(bm * bn, np.float32), "n": n}
+    sig = {"x_ptr": "*fp32", "m_ptr": "*i32", "out_ptr": "*fp32", "n": "i32"}
+    off = run(build(monkeypatch, trans_dense_mask_kernel, sig, {"BM": bm, "BN": bn}, (1,), None), (1,), values)
+    ck = transposed_build(trans_dense_mask_kernel, sig, {"BM": bm, "BN": bn}, (1,))
+    assert "load_operand" in ck.asm["ttir_opt"]
+    got = run(ck, (1,), values)
+    np.testing.assert_array_equal(bits(got["out_ptr"]), bits(off["out_ptr"]))
+    r, c = np.arange(bm)[:, None], np.arange(bn)[None, :]
+    want = np.where(((mv > 0) | (r >= n)) & (c != 1), x, np.nan).T
+    np.testing.assert_array_equal(got["out_ptr"].reshape(bn, bm), want)
+
+
+@piton.jit
+def trans_wide_stride_kernel(x_ptr, out_ptr, n_rows, n_cols, sx, BM: tl.constexpr, BN: tl.constexpr):
+    rows = tl.arange(0, BM)
+    cols = tl.arange(0, BN)
+    m = (rows[:, None] < n_rows) & (cols[None, :] < n_cols)
+    t = tl.trans(tl.load(x_ptr + rows[:, None] * sx + cols[None, :], mask=m, other=-7))
+    tl.store(out_ptr + cols[:, None] * BM + rows[None, :], t)
+
+
+def test_transposed_load_across_16_mb(monkeypatch):
+    """Rows 8.4 MB apart: the per-lane offsets of a transposed load exceed 24 bits."""
+    bm, bn, n_rows, n_cols, sx = 16, 16, 3, 13, 2_100_000
+    x = np.zeros(sx * (n_rows - 1) + bn, np.int32)
+    src = rng.integers(-100, 100, (n_rows, bn)).astype(np.int32)
+    for i in range(n_rows):
+        x[i * sx:i * sx + bn] = src[i]
+    values = {"x_ptr": x, "out_ptr": np.zeros(bm * bn, np.int32), "n_rows": n_rows, "n_cols": n_cols, "sx": sx}
+    sig = {"x_ptr": "*i32", "out_ptr": "*i32", "n_rows": "i32", "n_cols": "i32", "sx": "i32"}
+    ck, got = on_and_off(monkeypatch, trans_wide_stride_kernel, sig, {"BM": bm, "BN": bn}, (1,), values, icache=10)
+    assert "load_operand" in ck.asm["ttir_opt"]
+    want = np.full((bm, bn), -7, np.int32)
+    want[:n_rows, :n_cols] = src[:, :n_cols]
+    np.testing.assert_array_equal(got["out_ptr"].reshape(bn, bm), want.T)
