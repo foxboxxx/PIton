@@ -19,10 +19,28 @@ Ready operations are packed greedily into instructions: one add-unit op,
 one mul-unit op, one signal, subject to read ports / write swap (checked by
 actually encoding the candidate instruction) and the one-peripheral-access-
 per-instruction rule.
+
+Pairing (PITON_PAIR=1)
+----------------------
+The greedy packing fills the add ALU with the highest-priority op that
+fits, so a register move that could run on either ALU often takes the add
+ALU, and the add-only op ready in the same cycle waits for the next
+instruction; and an add-only op whose operands conflict on the read ports
+with every ready mul op leaves the mul ALU idle although a slightly lower
+op would pair. With the switch:
+  * a move on the add ALU steps over to the idle mul ALU (as `v8min x, x`,
+    bit-exact) when an add-only op needs the add ALU (Bundle.try_add);
+  * each block is also scheduled with priorities that favour the ALU with
+    more single-unit work left, and with a choice of the first op of each
+    instruction that fills both ALUs (among the top PAIR_FIRST ready ops),
+    and the shortest of these schedules is kept (the plain one on ties).
+Every schedule is built from the same dependence DAG and Bundle checks, so
+all latency and hazard rules hold for each.
 """
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from itertools import combinations
 from typing import Optional
@@ -40,6 +58,20 @@ LAT_VPM_READ = 4
 LAT_UNIF_ADDR = 3
 # Soft latency used only for priorities: keep TMU requests far from their reads.
 SOFT_TMU = 10
+# PITON_PAIR: ready ops tried as the first op of an instruction that would
+# otherwise leave an ALU idle
+PAIR_FIRST = 8
+# Destinations a register move may write from either ALU (the mul ALU spells
+# it `v8min x, x`). Not the write-only peripherals whose address differs
+# between the A and B write spaces, nor a discarded result: vc4asm assembles
+# a discarded move (a peripheral read) or a move of an immediate on the mul
+# ALU to other bits.
+_EITHER_DSTS = frozenset([isa.R5QUAD, isa.R5REP, isa.TMU0_S, isa.TMU1_S] + list(isa.SFU_REGS))
+
+
+def pair_enabled() -> bool:
+    """PITON_PAIR=1: the pairing schedules (module docstring); unset or 0: off."""
+    return os.environ.get("PITON_PAIR", "0") not in ("", "0")
 
 
 def _phys(x):
@@ -335,8 +367,22 @@ def _edge(a: Node, b: Node, lat: int):
 # ---------------------------------------------------------------------------
 
 
+def _either_move(n: Node) -> bool:
+    """Is n a single register move that may run on either ALU (PITON_PAIR)?"""
+    if n.minst.kind != "alu" or len(n.mops) != 1:
+        return False
+    op, aop = n.mops[0], n.alu_ops[0]
+    if op.unit != "any" or op.op != "mov" or op.setf or aop.rot is not None:
+        return False
+    if any(isinstance(s, Imm) for s in aop.srcs()):
+        return False
+    d = aop.dst
+    return d.waddr is not None and (d.waddr < 36 or d in _EITHER_DSTS)
+
+
 class Bundle:
-    def __init__(self):
+    def __init__(self, swap: bool = False):
+        self.swap = swap            # PITON_PAIR: a move may leave the add ALU for the mul ALU
         self.kind = "alu"
         self.add = None
         self.mul = None
@@ -406,6 +452,12 @@ class Bundle:
             return False
         # place ops on units
         saved = (self.add, self.mul, self.sig, self.setf, self.setf_unit)
+        if self.swap and self.mul is None and self.add is not None and len(n.mops) == 1 \
+                and n.mops[0].unit == "add":
+            # the move holding the add ALU steps over to the idle mul ALU
+            holder = [x for x in self.nodes if x.alu_ops and x.alu_ops[0] is self.add]
+            if holder and _either_move(holder[0]):
+                self.add, self.mul = None, self.add
         placement = []
         free_add, free_mul = self.add is None, self.mul is None
         for op, aop in zip(n.mops, n.alu_ops):
@@ -417,6 +469,7 @@ class Bundle:
             elif unit == "mul" and free_mul:
                 free_mul = False
             else:
+                self.add, self.mul = saved[:2]
                 return False
             placement.append((unit, op, aop))
         dsts = set()
@@ -426,6 +479,7 @@ class Bundle:
         for unit, op, aop in placement:
             key = (aop.dst.waddr, aop.dst.wfile if aop.dst.waddr is not None and aop.dst.waddr < 32 else "")
             if aop.dst != isa.NOP and key in dsts:
+                self.add, self.mul = saved[:2]
                 return False
             if aop.dst != isa.NOP:
                 dsts.add(key)
@@ -482,26 +536,97 @@ def schedule_block(minsts, terminator: Optional[MInst] = None, missed: Optional[
 
     missed: if given, collects (weight, [(unit, MOp)]) for every instruction
     left with an idle ALU that a ready operation could have filled but for
-    the encoding (register allocation reads these, regalloc.PortHints)."""
+    the encoding (register allocation reads these, regalloc.PortHints).
+    With PITON_PAIR the shortest of the PAIR_MODES schedules (module
+    docstring), the plain one first; `missed` describes the one kept."""
     nodes = build_dag(minsts)
+    if not pair_enabled():
+        return _list_schedule(nodes, missed, weight)
+    best = None
+    bound = _lower_bound(nodes)
+    for mode in PAIR_MODES:
+        local = [] if missed is not None else None
+        out = _list_schedule(nodes, local, weight, **mode)
+        if best is None or len(out) < len(best[0]):
+            best = (out, local)
+        if len(best[0]) <= bound:
+            break
+    if missed is not None:
+        missed.extend(best[1])
+    return best[0]
+
+
+# PITON_PAIR: the schedules schedule_block compares, in order of preference
+PAIR_MODES = ({}, {"swap": True}, {"swap": True, "balance": True}, {"swap": True, "first": PAIR_FIRST},
+              {"swap": True, "balance": True, "first": PAIR_FIRST})
+
+
+def _lower_bound(nodes) -> int:
+    """No schedule of the block is shorter: its critical path, and the ALU
+    ops, peripheral accesses and load immediates each instruction can hold."""
+    start = {}
+    add = mul = either = periph = full = 0
+    for n in nodes:
+        start[n.idx] = max((start[p.idx] + lat for p, lat in n.preds), default=0)
+        if n.minst.kind in ("ldi", "sem"):
+            full += 1
+            continue
+        for op in n.mops:
+            add += op.unit == "add"
+            mul += op.unit == "mul"
+            either += op.unit == "any"
+        periph += n.res.periph
+    alu = max(add, mul, -(-(add + mul + either) // 2), periph)
+    return max(max(start.values(), default=-1) + 1, full + alu)
+
+
+def _list_schedule(nodes, missed, weight, swap=False, balance=False, first=0):
+    """Cycle-by-cycle list schedule of build_dag's nodes (schedule_block).
+    swap: Bundle's move to the mul ALU; balance: an op for the ALU with more
+    single-unit ops left goes ahead of others of its priority; first: try up
+    to `first` ready ops as an instruction's first op when the greedy one
+    leaves an ALU idle, and keep the one that fills more ALUs (then the
+    higher priority sum)."""
+    for n in nodes:
+        n.cycle = None
     remaining = set(range(len(nodes)))
     earliest = {n.idx: 0 for n in nodes}
     npred = {n.idx: len(n.preds) for n in nodes}
     out = []
     cycle = 0
     ready = [n for n in nodes if not n.preds]
+    left = {"add": 0, "mul": 0}             # single-unit ops not yet scheduled (balance)
+    if balance:
+        for n in nodes:
+            if len(n.mops) == 1 and n.mops[0].unit in left:
+                left[n.mops[0].unit] += 1
+
+    def key(n):
+        if balance and len(n.mops) == 1:
+            u = n.mops[0].unit
+            if u in left and left[u] > left["mul" if u == "add" else "add"]:
+                return (-n.prio - 1, n.idx)
+        return (-n.prio, n.idx)
     while remaining:
-        bundle = Bundle()
+        bundle = Bundle(swap)
         progress = True
+        lead = None
+        if first:
+            lead = _pair_lead(ready, earliest, cycle, key, swap, first)
         while progress:
             progress = False
-            cands = sorted((n for n in ready if earliest[n.idx] <= cycle),
-                           key=lambda n: (-n.prio, n.idx))
+            cands = sorted((n for n in ready if earliest[n.idx] <= cycle), key=key)
+            if lead is not None:
+                cands.remove(lead)
+                cands.insert(0, lead)
+                lead = None
             for n in cands:
                 if bundle.try_add(n):
                     n.cycle = cycle
                     ready.remove(n)
                     remaining.discard(n.idx)
+                    if balance and len(n.mops) == 1 and n.mops[0].unit in left:
+                        left[n.mops[0].unit] -= 1
                     for s, lat in n.succs:
                         earliest[s.idx] = max(earliest[s.idx], cycle + lat)
                         npred[s.idx] -= 1
@@ -524,6 +649,29 @@ def schedule_block(minsts, terminator: Optional[MInst] = None, missed: Optional[
     while out and _is_nop(out[-1]):
         out.pop()
     return out
+
+
+def _pair_lead(ready, earliest, cycle, key, swap, first):
+    """The ready op an instruction should start with (_list_schedule's
+    `first`), or None for the highest-priority one."""
+    cands = sorted((n for n in ready if earliest[n.idx] <= cycle), key=key)
+    if len(cands) < 2:
+        return None
+    best = None
+    for lead in cands[:first]:
+        trial = Bundle(swap)
+        if not trial.try_add(lead):
+            continue
+        for n in cands[:2 * first]:
+            if n is not lead:
+                trial.try_add(n)
+        units = 2 if trial.kind != "alu" else (trial.add is not None) + (trial.mul is not None)
+        score = (units, sum(n.prio for n in trial.nodes))
+        if best is None or score > best[0]:
+            best = (score, lead)
+        if units == 2 and lead is cands[0]:
+            return None                     # the greedy instruction already fills both ALUs
+    return None if best is None or best[1] is cands[0] else best[1]
 
 
 def _is_nop(ins: Instr) -> bool:
