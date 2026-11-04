@@ -133,7 +133,8 @@ def test_suite_cases_without_large_stores(slots, name, monkeypatch):
     PITON_FAST_IDIV queues its stores, tests/test_fast_idiv.py) keep the private
     rows: no semaphores, nothing for the runtime to set up."""
     from perf.suite import CASES_BY_NAME, compile_case
-    monkeypatch.setenv("PITON_FAST_IDIV", "0")
+    if name == "idiv":
+        monkeypatch.setenv("PITON_FAST_IDIV", "0")
     ck, _ = compile_case(CASES_BY_NAME[name], "emu")
     assert "store_slots" not in ck.stats and not sems_in(ck) and slot_semaphores(ck.words) == ()
 
