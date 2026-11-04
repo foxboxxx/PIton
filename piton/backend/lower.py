@@ -62,6 +62,11 @@ def _f2u(x: float) -> int:
 _DIV_LAST = 0x40000000 - 4
 
 
+def fast_idiv_enabled() -> bool:
+    """PITON_FAST_IDIV: unset or "0" = branching division (the default)."""
+    return os.environ.get("PITON_FAST_IDIV", "0") != "0"
+
+
 def _recip_down(b: int) -> float:
     """Largest float32 r with r * b <= 1 (b >= 1)."""
     r = np.float32(1.0 / b)
@@ -282,7 +287,8 @@ class Lowering:
         self.divcache = {}
         # PITON_FAST_IDIV=1: branch-free division (_udivmod_fast), // and % of the
         # same operands share one division within a region (div_epoch)
-        self.fast_idiv = os.environ.get("PITON_FAST_IDIV", "0") != "0"
+        # (options["fast_idiv"] = False: compiler.compile's fallback when it runs out of registers)
+        self.fast_idiv = options.get("fast_idiv", fast_idiv_enabled())
         self.div_epoch = 0
         self.in_pipelined_body = False
         self.use_counts = {}

@@ -12,6 +12,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "examples"))
 import piton  # noqa: E402
+import piton.compiler  # noqa: E402,F401  (piton.compiler.compile below)
 import piton.language as tl  # noqa: E402
 from piton.backend import lower  # noqa: E402
 from piton.qpu.emulator import alu_add, alu_mul  # noqa: E402
@@ -464,7 +465,45 @@ def test_division_across_regions(fast, n):
     np.testing.assert_array_equal(o.view(np.uint32), want)
 
 
-KERNELS = [divmod_k, ranged_k, by_scalar_k, by_const_k, scalar_k, regions_k]
+@piton.jit
+def index_split_k(o_ptr, n, N, BM: tl.constexpr, BN: tl.constexpr):
+    offs = tl.program_id(0) * BM * BN + tl.arange(0, BM)[:, None] * BN + tl.arange(0, BN)[None, :]
+    tl.store(o_ptr + offs, (offs // N) * 3 + offs % N, mask=offs < n)
+
+
+@piton.jit
+def bcast_divmod_k(x_ptr, y_ptr, o_ptr, BM: tl.constexpr, BN: tl.constexpr):
+    rm = tl.arange(0, BM)
+    rn = tl.arange(0, BN)
+    x = tl.load(x_ptr + rm)
+    y = tl.load(y_ptr + rn)
+    tl.store(o_ptr + rm[:, None] * BN + rn[None, :], x[:, None] // y[None, :] + x[:, None] % y[None, :])
+
+
+def test_register_pressure_falls_back(fast):
+    """Tiles that fit the registers only with the branching division (the
+    straight-line one keeps the tile's operands, both results and the block's
+    cached lane offsets live at once) compile with it instead of failing:
+    offs // N and offs % N of a 16x16 tile, a broadcast 8x32 x // y + x % y."""
+    n, N = 2 * 256 - 5, 37
+    o = np.zeros(2 * 256, np.int32)
+    ck = index_split_k[(2,)](o, n, N, BM=16, BN=16)
+    assert ck.stats.get("fast_idiv_fallback") == 1
+    offs = np.arange(n)
+    np.testing.assert_array_equal(o[:n], offs // N * 3 + offs % N)
+    assert (o[n:] == 0).all()
+    x = rng.integers(-2 ** 31, 2 ** 31, 8).astype(np.int32)
+    y = (rng.integers(1, 2 ** 31, 32) >> rng.integers(0, 31, 32)).astype(np.int32) * rng.choice([-1, 1], 32)
+    y = np.where(y == 0, 7, y).astype(np.int32)
+    o = np.zeros(8 * 32, np.int32)
+    ck = bcast_divmod_k[(1,)](x, y, o, BM=8, BN=32)
+    assert ck.stats.get("fast_idiv_fallback") == 1
+    X, Y = (g.ravel() for g in np.meshgrid(x, y, indexing="ij"))
+    q, r = _ref(X, Y, True)
+    np.testing.assert_array_equal(o.view(np.uint32), q + r)
+
+
+KERNELS = [divmod_k, ranged_k, by_scalar_k, by_const_k, scalar_k, regions_k, index_split_k, bcast_divmod_k]
 IDIV_SIG = {"x_ptr": "*i32", "y_ptr": "*i32", "q_ptr": "*i32", "r_ptr": "*i32", "n": "i32"}
 
 
@@ -473,6 +512,7 @@ def test_quotient_and_remainder_share_one_division(fast):
     ck = piton.compiler.compile(idiv_kernel, IDIV_SIG, {"BLOCK": 64})
     words = ck.asm["qasm"]
     assert words.count("ftoi") == 2 * 4 and "div_full" not in words
+    assert "fast_idiv_fallback" not in ck.stats
 
 
 def test_switch_defaults_off(monkeypatch):

@@ -9,7 +9,7 @@ from typing import Optional
 
 from . import frontend, ir, passes, reroll
 from .backend import opt, presched
-from .backend.lower import Lowering
+from .backend.lower import Lowering, fast_idiv_enabled
 from .backend.regalloc import RegAllocError, allocate
 from .backend.sched import schedule_function
 from .qpu.asm import Program
@@ -128,6 +128,31 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
         g = tuple(grid) if isinstance(grid, (tuple, list)) else (grid,)
         pid_max = tuple(max(1, int(x)) - 1 for x in g) + (0,) * (3 - len(g))
     options = {"num_stages": num_stages, "store_mutex": store_mutex}
+    try:
+        tile, prog, lw, stats, asm = _compile_program(fn, signature, constants, name, pid_max, options)
+    except RegAllocError:
+        # PITON_FAST_IDIV: the straight-line division keeps a whole tile's operands,
+        # both results and the block's cached lane offsets and constants live at
+        # once; a tile that only fits the registers with the branching division
+        # (e.g. offs // N and offs % N of a 16x16 tile) gets that one
+        if not fast_idiv_enabled():
+            raise
+        tile, prog, lw, stats, asm = _compile_program(fn, signature, constants, name, pid_max,
+                                                      dict(options, fast_idiv=False))
+        stats["fast_idiv_fallback"] = 1
+    prog.header = [f"{tile.name}: compiled by PIton (Triton -> VideoCore IV QPU)",
+                   "uniforms: " + ", ".join(n for _, n in lw.uniforms),
+                   "constants: " + ", ".join(f"{k}={v}" for k, v in constants.items())]
+    asm["qasm"] = prog.qasm()
+    stats["instructions"] = len(prog.instrs)
+    ck = CompiledKernel(tile.name, prog, list(lw.uniforms), dict(signature), constants, asm, stats)
+    if verify:
+        prog.words()     # every instruction must encode
+    return ck
+
+
+def _compile_program(fn, signature, constants, name, pid_max, options):
+    """compile() up to the scheduled program: straight-line, else rerolled."""
     use_reroll = os.environ.get("PITON_REROLL", "1") != "0"
     sub = reroll.SUB
     try:
@@ -149,12 +174,4 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
             break
         tile, prog, mf, lw, stats, asm = rerolled
         sub //= 2
-    prog.header = [f"{tile.name}: compiled by PIton (Triton -> VideoCore IV QPU)",
-                   "uniforms: " + ", ".join(n for _, n in lw.uniforms),
-                   "constants: " + ", ".join(f"{k}={v}" for k, v in constants.items())]
-    asm["qasm"] = prog.qasm()
-    stats["instructions"] = len(prog.instrs)
-    ck = CompiledKernel(tile.name, prog, list(lw.uniforms), dict(signature), constants, asm, stats)
-    if verify:
-        prog.words()     # every instruction must encode
-    return ck
+    return tile, prog, lw, stats, asm
