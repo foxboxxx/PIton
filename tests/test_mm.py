@@ -112,6 +112,26 @@ def _a_mask_carried(a_ptr, b_ptr, out_ptr, k, BM: tl.constexpr, BN: tl.constexpr
     tl.store(out_ptr + m * BN + n, acc)
 
 
+@piton.jit
+def _two_dot_loops(a_ptr, b_ptr, out_ptr, M, n1, n2, K: tl.constexpr, BM: tl.constexpr, BN: tl.constexpr,
+                   BK: tl.constexpr):
+    # both loops' A pointers share one dense part (rows `% M`, hoisted)
+    rows = tl.arange(0, BM) % M
+    n = tl.arange(0, BN)[None, :]
+    ak = tl.arange(0, BK)[None, :]
+    bk = tl.arange(0, BK)[:, None]
+    acc = tl.zeros((BM, BN), tl.float32)
+    for i in range(n1):
+        a = tl.load(a_ptr + rows[:, None] * K + i * BK + ak)
+        b = tl.load(b_ptr + (i * BK + bk) * BN + n)
+        acc = tl.dot(a, b, acc)
+    for i in range(n2):
+        a = tl.load(a_ptr + rows[:, None] * K + i * BK + ak)
+        b = tl.load(b_ptr + (i * BK + bk) * BN + n)
+        acc = tl.dot(a, b, acc)
+    tl.store(out_ptr + tl.arange(0, BM)[:, None] * BN + n, acc)
+
+
 MATMUL_SIG = {"a_ptr": "*fp32", "b_ptr": "*fp32", "c_ptr": "*fp32", "M": "i32", "N": "i32",
               "stride_am": "i32", "stride_bk": "i32", "stride_cm": "i32"}
 
@@ -452,3 +472,24 @@ def test_a_view_that_changes_in_the_loop_falls_back(monkeypatch, kernel, bm, bn,
     out, ck = _off_and_on(monkeypatch, "1", kernel, sig, cons, (1,), values, ["out_ptr"])
     np.testing.assert_array_equal(out["out_ptr"], a @ b)
     assert ck.stats["mm_fallback"] == 1 and not ck.stats.get("mm_dots")
+
+
+@pytest.mark.parametrize("bm,bn,bk", [(8, 32, 8), (16, 16, 4)])
+@pytest.mark.parametrize("n1,n2", [(0, 2), (1, 2)])
+def test_two_loops_share_a_dense_part(monkeypatch, bm, bn, bk, n1, n2):
+    """Each loop permutes A's dense pointer part in its own preheader: the
+    second loop used the first one's, which a zero-trip first loop never
+    computed (wrong rows in the strict emulator, wild addresses on the Pi)."""
+    k, mrows = 2 * bk, bm - 3
+    rng = np.random.default_rng(190 + bm + n1)
+    a = rng.integers(-3, 4, (mrows, k)).astype(np.float32)
+    b = rng.integers(-3, 4, (k, bn)).astype(np.float32)
+    rows = np.arange(bm) % mrows
+    ref = sum(a[rows, i * bk:(i + 1) * bk] @ b[i * bk:(i + 1) * bk] for i in range(n1)) \
+        + sum(a[rows, i * bk:(i + 1) * bk] @ b[i * bk:(i + 1) * bk] for i in range(n2))
+    sig = {"a_ptr": "*fp32", "b_ptr": "*fp32", "out_ptr": "*fp32", "M": "i32", "n1": "i32", "n2": "i32"}
+    values = dict(a_ptr=a, b_ptr=b, out_ptr=np.full((bm, bn), np.nan, np.float32), M=mrows, n1=n1, n2=n2)
+    out, ck = _off_and_on(monkeypatch, "1", _two_dot_loops, sig, dict(K=k, BM=bm, BN=bn, BK=bk), (1,), values,
+                          ["out_ptr"])
+    np.testing.assert_array_equal(out["out_ptr"], ref)
+    assert ck.stats["mm_dots"] == 2 and ck.stats["mm_a_blocks"] == 2

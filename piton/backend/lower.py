@@ -328,11 +328,9 @@ class Lowering:
         self.div_epoch = 0
         self.in_pipelined_body = False
         self.exit_ifs = {}           # scf.if -> exit label of the loop it guards (fast_branches)
-        # PITON_MM (compiler._mm_options): parts on, tt.dot -> its MMPlan, and the
-        # column-block views of A pointers' dense parts (by their registers)
+        # PITON_MM (compiler._mm_options): parts on, tt.dot -> its MMPlan
         self.mm = options.get("mm") or frozenset()
         self.mm_plans = {}
-        self.mm_tdense = {}
         self.use_counts = {}
         for o in fn.walk():
             for v in o.operands:
@@ -3701,13 +3699,14 @@ class Lowering:
             return None             # (op_tt_dot caches two A registers and reloads the rest)
         return MMPlan(dot, la, lb, M, K, N // LANES, w)
 
-    def mm_view_a(self, x, shape, w):
+    def mm_view_a(self, x, shape, w, tdense):
         """A dot's A operand (M, K) pointer or mask as the (K / w, M, w) tile
         of its w-column blocks (MMPlan.w): register r holds A[:, w r : w r + w]
         row-major.  Emits nothing (LoopStream._emitter checked _mm_view_ok,
-        and _mm_prepare permuted the pointer's dense part)."""
+        and _mm_prepare permuted the pointer's dense part into `tdense`, the
+        loop's own: its preheader dominates no other loop)."""
         if isinstance(x, Affine) and x.dense is not None \
-                and tuple(id(r) for r in x.dense.regs) not in self.mm_tdense:
+                and tuple(id(r) for r in x.dense.regs) not in tdense:
             # e.g. a dense part that depends on the loop variable: its view
             # would cost a permutation in every iteration
             raise MMUnsupported("PITON_MM: A pointer's dense part differs from the prologue's")
@@ -3718,11 +3717,12 @@ class Lowering:
                 return Pred("const", vshape, x.value)
             if x.kind == "cmp":
                 pred, a, b, f = x.value
-                return Pred("cmp", vshape, (pred, self.mm_view_a(a, shape, w), self.mm_view_a(b, shape, w), f),
+                return Pred("cmp", vshape, (pred, self.mm_view_a(a, shape, w, tdense),
+                                            self.mm_view_a(b, shape, w, tdense), f),
                             wide=x.wide)
-            return Pred(x.kind, vshape, None, [self.mm_view_a(a, shape, w) for a in x.args])
+            return Pred(x.kind, vshape, None, [self.mm_view_a(a, shape, w, tdense) for a in x.args])
         if isinstance(x, Affine):
-            dense = None if x.dense is None else self.mm_tdense[tuple(id(r) for r in x.dense.regs)]
+            dense = None if x.dense is None else tdense[tuple(id(r) for r in x.dense.regs)]
             c0, c1 = x.coeffs
             return Affine(vshape, x.dtype, x.base, [C(_wrap(c1.const * w)) if w > 1 else c1, c0, c1], dense)
         return Splat(vshape, getattr(x, "dtype", None), x if isinstance(x, S) else x.s)
@@ -4491,6 +4491,9 @@ class LoopStream:
         if self.plan is not None:
             self.entries = self.plan.entries()
         self.rows = {}              # PITON_MM=rp: B base register id -> (row, its row pointer)
+        # PITON_MM=at: column-block views of A's pointer dense part (by its registers),
+        # permuted in this loop's preheader
+        self.tdense = {}
         self.E = len(self.entries)
         self.n0 = min(self.E, 2 * TMU_DEPTH)
         self.dense = {}
@@ -4531,8 +4534,8 @@ class LoopStream:
                 # (or the next iteration's) can take another form, e.g. a
                 # loop-carried mask, dense here, is a compare there
                 raise MMUnsupported("PITON_MM: A pointer or mask has no column-block view here")
-            ptr = lw.mm_view_a(ptr, ld.result.shape, self.plan.w)
-            mask = None if mask is None else lw.mm_view_a(mask, ld.result.shape, self.plan.w)
+            ptr = lw.mm_view_a(ptr, ld.result.shape, self.plan.w, self.tdense)
+            mask = None if mask is None else lw.mm_view_a(mask, ld.result.shape, self.plan.w, self.tdense)
         if self.plan is not None and "rp" in lw.mm and ld is self.plan.b_load and mask is None:
             emit = self._mm_row_emitter(ptr, j)
             if emit is not None:
@@ -4592,11 +4595,11 @@ class LoopStream:
             if _mm_a_view_ok(ptr, mask, plan.w):
                 if ptr.dense is not None:
                     key = tuple(id(r) for r in ptr.dense.regs)
-                    if key not in lw.mm_tdense:
+                    if key not in self.tdense:
                         m, k, w = plan.M, plan.K, plan.w
-                        lw.mm_tdense[key] = lw.permute_dense(ptr.dense, (k // w, m, w),
-                                                             [i * k + t * w + j for t in range(k // w)
-                                                              for i in range(m) for j in range(w)])
+                        self.tdense[key] = lw.permute_dense(ptr.dense, (k // w, m, w),
+                                                            [i * k + t * w + j for t in range(k // w)
+                                                             for i in range(m) for j in range(w)])
             elif nregs(ld.result.shape) <= 2:
                 plan = MMPlan(plan.dot, plan.a_load, plan.b_load, plan.M, plan.K, plan.NV, 0)
             else:
