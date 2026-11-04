@@ -466,3 +466,122 @@ def test_cse_leaves_no_repeats(monkeypatch):
               "y_ptr": np.resize(specials()[::-1].copy(), n).view(np.float32),
               "out_ptr": np.zeros(n, np.float32), "n": n}
     both_ways(monkeypatch, div_kernel, sig, {"BLOCK": 64}, 64, values, n)
+
+
+# -- loops, 2-D tiles, integer views ---------------------------------------------------
+
+def same_bits(monkeypatch, kernel, sig, cons, grid, runs, out="out_ptr"):
+    """Both builds on every argument set of `runs`, bit for bit; returns the on build."""
+    off = build(monkeypatch, False, kernel, sig, cons, grid)
+    on = build(monkeypatch, True, kernel, sig, cons, grid)
+    for values in runs:
+        a, b = run_bits(off, grid, values, out), run_bits(on, grid, values, out)
+        bad = np.flatnonzero(a != b)
+        assert bad.size == 0, (f"{bad.size} outputs differ, first at {bad[0]}: "
+                               f"0x{a[bad[0]]:08x} (off) != 0x{b[bad[0]]:08x} (on)")
+    return on
+
+
+@piton.jit
+def loop_kernel(x_ptr, out_ptr, n, LB: tl.constexpr, UB: tl.constexpr, PID_LB: tl.constexpr,
+                BLOCK: tl.constexpr):
+    pid = tl.program_id(0)
+    acc = tl.zeros((BLOCK,), dtype=tl.float32)
+    for k in range(pid if PID_LB else LB, UB):
+        offs = k * BLOCK + tl.arange(0, BLOCK)
+        m = offs < n
+        x = tl.load(x_ptr + offs, mask=m, other=1.0)
+        acc += tl.exp(x * 0.01) + 1.0 / x
+    tl.store(out_ptr + pid * BLOCK + tl.arange(0, BLOCK), acc)
+
+
+@pytest.mark.parametrize("pid_lb", [0, 1])
+def test_loop_prefetch_index(monkeypatch, pid_lb):
+    """lower.py LoopStream (PITON_ISSUE): the prefetch index min(iv + 1, ub - 1)
+    of a pipelined loop with a constant bound, with masks against a runtime n
+    (loop_lanes candidates), ragged and empty data and zero-trip loops."""
+    sig = {"x_ptr": "*fp32", "out_ptr": "*fp32", "n": "i32"}
+    UB, BLOCK = 6, 64
+    cons = {"LB": 0, "UB": UB, "PID_LB": pid_lb, "BLOCK": BLOCK}
+    grid = (8,)                     # programs 6 and 7 skip the loop with PID_LB
+    x = rng.uniform(0.5, 2, UB * BLOCK).astype(np.float32)
+    runs = [{"x_ptr": x, "out_ptr": np.zeros(grid[0] * BLOCK, np.float32), "n": n}
+            for n in (UB * BLOCK, UB * BLOCK - 5, 3 * BLOCK + 1, 0)]
+    on = same_bits(monkeypatch, loop_kernel, sig, cons, grid, runs)
+    mir = [line.split() for line in on.asm["mir"].splitlines() if line.strip()]
+    assert any(w[0] == "min" and w[1].startswith("%ivp") for w in mir)
+
+
+@piton.jit
+def carried_div_kernel(x_ptr, s_ptr, out_ptr, n, ITERS: tl.constexpr, BLOCK: tl.constexpr):
+    offs = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    m = offs < n
+    x = tl.load(x_ptr + offs, mask=m, other=0.0)
+    s = tl.load(s_ptr)
+    acc = tl.zeros((BLOCK,), dtype=tl.float32)
+    for i in range(ITERS):
+        acc += x / s
+        s = s * 3.0 - 1.0
+        acc += (x + 1.0) / s
+    tl.store(out_ptr + offs, acc, mask=m)
+
+
+def test_loop_carried_uniform_denominator(monkeypatch):
+    """lower.py fdiv_uniform: the reciprocal and limits are per block and per
+    register, so a loop-carried scalar divisor that changes every iteration
+    (and within one) keeps its bits."""
+    sig = {"x_ptr": "*fp32", "s_ptr": "*fp32", "out_ptr": "*fp32", "n": "i32"}
+    n = 64 * 3 - 5
+    runs = [{"x_ptr": np.resize(specials(), n).view(np.float32), "s_ptr": np.array([s0], np.float32),
+             "out_ptr": np.zeros(n + 64, np.float32), "n": n} for s0 in (0.75, 0.0, -1e-40, float("inf"))]
+    same_bits(monkeypatch, carried_div_kernel, sig, {"ITERS": 3, "BLOCK": 64}, (3,), runs)
+
+
+@piton.jit
+def tile2d_kernel(x_ptr, out_ptr, M, N, stride, OP: tl.constexpr, BM: tl.constexpr, BN: tl.constexpr):
+    rm = tl.program_id(0) * BM + tl.arange(0, BM)
+    rn = tl.arange(0, BN)
+    m = (rm[:, None] < M) & (rn[None, :] < N)
+    x = tl.load(x_ptr + rm[:, None] * stride + rn[None, :], mask=m, other=-1.0)
+    if OP == 0:
+        y = x / tl.sum(tl.where(m, x, 0.0), axis=1)[:, None]
+    else:
+        y = tl.where(rn[None, :] >= N - 3, x, 2.0 / x)
+    tl.store(out_ptr + rm[:, None] * stride + rn[None, :], y, mask=m)
+
+
+@pytest.mark.parametrize("op", [0, 1])
+def test_tile2d_bits(monkeypatch, op):
+    """Row and column masks of a 2-D tile, a per-row denominator and lane
+    compares against N - 3."""
+    sig = {"x_ptr": "*fp32", "out_ptr": "*fp32", "M": "i32", "N": "i32", "stride": "i32"}
+    stride = 70
+    x = rng.uniform(-3, 3, 16 * stride + 64).astype(np.float32)
+    x[::11] = np.resize(specials(), x[::11].size).view(np.float32)
+    runs = [{"x_ptr": x, "out_ptr": np.zeros(16 * stride + 64, np.float32), "M": M, "N": N, "stride": stride}
+            for M, N in ((13, 64), (5, 17))]
+    same_bits(monkeypatch, tile2d_kernel, sig, {"OP": op, "BM": 4, "BN": 64}, (4,), runs)
+
+
+@piton.jit
+def int_view_kernel(x_ptr, out_ptr, n, MODE: tl.constexpr, BLOCK: tl.constexpr):
+    offs = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    m = offs < n
+    x = tl.load(x_ptr + offs, mask=m, other=1.0)
+    if MODE == 0:
+        q = (1 << 30) // x.to(tl.int32, bitcast=True)
+    else:
+        q = 1000 % x.to(tl.int32)
+    tl.store(out_ptr + offs, q.to(tl.float32), mask=m)
+
+
+@pytest.mark.parametrize("mode", [0, 1])
+def test_drop_dead_other_through_int_views(monkeypatch, mode):
+    """passes.drop_dead_other follows bitcasts and conversions to integers:
+    masked lanes then divide by 0 (garbage in lanes the store skips, no hang)."""
+    sig = {"x_ptr": "*fp32", "out_ptr": "*fp32", "n": "i32"}
+    tile = frontend.generate(int_view_kernel.fn, sig, {"MODE": mode, "BLOCK": 64}, name=None)
+    assert passes.drop_dead_other(tile) == 1
+    n = 4 * 64 - 13
+    values = {"x_ptr": rng.uniform(1, 50, n).astype(np.float32), "out_ptr": np.zeros(n + 64, np.float32), "n": n}
+    same_bits(monkeypatch, int_view_kernel, sig, {"MODE": mode, "BLOCK": 64}, ((n + 63) // 64,), [values])
