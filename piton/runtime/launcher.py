@@ -64,7 +64,9 @@ def bind(fn, args, kwargs, do_not_specialize=()):
 
 def uniforms_for(ck: CompiledKernel, values: dict, addrs: dict, pid, grid, zero_addr, scratch_addr,
                  self_addr=0, coarsen=None):
-    """coarsen: the launch's ids per hardware program (default launch_coarsen)."""
+    """The uniform words of hardware program `pid` of a launch on `grid` (the
+    logical grid); coarsen: the launch's ids per hardware program (uniform
+    coarsen0; default launch_coarsen)."""
     out = []
     for kind, name in ck.uniforms:
         if kind == "arg":
@@ -94,12 +96,12 @@ def uniforms_for(ck: CompiledKernel, values: dict, addrs: dict, pid, grid, zero_
 
 def launch_coarsen(ck: CompiledKernel, grid) -> int:
     """Program ids per hardware program along axis 0 for a launch of `ck` on
-    `grid`: ck.coarsen, unless the program reads it from uniform coarsen0
-    (PITON_COARSEN_RUNTIME, ck.coarsen_launch): then, as compiler._coarsening
-    chooses for a known grid, ck.coarsen for at least COARSEN_MIN_GRID launched
-    programs, halved until COARSEN_MIN_PROGRAMS hardware programs remain, and
-    1 (the plain program's ids) for smaller launches. A forced factor runs for
-    every launch."""
+    `grid`: ck.coarsen, unless each launch chooses them (PITON_COARSEN_RUNTIME,
+    ck.coarsen_launch; the program reads them from uniform coarsen0): then, as
+    compiler._coarsening chooses for a known grid, ck.coarsen for at least
+    COARSEN_MIN_GRID launched programs, halved until COARSEN_MIN_PROGRAMS
+    hardware programs remain, and 1 (the plain program's ids, one hardware
+    program each) for smaller launches."""
     if ck.coarsen_launch is None:
         return ck.coarsen
     min_grid, min_programs = ck.coarsen_launch
@@ -154,8 +156,9 @@ def semaphore_programs(sems) -> tuple:
 
 def run_emulator(ck: CompiledKernel, grid, values: dict, num_qpus: int = 12, strict: bool = True,
                  v3d: Optional[V3D] = None, coarsen: Optional[int] = None):
-    """coarsen: ids per hardware program for a kernel that reads it from a
-    uniform (PITON_COARSEN_RUNTIME; default launch_coarsen)."""
+    """coarsen: ids per hardware program, 1 ... ck.coarsen, for a kernel that
+    reads them from uniform coarsen0 (PITON_COARSEN_RUNTIME; default
+    launch_coarsen)."""
     v = v3d or V3D(num_qpus=num_qpus, strict=strict)
     words = ck.words
     sems = slot_semaphores(words)
@@ -168,6 +171,8 @@ def run_emulator(ck: CompiledKernel, grid, values: dict, num_qpus: int = 12, str
     scratch = v.mem.alloc(64, 64)
     unifs = []
     k = launch_coarsen(ck, grid) if coarsen is None else coarsen
+    if k != ck.coarsen and not (("coarsen", "coarsen0") in ck.uniforms and 1 <= k <= ck.coarsen):
+        raise ValueError(f"{ck.name} runs {ck.coarsen} program ids per hardware program, not {k}")
     for pid, g in program_ids(grid, k):
         a = v.mem.alloc(4 * max(len(ck.uniforms), 1), 16)
         u = uniforms_for(ck, values, addrs, pid, g, zero, scratch, a, k)

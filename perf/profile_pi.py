@@ -30,7 +30,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from perf.suite import CASES, CASES_BY_NAME, compile_case, default_check  # noqa: E402
 from piton.qpu.isa import f2u  # noqa: E402
-from piton.runtime.launcher import program_ids  # noqa: E402
+from piton.runtime.launcher import launch_coarsen, program_ids  # noqa: E402
 from piton.runtime.pi import Buffer, PiRunner  # noqa: E402
 
 RESULTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
@@ -68,7 +68,8 @@ def run_case(case, repeats: int, runner: PiRunner, compiled=None) -> dict:
     buffers = [buffer_for(n, run.inputs.specs[n]) for n in run.inputs.specs]
     buffers += [Buffer("__zero", 64), Buffer("__scratch", 64)]
     programs = []
-    for pid, g in program_ids(run.grid, ck.coarsen):
+    k = launch_coarsen(ck, run.grid)
+    for pid, g in program_ids(run.grid, k):
         u = []
         for kind, name in ck.uniforms:
             if kind == "arg":
@@ -83,6 +84,8 @@ def run_case(case, repeats: int, runner: PiRunner, compiled=None) -> dict:
                 u.append(pid[int(name[3:])])
             elif kind == "nprog":
                 u.append(g[int(name[5:])])
+            elif kind == "coarsen":
+                u.append(k)
             elif kind in ("zero", "scratch"):
                 u.append(("buf", f"__{kind}", 0))
             elif kind == "self":

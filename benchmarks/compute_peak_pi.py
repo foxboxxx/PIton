@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import piton as triton
 import piton.language as tl
 from piton import compiler
-from piton.runtime.launcher import program_ids
+from piton.runtime.launcher import launch_coarsen, program_ids
 from piton.runtime.pi import Buffer, PiRunner
 
 
@@ -66,7 +66,8 @@ def run(iterations=8192, unroll=64, repeats=5, compile_only=False):
                Buffer("out", x.nbytes, init=np.full(x.size, 0x7fc00000, dtype=np.uint32)),
                Buffer("zero", 64), Buffer("scratch", 64)]
     programs = []
-    for pid, grid in program_ids((12,), ck.coarsen):
+    k = launch_coarsen(ck, (12,))
+    for pid, grid in program_ids((12,), k):
         uniforms = []
         for kind, name in ck.uniforms:
             if kind == "arg":
@@ -75,6 +76,8 @@ def run(iterations=8192, unroll=64, repeats=5, compile_only=False):
                 uniforms.append(pid[int(name[3:])])
             elif kind == "nprog":
                 uniforms.append(grid[int(name[5:])])
+            elif kind == "coarsen":
+                uniforms.append(k)
             elif kind in ("zero", "scratch"):
                 uniforms.append(("buf", kind, 0))
             elif kind == "self":

@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "examples"))
 import piton  # noqa: E402
 import piton.compiler as pc  # noqa: E402
-from piton.runtime.launcher import program_ids  # noqa: E402
+from piton.runtime.launcher import launch_coarsen, program_ids  # noqa: E402
 from piton.runtime.pi import Buffer, PiRunner, lcg_floats  # noqa: E402
 from packed_matmul import matmul_packed_b_kernel  # noqa: E402
 
@@ -40,7 +40,8 @@ def bench(n, bm=8, bn=64, bk=8, group=4, stages=2, repeats=3, sample_stride=97,
     grid = (piton.cdiv(n, bm) * piton.cdiv(n, bn),)
     ck = pc.compile(matmul_packed_b_kernel, sig, cons, num_stages=stages, grid=grid)
     programs = []
-    for pid, g in program_ids(grid, ck.coarsen):
+    k = launch_coarsen(ck, grid)
+    for pid, g in program_ids(grid, k):
         uniforms = []
         for kind, name in ck.uniforms:
             if kind == "arg":
@@ -50,6 +51,8 @@ def bench(n, bm=8, bn=64, bk=8, group=4, stages=2, repeats=3, sample_stride=97,
                 uniforms.append(pid[int(name[3:])])
             elif kind == "nprog":
                 uniforms.append(g[int(name[5:])])
+            elif kind == "coarsen":
+                uniforms.append(k)
             elif kind == "zero":
                 uniforms.append(("buf", "__zero", 0))
             elif kind == "scratch":

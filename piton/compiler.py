@@ -30,12 +30,11 @@ class CompiledKernel:
     # launch ceil(grid[0] / coarsen) programs; uniform "pid0" is the hardware
     # program's index, "nprog0" the logical grid
     coarsen: int = 1
-    # PITON_COARSEN_RUNTIME: `coarsen` is the most ids per hardware program;
-    # each launch chooses its factor (runtime/launcher.py launch_coarsen) and
-    # passes it as uniform "coarsen0": (fewest launched programs, fewest
-    # hardware programs) for which it uses `coarsen` ids, as _coarsening
-    # chooses for a known grid; (0, 0) for a forced factor (every launch).
-    # None: `coarsen` is fixed at compile time.
+    # PITON_COARSEN_RUNTIME: the program reads its ids per hardware program
+    # from uniform "coarsen0" (1 ... coarsen), and each launch chooses them
+    # (runtime/launcher.py launch_coarsen): (COARSEN_MIN_GRID,
+    # COARSEN_MIN_PROGRAMS) as _coarsening applies them to a known grid. None:
+    # every launch runs `coarsen` ids (compile-time or forced factor).
     coarsen_launch: Optional[tuple] = None
 
     @property
@@ -383,10 +382,9 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
                    "uniforms: " + ", ".join(n for _, n in lw.uniforms),
                    "constants: " + ", ".join(f"{k}={v}" for k, v in constants.items())]
     launch = None
-    if coarsen > 1 and options.get("coarsen_runtime"):
-        # a forced factor (PITON_PERSISTENT=k, already checked) runs k ids for every launch
-        launch = (0, 0) if int(os.environ.get("PITON_PERSISTENT", "1")) >= 2 else \
-            (COARSEN_MIN_GRID, COARSEN_MIN_PROGRAMS)
+    if coarsen > 1 and options.get("coarsen_runtime") and int(os.environ.get("PITON_PERSISTENT", "1")) < 2:
+        # (a forced factor, PITON_PERSISTENT=k checked by _coarsening, runs k ids in every launch)
+        launch = (COARSEN_MIN_GRID, COARSEN_MIN_PROGRAMS)
         prog.header.append(f"coarsened: up to {coarsen} program ids (axis 0) per hardware program, "
                            f"chosen per launch (uniform coarsen0)")
     elif coarsen > 1:
