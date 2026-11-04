@@ -195,8 +195,9 @@ def _build(tile, ranges, options: dict, interleave: bool):
             # coarsened only where the plain dot fits too (raises RegAllocError
             # as without PITON_MM): the switch changes the k loop, not the ids
             # per hardware program.  matmul 8x64x8 at 512^3 and 1024^3 would
-            # be coarsened only with it, which the Pi runs slower (try/e1k:
-            # 0.79-0.93x below 128 ids) and without TMU_NOSWAP (try/b1)
+            # be coarsened only with it (on the Pi coarsened 8x64x8 launches
+            # ran 0.79-0.93x below 128 ids, try/e1k; try/b1 writes TMU_NOSWAP
+            # only in programs that are not coarsened)
             _build(tile, ranges, dict(options, mm=None), interleave)
         return built
     port_alloc = os.environ.get("PITON_PORT_ALLOC", "1") != "0"     # PITON_PORT_ALLOC=0: plain allocation only
