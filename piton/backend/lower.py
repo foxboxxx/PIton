@@ -63,6 +63,9 @@ same bits with fewer (add-ALU) operations:
     a multiply produces: normal, +0, +-inf).
   * a / b with b equal in every lane (softmax's row sum): the three NaN
     checks become two compares of |a| against limits computed once from b.
+  * exp, exp2: no upper clamp of x (fmin with 89 / 128): the overflow check
+    sets inf for every x it changes (x > 88.7228 / x >= 128) and keep_nan
+    the NaNs, so every result that is kept was computed from the same xc.
   * exp: the `or` of 0x3F000000 into a sign bit is a byte-wise add without
     carries (v8adds, either ALU); the two shifts by 23 are mul24 by the small
     immediate 1.0, whose low 24 bits are 2**23 ((x mod 2**24) * 2**23 =
@@ -2277,8 +2280,13 @@ class Lowering:
         f = lambda: self.new("ex", True)
         i = lambda: self.new("ex")
         xc = f()
-        self.op("fmin", xc, x, self.fk(128.0 if base2 else 89.0))
-        self.op("fmax", xc, xc, self.fk(-150.0 if base2 else -104.0))
+        if self.issue:
+            # (module docstring, "Issue") the overflow check below overwrites every x the
+            # upper clamp changes (x > 89 > 88.7228, x >= 128) and NaN
+            self.op("fmax", xc, x, self.fk(-150.0 if base2 else -104.0))
+        else:
+            self.op("fmin", xc, x, self.fk(128.0 if base2 else 89.0))
+            self.op("fmax", xc, xc, self.fk(-150.0 if base2 else -104.0))
         y = xc
         if not base2:
             y = f()

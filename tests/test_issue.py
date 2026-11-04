@@ -109,6 +109,17 @@ def test_sfu_kernel_bits(monkeypatch, op):
     assert on < off             # executed instructions
 
 
+@pytest.mark.parametrize("op, lo, hi", [(4, 88.6, 89.1), (0, 127.9, 128.1), (4, -104.1, -103.0), (0, -150.1, -149.0)])
+def test_exp_range_ends_bits(monkeypatch, op, lo, hi):
+    """exp / exp2 densely around their overflow thresholds (where the upper
+    clamp used to apply) and their lower clamps."""
+    a, b = np.array([lo, hi], np.float32).view(np.uint32)
+    a, b = min(a, b), max(a, b)
+    bits = np.arange(a, b, max(1, (b - a) // 4000), dtype=np.uint32)
+    n = bits.size
+    both_ways(monkeypatch, sfu_kernel, SIG, {"OP": op, "BLOCK": 256}, 256, inputs(bits, n), n)
+
+
 def test_log_kernel_bits(monkeypatch):
     n = 2048 + 5
     both_ways(monkeypatch, log_kernel, SIG, {"BLOCK": 256}, 256, inputs(specials(), n), n)
