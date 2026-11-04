@@ -322,6 +322,37 @@ stall cleared; a USB reconnect was confirmed.
 These digit-network timings were measured on 2026-10-30, before the 2026-11-02 compiler
 changes (`perf/`); the dense layer's own benchmark in `perf/` improved by about 4% since.
 
+## TinyGPT: a transformer language model on the QPUs
+
+`examples/tinygpt.py` runs a character-level GPT where every layer is a PIton kernel:
+token-gather embedding, LayerNorm, Q/K/V projections, causal multi-head **flash attention**
+(`examples/attention.py`, online softmax, the score matrix never touches memory), output
+projection with fused residual, and an MLP with GELU (`u·sigmoid(1.702u)`, since the SFU has
+sigmoid but no tanh/erf) and residual fused into the matmul epilogues. The host only picks the
+next character and slides the 32-character window. One token is 21 launches.
+
+The model is **32,476 float32 parameters** (d=32, 2 layers × 2 heads, MLP 128, context 32,
+92-character vocabulary), trained in about a minute by a NumPy-only trainer with hand-written
+backprop (checked against finite differences in the tests) on this README and `STATUS.md`. It
+reaches 1.81 nats/char on held-out text, so it babbles in the style of this document:
+
+```
+The QPU images. The
+ided.
+*   heldy orde on rund
+```
+
+On the strict emulator the QPU logits match a float64 NumPy reference to about 1e-5. **Not yet
+run on a Pi.** The emulator's rough timing model puts 40 tokens at 1.42 M QPU cycles
+(22.8 ms at 250 MHz, ≈1,750 tokens/s), but that excludes per-launch overhead, which at 21
+launches per token is likely to dominate on hardware. Treat it as an upper bound, not a measurement.
+
+```bash
+.venv/bin/python examples/tinygpt.py --prompt "The QPU " --tokens 40   # emulator (slow: ~20 s/token)
+.venv/bin/python examples/tinygpt_model.py --train                      # retrain the checkpoint
+.venv/bin/python -m pytest tests/test_tinygpt.py tests/test_attention.py -q
+```
+
 ## Interactive Mandelbrot
 
 `examples/mandelbrot_pi.py` renders the Mandelbrot set at 640×480 on the Pi's HDMI output,
@@ -544,7 +575,7 @@ All verified with `tools/probes.py` on a Pi Zero W; the emulator models them:
 
 ```
 piton/            compiler, emulator, runtime (Python)
-examples/         Triton kernels: tutorials (vector add, softmax, matmul), digits, Mandelbrot, test kernels
+examples/         Triton kernels: tutorials (vector add, softmax, matmul), digits, TinyGPT + attention, Mandelbrot, test kernels
 tests/            pytest: emulator vs numpy, vc4asm bit-exactness, hardware (PITON_HW=1)
 perf/             benchmark suite, instruction-mix analyser, Pi profiler, hardware experiments
 benchmarks/       matmul sweeps and the saved results of every hardware run
