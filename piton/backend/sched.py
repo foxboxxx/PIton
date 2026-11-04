@@ -43,7 +43,11 @@ the switch:
   * the pairs every one of those schedules missed for the read ports go to
     the port-aware allocation (regalloc.PortHints), each weighted by the
     share of schedules that missed it, so its next attempt does not depend
-    on which schedule happened to be kept.
+    on which schedule happened to be kept;
+  * a hazard that only the way into a loop has (a value written just
+    before the loop and read at its head) is padded at the end of the
+    preheader, not at the loop head where every iteration ran the nop
+    (fix_block_boundaries).
 Every schedule is built from the same dependence DAG and Bundle checks, so
 all latency and hazard rules hold for each.
 """
