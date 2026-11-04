@@ -24,7 +24,7 @@ from piton.qpu.asm import Program  # noqa: E402
 from piton.qpu.emulator import V3D, EmulatorError, HazardError, TimingModel  # noqa: E402
 from piton.runtime import launcher  # noqa: E402
 from piton.runtime.launcher import run_emulator, semaphore_programs, slot_semaphores  # noqa: E402
-from kernels import add_kernel  # noqa: E402
+from kernels import add_kernel, matmul_kernel  # noqa: E402
 from primitive_kernels import copy_kernel  # noqa: E402
 from sfu_tests import sfu_kernel  # noqa: E402
 
@@ -614,3 +614,27 @@ def test_slot_kernel_qasm_assembles_with_vc4asm(slots):
     for prog in semaphore_programs(SLOT_SEMAPHORES):
         text = Program("p", [isa.decode(w) for w in prog]).qasm()
         assert list(vc4asm_assemble(text, verify=True)[0]) == list(prog)
+
+
+MATMUL_SIG = {"a_ptr": "*fp32", "b_ptr": "*fp32", "c_ptr": "*fp32", "M": "i32", "N": "i32",
+              "stride_am": "i32", "stride_bk": "i32", "stride_cm": "i32"}
+
+
+def _matmul(n):
+    cons = dict(K=n, stride_ak=1, stride_bn=1, stride_cn=1, BLOCK_SIZE_M=8, BLOCK_SIZE_N=64,
+                BLOCK_SIZE_K=8, GROUP_SIZE_M=4)
+    return pcompile(matmul_kernel, MATMUL_SIG, cons, grid=((n // 8) * (n // 64),))
+
+
+def test_sparse_stores_keep_private_rows(monkeypatch):
+    """A tile stored once after a long K loop keeps the private rows (a slot
+    store waits for its DMAs; Pi: 1024^3 0.95x with slots, 256^3 1.05x):
+    compiler.SLOTS_MIN_STORE_BYTES. PITON_STORE_SLOTS=all keeps the slots."""
+    monkeypatch.delenv("PITON_STORE_SLOTS", raising=False)
+    assert _matmul(256).stats.get("store_slots") == 1             # 0.17 bytes stored per instruction
+    for n in (512, 1024):                                         # 0.08, 0.04
+        ck = _matmul(n)
+        assert "store_slots" not in ck.stats and not sems_in(ck)
+    monkeypatch.setenv("PITON_STORE_SLOTS", "all")
+    assert _matmul(1024).stats.get("store_slots") == 1
+

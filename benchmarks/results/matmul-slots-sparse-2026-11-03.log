@@ -1,0 +1,8 @@
+n=1024 slots=all best   281027 us  7.642 GFLOPS 
+n=1024 slots=1 best   267769 us  8.020 GFLOPS 
+n=1024 slots=all best   279581 us  7.681 GFLOPS 
+n=1024 slots=1 best   272054 us  7.894 GFLOPS 
+n=512 slots=all best    30383 us  8.835 GFLOPS 
+n=512 slots=1 best    30221 us  8.882 GFLOPS 
+n=512 slots=all best    30292 us  8.862 GFLOPS 
+n=512 slots=1 best    30201 us  8.888 GFLOPS 
