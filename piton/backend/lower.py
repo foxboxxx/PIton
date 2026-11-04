@@ -45,7 +45,10 @@ back to 0 after it (runtime/launcher.py semaphore_programs).  sacq / srel
 name their semaphore in the instruction, so slot_dispatch branches to one
 of four copies.  A rerolled loop (reroll.py) carries its block's stored
 values in registers and stores them after the loop: one DMA, not one per
-64-element chunk.
+64-element chunk.  In a coarsened program (PITON_PERSISTENT, begin_programs)
+each program id runs every store's acquire ... release itself, so no slot is
+held from one id into the next or into the thread end, and no id leaves a
+slot DMA running for the next id to overlap.
 """
 
 from __future__ import annotations
@@ -1582,7 +1585,9 @@ class Lowering:
         # the host launches ceil(nprog0 / k) programs, so the first id is in range
         self.prog_iv = self.new("pid")
         self.op("mov", self.prog_iv, lo)
-        self.prog_stores = any(o.name == "tt.store" for o in self.fn.walk())
+        # an id's last store DMA may still run when the next id starts (a store
+        # through a slot waits for its DMAs before it releases the slot)
+        self.prog_stores = not self.slots and any(o.name == "tt.store" for o in self.fn.walk())
         self.loop_depth += 1
         self.prog_loop = self.new_block("programs")
         if not self.opts.get("coarsen_hoist", True):
@@ -1594,7 +1599,9 @@ class Lowering:
 
     def end_programs(self):
         """Branch back for the next program id; its store DMA is waited for by
-        the next id's first store (or before thread end), not here."""
+        the next id's first store (or before thread end), not here. (A store
+        through a slot has waited and released the slot: no id holds a slot
+        when the next one starts or the program ends.)"""
         own = list(self.entry_uniform_insts)
         for kind, name, v in self.prog_uniforms:
             self.entry_uniform_insts.append(alu("mov", v, isa.UNIF))

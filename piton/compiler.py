@@ -310,7 +310,11 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
     # uniforms stay in registers or are re-read for every id, whichever is
     # shorter. Constants hoisted out of that loop stay live through every id;
     # without hoisting a kernel needs only ~3 registers more than its plain
-    # build. If no version allocates, the plain build stays.
+    # build. If no version allocates, the plain build stays; so does a plain
+    # build with store slots whose coarsened versions allocate only without
+    # them. (With slots every store waits for its DMAs before it releases the
+    # slot, so only the start is saved; the private rows' last DMA of an id
+    # still runs on into the next.)
     coarsen = _coarsening(tile, pid_max, lambda: _id_length(tile, prog))
     if coarsen > 1:
         best = None
@@ -320,6 +324,10 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
                 try:
                     built = _compile_tile(fn, signature, constants, name, pid_max, opts, stats["rerolled"])
                 except RegAllocError:
+                    continue
+                if stats.get("store_slots") and not built[4].get("store_slots"):
+                    # it allocated only with the private VPM rows: the plain
+                    # build's 1 KiB slot DMAs gain more than coarsening
                     continue
                 if best is None or _weighted_length(built[1], built[2]) < _weighted_length(best[1], best[2]):
                     best = built
