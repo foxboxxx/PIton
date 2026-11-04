@@ -1,9 +1,12 @@
-"""PITON_TMU_NOSWAP: TMU_NOSWAP in programs that are not coarsened and spread
-their loads over TMU0 and TMU1 (lower.py Lowering.run), so each load reaches
-the same physical TMU of the slice on all four of its QPUs; the emulator's
-TMU0/TMU1 model with the QPU2/QPU3 swap (guide p40)."""
+"""PITON_TMU_NOSWAP: TMU_NOSWAP=1 in programs that are not coarsened, spread
+their loads over TMU0 and TMU1 and contain a tt.dot (lower.py Lowering.run), so
+each load reaches the same physical TMU of the slice on all four of its QPUs;
+TMU_NOSWAP=0 in every other program that makes TMU requests (the setting
+outlasts the program on the Pi), nothing in programs without them; the
+emulator's TMU0/TMU1 model with the QPU2/QPU3 swap (guide p40)."""
 import os
 import sys
+from functools import partial
 
 import numpy as np
 import pytest
@@ -49,8 +52,8 @@ def request(unit, i):
     return mov(isa.TMU_S[unit], isa.RA[i])
 
 
-def noswap():
-    return mov(isa.TMU_NOSWAP, Imm(1))
+def noswap(value=1):
+    return mov(isa.TMU_NOSWAP, Imm(value))
 
 
 LOAD_A = [unif(0), Instr.nop()]          # ra0 = address (not read by the next instruction)
@@ -86,17 +89,18 @@ ORDER = [unif(0), unif(1), unif(2), request(0, 0), request(1, 1), request(0, 2),
 
 
 @pytest.mark.parametrize("qpu,swapped", [(0, False), (1, False), (2, True), (3, True), (6, True), (9, False)])
-@pytest.mark.parametrize("with_noswap", [False, True])
-def test_tmu_results_come_back_in_order_per_unit(qpu, swapped, with_noswap):
+@pytest.mark.parametrize("setting", [None, 0, 1])
+def test_tmu_results_come_back_in_order_per_unit(qpu, swapped, setting):
     """ldtmu1 returns the TMU1 request although an older TMU0 one is queued;
-    the swap only changes which physical TMU of the slice serves each FIFO."""
+    the swap only changes which physical TMU of the slice serves each FIFO
+    (TMU_NOSWAP=0 leaves it on)."""
     v = V3D()
     a, b, c = words_at(v, [111, 222, 333])
-    prog = ([noswap(), Instr.nop(), Instr.nop()] if with_noswap else []) + ORDER
+    prog = ([noswap(setting), Instr.nop(), Instr.nop()] if setting is not None else []) + ORDER
     v, q = run_raw(prog, [a, b, c], qpu=qpu, v=v)
     assert [int(q.acc[r][0]) for r in range(3)] == [222, 111, 333]
     s = qpu // 4
-    phys = {0: 1, 1: 0} if swapped and not with_noswap else {0: 0, 1: 1}
+    phys = {0: 1, 1: 0} if swapped and setting != 1 else {0: 0, 1: 1}
     assert v.tmu_requests == {(s, phys[0]): 2, (s, phys[1]): 1}
 
 
@@ -119,25 +123,27 @@ def test_ldtmu_of_the_other_unit_is_an_error():
         run_raw(LOAD_A + [request(0, 0), Instr(sig="ldtmu1"), Instr(sig="ldtmu0")], [a], qpu=2, v=v)
 
 
+@pytest.mark.parametrize("value", [0, 1])
 @pytest.mark.parametrize("gap,ok", [(0, False), (1, False), (2, True), (5, True)])
-def test_tmu_noswap_three_instructions_before_the_first_request(gap, ok):
+def test_tmu_noswap_three_instructions_before_the_first_request(gap, ok, value):
     """Guide p37: TMU_NOSWAP must be written three instructions before the
-    first TMU write (gap = instructions in between)."""
+    first TMU write (gap = instructions in between), a 0 as well as a 1."""
     v = V3D()
     (a,) = words_at(v, [5])
-    prog = [unif(0), noswap()] + [Instr.nop()] * gap + [request(0, 0), Instr(sig="ldtmu0")]
+    prog = [unif(0), noswap(value)] + [Instr.nop()] * gap + [request(0, 0), Instr(sig="ldtmu0")]
     if ok:
         run_raw(prog, [a], qpu=2, v=v)
-        assert v.tmu_requests == {(0, 0): 1}
+        assert v.tmu_requests == {(0, 1 - value): 1}
     else:
         with pytest.raises(HazardError, match="three instructions after TMU_NOSWAP"):
             run_raw(prog, [a], qpu=2, v=v)
 
 
-def test_tmu_noswap_after_a_request_is_a_hazard():
+@pytest.mark.parametrize("value", [0, 1])
+def test_tmu_noswap_after_a_request_is_a_hazard(value):
     v = V3D()
     (a,) = words_at(v, [5])
-    prog = LOAD_A + [request(0, 0), Instr(sig="ldtmu0"), noswap()]
+    prog = LOAD_A + [request(0, 0), Instr(sig="ldtmu0"), noswap(value)]
     with pytest.raises(HazardError, match="TMU_NOSWAP written after a TMU request"):
         run_raw(prog, [a], qpu=0, v=v)
 
@@ -148,15 +154,32 @@ def test_tmu_noswap_is_reset_for_the_next_program():
     run_raw([noswap()] + LOAD_A + [request(0, 0), Instr(sig="ldtmu0")], [a], qpu=2, v=v)
     run_raw(LOAD_A + [request(0, 0), Instr(sig="ldtmu0")], [a], qpu=2, v=v)
     assert v.tmu_requests == {(0, 0): 1, (0, 1): 1}
+    # a 0 after a 1 in the next program: the swap, and no hazard from the old write
+    run_raw([noswap(0)] + LOAD_A + [request(0, 0), Instr(sig="ldtmu0")], [a], qpu=2, v=v)
+    assert v.tmu_requests == {(0, 0): 1, (0, 1): 2}
 
 
-@pytest.mark.parametrize("with_noswap", [False, True])
+@pytest.mark.parametrize("first,last", [(1, 0), (0, 1)])
+def test_the_last_tmu_noswap_write_counts(first, last):
+    """Two writes before the first request: the last one sets the swap and the
+    three instructions count from it."""
+    v = V3D()
+    (a,) = words_at(v, [5])
+    prog = [unif(0), noswap(first), noswap(last), Instr.nop(), Instr.nop(), request(0, 0), Instr(sig="ldtmu0")]
+    run_raw(prog, [a], qpu=2, v=v)
+    assert v.tmu_requests == {(0, 1 - last): 1}
+    with pytest.raises(HazardError, match="three instructions after TMU_NOSWAP"):
+        run_raw(prog[:4] + prog[5:], [a], qpu=2, v=V3D())
+
+
+@pytest.mark.parametrize("setting", [None, 0, 1])
 @pytest.mark.parametrize("unit", [0, 1])
-def test_thread_end_with_a_request_queued_on_a_swapped_qpu(with_noswap, unit):
+def test_thread_end_with_a_request_queued_on_a_swapped_qpu(setting, unit):
     """Either FIFO of QPU2, swapped or not, still holding a result at thread end."""
     v = V3D()
     (a,) = words_at(v, [5])
-    prog = ([noswap(), Instr.nop(), Instr.nop()] if with_noswap else []) + LOAD_A + [request(unit, 0)]
+    prog = ([noswap(setting), Instr.nop(), Instr.nop()] if setting is not None else []) + LOAD_A + \
+        [request(unit, 0)]
     with pytest.raises(HazardError, match="TMU results still queued"):
         run_raw(prog, [a], qpu=2, v=v)
 
@@ -180,8 +203,9 @@ def test_noswap_slice_queues_four_requests_per_qpu_on_one_tmu():
     assert [int(q.acc[1][0]) for q in v.qpus] == [12] * 4
 
 
-def test_scheduler_keeps_noswap_three_instructions_ahead_across_blocks():
-    first = noswap()
+@pytest.mark.parametrize("value", [0, 1])
+def test_scheduler_keeps_noswap_three_instructions_ahead_across_blocks(value):
+    first = noswap(value)
     req = request(0, 0)
     assert required_distance(instr_res(first), instr_res(req)) == 3
     blocks = {"entry": [unif(0), first], "main": [req]}
@@ -245,6 +269,9 @@ def _branch(target, cond="always"):
 
 @pytest.mark.parametrize("instrs,labels,error", [
     ([noswap(), Instr.nop(), Instr.nop(), request(0, 0)], {}, None),
+    # a 0 (spelled `xor tmu_noswap, -, -`) follows the same rule
+    ([noswap(0), Instr.nop(), Instr.nop(), request(0, 0)], {}, None),
+    ([noswap(0), Instr.nop(), request(0, 0)], {}, "TMU write at 2, 2 after"),
     # TMU_NOSWAP in the last delay slot, the request first at the target
     ([Instr.nop(), _branch("t"), Instr.nop(), Instr.nop(), noswap(), Instr.nop(), Instr.nop(), request(0, 0)],
      {"t": 7}, "TMU write at 7, 1 after"),
@@ -293,12 +320,13 @@ def _run_scheduled(fn, trips, qpu):
     return int(q.acc[2][0])
 
 
+@pytest.mark.parametrize("value", [0, 1])
 @pytest.mark.parametrize("qpu", [0, 2])
-def test_scheduler_noswap_before_a_loop_that_starts_with_a_request(qpu):
+def test_scheduler_noswap_before_a_loop_that_starts_with_a_request(qpu, value):
     """A two-instruction entry block (TMU_NOSWAP and two uniform reads): the
     request at the loop's head needs a boundary nop on the path from the
     entry, and the back edge never reaches TMU_NOSWAP."""
-    fn = _mir([("entry", 0, [alu("mov", isa.TMU_NOSWAP, Imm(1)), alu("mov", isa.R1, isa.UNIF),
+    fn = _mir([("entry", 0, [alu("mov", isa.TMU_NOSWAP, Imm(value)), alu("mov", isa.R1, isa.UNIF),
                              alu("mov", isa.RA[2], isa.UNIF)]),
                ("loop", 1, _count_loop(isa.R1)),
                ("end", 0, [MInst(ops=[], sig="thrend")])])
@@ -318,16 +346,51 @@ def test_boundary_nops_after_noswap_in_a_delay_slot():
     assert blocks["loop"][2] is req and all(i.comment == "boundary hazard" for i in blocks["loop"][:2])
 
 
-def test_scheduler_noswap_last_before_a_branch():
+@pytest.mark.parametrize("value", [0, 1])
+def test_scheduler_noswap_last_before_a_branch(value):
     """TMU_NOSWAP last in a block ending with a branch (fill_delay_slots may move
     it into a delay slot) whose target starts with a request."""
     fn = _mir([("entry", 0, [alu("mov", isa.RA[1], isa.UNIF), alu("mov", isa.RA[2], isa.UNIF),
-                             alu("mov", isa.R2, Imm(0)), alu("mov", isa.TMU_NOSWAP, Imm(1)),
+                             alu("mov", isa.R2, Imm(0)), alu("mov", isa.TMU_NOSWAP, Imm(value)),
                              MInst(kind="branch", bcond="always", target="loop")]),
                ("skipped", 0, [alu("mov", isa.R2, Imm(5))]),
                ("loop", 1, _count_loop()),
                ("end", 0, [MInst(ops=[], sig="thrend")])])
     assert _run_scheduled(fn, 2, 2) == 14
+
+
+@pytest.mark.parametrize("value", [0, 1])
+@pytest.mark.parametrize("trips,qpu", [(0, 2), (1, 0), (1, 2)])
+def test_scheduler_noswap_before_a_request_only_in_cold_code(value, trips, qpu):
+    """The only request in out-of-line code after the thread end (lower.py
+    begin_cold), reached by a conditional branch (lower.py's check sees the
+    cold blocks: they are appended before it looks)."""
+    fn = _mir([("entry", 0, [alu("mov", isa.RA[1], isa.UNIF), alu("mov", isa.RA[2], isa.UNIF),
+                             alu("mov", isa.R2, Imm(0)), alu("mov", isa.TMU_NOSWAP, Imm(value)),
+                             alu("or", isa.NOP, isa.RA[2], isa.RA[2], setf=True, unit="add"),
+                             MInst(kind="branch", bcond="anynz", target="cold")]),
+               ("join", 0, [MInst(ops=[], sig="thrend")]),
+               ("cold", 0, [alu("mov", isa.TMU_S[0], isa.RA[1]), MInst(ops=[], sig="ldtmu0"),
+                            alu("add", isa.R2, isa.R2, isa.R4),
+                            MInst(kind="branch", bcond="always", target="join")])])
+    fn.blocks[-1].cold = True
+    assert _run_scheduled(fn, trips, qpu) == 7 * trips
+
+
+@pytest.mark.parametrize("value", [0, 1])
+def test_boundary_nops_before_a_cold_block_that_starts_with_a_request(value):
+    """TMU_NOSWAP in the last delay slot of a conditional branch to cold code
+    that starts with a request: two nops at the cold block's head, none on the
+    fall-through to the thread end."""
+    req = request(0, 0)
+    end = [Instr(sig="thrend"), Instr.nop(), Instr.nop()]
+    blocks = {"entry": [unif(0), _branch("cold", "anynz"), Instr.nop(), Instr.nop(), noswap(value)],
+              "join": list(end),
+              "cold": [req, Instr(sig="ldtmu0"), _branch("join"), Instr.nop(), Instr.nop(), Instr.nop()]}
+    fix_block_boundaries(blocks, {"entry": [], "join": ["entry", "cold"], "cold": ["entry"]},
+                         ["entry", "join", "cold"])
+    assert blocks["cold"][2] is req and all(i.comment == "boundary hazard" for i in blocks["cold"][:2])
+    assert blocks["join"] == end
 
 
 def _matmul(M, N, K, bm=8, bn=64, bk=4, group=4, stats=None):
@@ -381,6 +444,18 @@ def _noswap_writes(ck):
     return [i for i, ins in enumerate(ck.program.instrs) if _writes(ins, (isa.TMU_NOSWAP,))]
 
 
+def _noswap_values(ck):
+    """The values the program writes to TMU_NOSWAP, in order."""
+    return [op.a.value for ins in ck.program.instrs for op in (ins.add, ins.mul)
+            if op is not None and op.dst is isa.TMU_NOSWAP]
+
+
+def _expected_noswap(case, ck):
+    """v2: 1 in an uncoarsened build of a dot kernel (the suite's dot kernels
+    are balanced), 0 in every other build (all the suite's kernels load)."""
+    return int(ck.coarsen == 1 and "dot" in case.tags)
+
+
 @pytest.mark.parametrize("value,on", [(None, False), ("", False), ("0", False), ("1", True)])
 def test_switch_values(monkeypatch, value, on):
     if value is None:
@@ -389,11 +464,11 @@ def test_switch_values(monkeypatch, value, on):
         monkeypatch.setenv("PITON_TMU_NOSWAP", value)
     assert pc.tmu_noswap_enabled() == on
     ck = pcompile(add_kernel, ADD_SIG, {"BLOCK_SIZE": 256})
-    assert ck.coarsen == 1 and bool(ck.stats.get("tmu_noswap")) == on
+    assert ck.coarsen == 1 and ck.stats.get("tmu_noswap") == (0 if on else None)
     instrs = ck.program.instrs
-    assert _noswap_writes(ck) == ([0] if on else [])
+    assert _noswap_values(ck) == ([0] if on else [])
     if on:
-        assert _first(instrs, lambda ins: _writes(ins, isa.TMU_S)) >= 3
+        assert _first(instrs, lambda ins: _writes(ins, isa.TMU_S)) - _noswap_writes(ck)[0] >= 3
 
 
 def test_switch_off_is_the_default(monkeypatch):
@@ -413,7 +488,10 @@ def test_unknown_switch_value_is_rejected(monkeypatch, value):
 
 
 def _without_noswap(prog):
-    """The program's words with the TMU_NOSWAP op taken out of its instruction."""
+    """The program's words with the TMU_NOSWAP op taken out of its instruction.
+    A 0 is a zero move through regfile A's null register (isa._zero_moves), so
+    it pairs with a uniform read only on the add ALU: the mov left alone on
+    the mul ALU goes back to the add ALU, where a lone mov is scheduled."""
     from dataclasses import replace
     addrs = prog.label_addrs()
     out = []
@@ -422,21 +500,44 @@ def _without_noswap(prog):
             op = getattr(ins, slot)
             if op is not None and op.dst is isa.TMU_NOSWAP:
                 ins = replace(ins, **{slot: None})
+                if ins.add is None and ins.mul is not None and ins.mul.op == "mov":
+                    ins = replace(ins, add=ins.mul, mul=None)
         out.append(isa.encode(isa.canonicalize(ins), 8 * pc_, addrs))
     return out
+
+
+def _off_build(monkeypatch, build):
+    """build() with the switch off (then on again)."""
+    monkeypatch.setenv("PITON_TMU_NOSWAP", "0")
+    off = build()
+    monkeypatch.setenv("PITON_TMU_NOSWAP", "1")
+    return off
+
+
+def _assert_keeps_the_swap(ck, off):
+    """TMU_NOSWAP=0, and with that op taken out the program built without it."""
+    assert ck.stats.get("tmu_noswap") == 0 and _noswap_values(ck) == [0]
+    assert len(ck.words) == len(off.words)
+    assert _without_noswap(ck.program) == list(off.words) and ck.uniforms == off.uniforms
+    assert _noswap_path_errors(ck.words) == []
 
 
 @pytest.mark.parametrize("name", ["row_sum", "add", "exp", "matmul_8x64x8", "dense_relu"])
 def test_noswap_shares_an_instruction_with_a_uniform_read(monkeypatch, name):
     """TMU_NOSWAP is no closely coupled peripheral access: it pairs with one of
-    the entry block's uniform reads and costs no instruction; the rest of the
-    program is the one built without it."""
+    the entry block's uniform reads and costs no instruction, a 0 (row_sum,
+    add, exp) as well as a 1 (the dot kernels); the rest of the program is the
+    one built without it."""
+    case = CASES_BY_NAME[name]
     monkeypatch.setenv("PITON_TMU_NOSWAP", "0")
-    off, _ = compile_case(CASES_BY_NAME[name], "emu")
+    off, _ = compile_case(case, "emu")
     monkeypatch.setenv("PITON_TMU_NOSWAP", "1")
-    on, _ = compile_case(CASES_BY_NAME[name], "emu")
+    on, _ = compile_case(case, "emu")
     instrs = on.program.instrs
-    assert on.stats.get("tmu_noswap") == 1 and len(instrs) == len(off.program.instrs)
+    value = _expected_noswap(case, on)
+    assert value == (name in ("matmul_8x64x8", "dense_relu"))
+    assert on.stats.get("tmu_noswap") == value and _noswap_values(on) == [value]
+    assert len(instrs) == len(off.program.instrs)
     w = _first(instrs, lambda ins: _writes(ins, (isa.TMU_NOSWAP,)))
     assert any(op is not None and isa.UNIF in (op.a, op.b) for op in (instrs[w].add, instrs[w].mul))
     assert _first(instrs, lambda ins: _writes(ins, isa.TMU_S)) - w >= 3
@@ -445,72 +546,108 @@ def test_noswap_shares_an_instruction_with_a_uniform_read(monkeypatch, name):
 
 @pytest.mark.parametrize("name", ["add", "dense_relu"])
 def test_coarsened_programs_keep_the_hardware_swap(monkeypatch, name):
-    """TMU_NOSWAP only in programs that are not coarsened (PITON_PERSISTENT):
+    """TMU_NOSWAP=1 only in programs that are not coarsened (PITON_PERSISTENT):
     it slowed the coarsened ones on the Pi (dense_relu with k=2 0.960x) and
-    sped up the same kernels built plain (dense_relu 1.026x)."""
+    sped up the same dot kernel built plain (dense_relu 1.026x).  Coarsened,
+    both write 0; built plain, add (no dot) writes 0 and dense_relu 1."""
     monkeypatch.setenv("PITON_TMU_NOSWAP", "1")
     coarsened, _ = compile_case(CASES_BY_NAME[name], "pi")
     monkeypatch.setenv("PITON_PERSISTENT", "0")
     plain, _ = compile_case(CASES_BY_NAME[name], "pi")
     assert coarsened.coarsen > 1 and plain.coarsen == 1
-    assert not coarsened.stats.get("tmu_noswap") and plain.stats.get("tmu_noswap") == 1
-    assert not _noswap_writes(coarsened) and _noswap_writes(plain) == [0]
-    monkeypatch.setenv("PITON_TMU_NOSWAP", "0")
+    value = int(name == "dense_relu")
+    assert plain.stats.get("tmu_noswap") == value and _noswap_values(plain) == [value]
     monkeypatch.delenv("PITON_PERSISTENT")
-    off, _ = compile_case(CASES_BY_NAME[name], "pi")
-    assert list(off.words) == list(coarsened.words)
+    off = _off_build(monkeypatch, lambda: compile_case(CASES_BY_NAME[name], "pi")[0])
+    assert off.coarsen == coarsened.coarsen
+    _assert_keeps_the_swap(coarsened, off)
 
 
 @piton.jit
-def one_load(x_ptr, out_ptr):
-    tl.store(out_ptr + tl.arange(0, 16), tl.load(x_ptr + tl.arange(0, 16)) + 1.0)
-
-
-def test_programs_using_only_tmu0_keep_the_hardware_swap(noswap_on):
-    """One request per program: the swap is what spreads it over both TMUs."""
-    ck = pcompile(one_load, {"x_ptr": PTR, "out_ptr": PTR}, {})
-    assert not ck.stats.get("tmu_noswap") and not _noswap_writes(ck)
-
-
-@piton.jit
-def three_loads(x_ptr, y_ptr, z_ptr, out_ptr):
+def one_load(x_ptr, out_ptr, DOT: tl.constexpr):
     offs = tl.arange(0, 16)
-    tl.store(out_ptr + offs, tl.load(x_ptr + offs) + tl.load(y_ptr + offs) * tl.load(z_ptr + offs))
+    y = tl.load(x_ptr + offs) + 1.0
+    if DOT:
+        tl.store(out_ptr + offs[None, :], tl.dot(tl.full((1, 1), 1.0, tl.float32), y[None, :]))
+    else:
+        tl.store(out_ptr + offs, y)
 
 
-def test_unbalanced_programs_keep_the_hardware_swap(noswap_on):
+@pytest.mark.parametrize("dot", [False, True])
+def test_programs_using_only_tmu0_keep_the_hardware_swap(noswap_on, monkeypatch, dot):
+    """One request per program: the swap is what spreads it over both TMUs,
+    with a dot or not."""
+    build = partial(pcompile, one_load, {"x_ptr": PTR, "out_ptr": PTR}, {"DOT": dot})
+    ck = build()
+    _assert_keeps_the_swap(ck, _off_build(monkeypatch, build))
+    x = np.arange(16, dtype=np.float32)
+    out = np.zeros(16, np.float32)
+    run_emulator(ck, (12,), {"x_ptr": x, "out_ptr": out})
+    np.testing.assert_array_equal(out, x + 1)
+
+
+@piton.jit
+def three_loads(x_ptr, y_ptr, z_ptr, out_ptr, DOT: tl.constexpr):
+    offs = tl.arange(0, 16)
+    r = tl.load(x_ptr + offs) + tl.load(y_ptr + offs) * tl.load(z_ptr + offs)
+    if DOT:
+        tl.store(out_ptr + offs[None, :], tl.dot(tl.full((1, 1), 1.0, tl.float32), r[None, :]))
+    else:
+        tl.store(out_ptr + offs, r)
+
+
+@pytest.mark.parametrize("dot", [False, True])
+def test_unbalanced_programs_keep_the_hardware_swap(noswap_on, monkeypatch, dot):
     """Two requests on TMU0, one on TMU1: without the swap physical TMU0 would
-    serve 8 of each slice's 12 requests."""
-    ck = pcompile(three_loads, {"x_ptr": PTR, "y_ptr": PTR, "z_ptr": PTR, "out_ptr": PTR}, {})
-    assert not ck.stats.get("tmu_noswap") and not _noswap_writes(ck)
+    serve 8 of each slice's 12 requests, with a dot or not."""
+    build = partial(pcompile, three_loads, {"x_ptr": PTR, "y_ptr": PTR, "z_ptr": PTR, "out_ptr": PTR},
+                    {"DOT": dot})
+    _assert_keeps_the_swap(build(), _off_build(monkeypatch, build))
 
 
 @piton.jit
-def store_only(out_ptr):
+def store_only(out_ptr, DOT: tl.constexpr):
     offs = tl.arange(0, 64)
-    tl.store(out_ptr + offs, offs.to(tl.float32))
+    y = offs.to(tl.float32)
+    if DOT:
+        y = tl.reshape(tl.dot(tl.full((1, 1), 2.0, tl.float32), y[None, :]), (64,))
+    tl.store(out_ptr + offs, y)
 
 
-def test_programs_without_loads_keep_the_hardware_swap(noswap_on):
-    ck = pcompile(store_only, {"out_ptr": PTR}, {})
-    assert not ck.stats.get("tmu_noswap") and not _noswap_writes(ck)
+@pytest.mark.parametrize("dot", [False, True])
+def test_programs_without_loads_keep_the_hardware_swap(noswap_on, monkeypatch, dot):
+    """No TMU request, nothing to set (a dot that loads nothing either): no
+    TMU_NOSWAP write, the switch-off program."""
+    build = partial(pcompile, store_only, {"out_ptr": PTR}, {"DOT": dot})
+    ck = build()
+    assert "tmu_noswap" not in ck.stats and not _noswap_writes(ck)
+    off = _off_build(monkeypatch, build)
+    assert list(ck.words) == list(off.words) and ck.uniforms == off.uniforms
+    out = np.zeros(64, np.float32)
+    run_emulator(ck, (12,), {"out_ptr": out})
+    np.testing.assert_array_equal(out, np.arange(64, dtype=np.float32) * (2 if dot else 1))
 
 
 @piton.jit
-def n_loads(x_ptr, out_ptr, N: tl.constexpr):
+def n_loads(x_ptr, out_ptr, N: tl.constexpr, DOT: tl.constexpr):
     offs = tl.arange(0, 16)
     acc = tl.load(x_ptr + offs)
     for i in tl.static_range(1, N):
         acc += tl.load(x_ptr + i * 16 + offs)
-    tl.store(out_ptr + offs, acc)
+    if DOT:
+        tl.store(out_ptr + offs[None, :], tl.dot(tl.full((1, 1), 1.0, tl.float32), acc[None, :]))
+    else:
+        tl.store(out_ptr + offs, acc)
 
 
-@pytest.mark.parametrize("n,on", [(2, True), (5, False), (7, False), (9, True)])
-def test_balance_is_within_an_eighth(noswap_on, n, on):
+@pytest.mark.parametrize("dot", [False, True])
+@pytest.mark.parametrize("n,balanced", [(2, True), (5, False), (7, False), (9, True)])
+def test_balance_is_within_an_eighth(noswap_on, n, balanced, dot):
     """n requests alternate TMU0/TMU1: (n+1)/2 against (n-1)/2 is within 1/8
-    of the total from n = 9 on."""
-    ck = pcompile(n_loads, {"x_ptr": PTR, "out_ptr": PTR}, {"N": n})
-    assert bool(ck.stats.get("tmu_noswap")) == on and _noswap_writes(ck) == ([0] if on else [])
+    of the total from n = 9 on.  1 only with a dot; 0 otherwise."""
+    ck = pcompile(n_loads, {"x_ptr": PTR, "out_ptr": PTR}, {"N": n, "DOT": dot})
+    value = int(balanced and dot)
+    assert ck.stats.get("tmu_noswap") == value and _noswap_values(ck) == [value]
     assert _noswap_path_errors(ck.words) == []
     x = np.arange(16 * n, dtype=np.float32)
     out = np.zeros(16, np.float32)
@@ -519,25 +656,87 @@ def test_balance_is_within_an_eighth(noswap_on, n, on):
 
 
 @piton.jit
-def loop_loads(x_ptr, out_ptr, n):
+def loop_loads(x_ptr, out_ptr, n, DOT: tl.constexpr):
     offs = tl.arange(0, 16)
     acc = tl.load(x_ptr + offs)
     for i in range(0, n):
         acc += tl.load(x_ptr + (2 * i + 1) * 16 + offs) + tl.load(x_ptr + (2 * i + 2) * 16 + offs)
-    tl.store(out_ptr + offs, acc)
+    if DOT:
+        tl.store(out_ptr + offs[None, :], tl.dot(tl.full((1, 1), 1.0, tl.float32), acc[None, :]))
+    else:
+        tl.store(out_ptr + offs, acc)
 
 
+@pytest.mark.parametrize("dot", [False, True])
 @pytest.mark.parametrize("trips", [0, 1, 3])
-def test_balance_weighs_loads_in_loops(noswap_on, trips):
+def test_balance_weighs_loads_in_loops(noswap_on, trips, dot):
     """Two loads in a run-time loop weigh 100 each against one before it, so
-    the program writes TMU_NOSWAP however few times the loop runs (zero
-    times: one TMU0 request per program, still right)."""
-    ck = pcompile(loop_loads, {"x_ptr": PTR, "out_ptr": PTR, "n": "i32"}, {})
-    assert ck.stats.get("tmu_noswap") == 1 and _noswap_path_errors(ck.words) == []
+    with a dot the program writes TMU_NOSWAP=1 however few times the loop
+    runs (zero times: one TMU0 request per program, still right); without
+    one it writes 0."""
+    ck = pcompile(loop_loads, {"x_ptr": PTR, "out_ptr": PTR, "n": "i32"}, {"DOT": dot})
+    assert ck.stats.get("tmu_noswap") == int(dot) and _noswap_values(ck) == [int(dot)]
+    assert _noswap_path_errors(ck.words) == []
     x = np.arange(16 * (2 * trips + 1), dtype=np.float32)
     out = np.zeros(16, np.float32)
     run_emulator(ck, (12,), {"x_ptr": x, "out_ptr": out, "n": trips})
     np.testing.assert_array_equal(out, x.reshape(-1, 16).sum(0))
+
+
+@piton.jit
+def dots(a_ptr, b_ptr, c_ptr, n, WHERE: tl.constexpr):
+    offs = tl.arange(0, 16)
+    a = tl.load(a_ptr + offs[None, :])                          # 1 request
+    b = tl.load(b_ptr + offs[:, None] * 16 + offs[None, :])     # 16, alternating with it: 9 against 8
+    acc = a * 0.0
+    if WHERE == 0:
+        acc = a + tl.sum(b, axis=0)[None, :]
+    if WHERE == 1:
+        acc = tl.dot(a, b)
+    if WHERE == 2:
+        for i in range(0, n):
+            acc = tl.dot(a, b, acc)
+    if WHERE == 3:
+        if n > 0:
+            acc = tl.dot(a, b, acc)
+    if WHERE == 4:
+        acc = tl.dot(a, b) + tl.dot(a * 2.0, b, acc)
+    tl.store(c_ptr + offs[None, :], acc)
+
+
+@pytest.mark.parametrize("where,value", [(0, 0), (1, 1), (2, 1), (3, 1), (4, 1)],
+                         ids=["no_dot", "dot", "dot_in_a_loop", "dot_in_an_if", "two_dots"])
+def test_noswap_is_one_for_a_dot_anywhere_in_the_kernel(noswap_on, where, value):
+    """The same balanced loads: 0 without a dot; 1 with a dot at the top
+    level, in a run-time loop, under a run-time if, or two dots."""
+    ck = pcompile(dots, {"a_ptr": PTR, "b_ptr": PTR, "c_ptr": PTR, "n": "i32"}, {"WHERE": where})
+    assert ck.coarsen == 1 and ck.stats.get("tmu_noswap") == value and _noswap_values(ck) == [value]
+    assert _noswap_path_errors(ck.words) == []
+    rng = np.random.default_rng(where)
+    a = rng.uniform(-1, 1, 16).astype(np.float32)
+    b = rng.uniform(-1, 1, (16, 16)).astype(np.float32)
+    ab = a.astype(np.float64) @ b
+    for n in (0, 2):
+        c = np.full(16, np.nan, np.float32)
+        run_emulator(ck, (12,), {"a_ptr": a, "b_ptr": b, "c_ptr": c, "n": n})
+        expected = [a + b.sum(0), ab, n * ab, ab if n else 0 * ab, 3 * ab][where]
+        np.testing.assert_allclose(c, expected, rtol=1e-5, atol=1e-5)
+
+
+def test_zero_write_keeps_the_swapped_traffic(monkeypatch):
+    """add (no dot, emu size: 4 programs per slice): with TMU_NOSWAP=0 every
+    physical TMU serves the requests and lines it serves with the switch off."""
+    stats = {}
+    for value in ("0", "1"):
+        monkeypatch.setenv("PITON_TMU_NOSWAP", value)
+        case = CASES_BY_NAME["add"]
+        ck, run = compile_case(case, "emu")
+        assert ck.stats.get("tmu_noswap") == (0 if value == "1" else None)
+        values = {k: (v.copy() if isinstance(v, np.ndarray) else v) for k, v in run.inputs.values.items()}
+        stats[value] = run_emulator(ck, run.grid, values)
+    for key in ("tmu_unit_requests", "tmu_unit_lines"):
+        assert stats["1"][key] == stats["0"][key]
+    assert len(stats["1"]["tmu_unit_requests"]) > 1
 
 
 # ---------------------------------------------------------------------------
@@ -561,8 +760,10 @@ def _check(case, ck, run, grid=None):
 
 @pytest.mark.parametrize("case", CASES, ids=[c.name for c in CASES])
 def test_suite_case_with_noswap(noswap_on, case):
+    """1 in the dot kernels (none is coarsened at emu size), 0 in the rest."""
     ck, run = compile_case(case, "emu")
-    assert ck.coarsen == 1 and ck.stats.get("tmu_noswap") == 1 and _noswap_writes(ck) == [0]
+    value = _expected_noswap(case, ck)
+    assert ck.coarsen == 1 and ck.stats.get("tmu_noswap") == value and _noswap_values(ck) == [value]
     assert _noswap_path_errors(ck.words) == []
     _check(case, ck, run)
 
@@ -571,16 +772,18 @@ def test_suite_case_with_noswap(noswap_on, case):
 # row_sum, row_max 32k instructions, transpose 242k, softmax 300k.  The other
 # plain ones run 0.8-1.7M (exp ... idiv: 1024 programs, the first 16 here;
 # compute_peak, matmul) or more (mandel); copy ... scaled_relu and dense_relu
-# are coarsened at Pi size and keep the swap.
+# are coarsened at Pi size and write 0.
 PI_RUNS = {"row_sum": None, "row_max": None, "transpose": None, "softmax": None,
            **dict.fromkeys(("exp", "exp2", "log", "log2", "recip", "rsqrt", "sqrt", "idiv"), (16,))}
 
 
 @pytest.mark.parametrize("case", CASES, ids=[c.name for c in CASES])
 def test_suite_case_at_pi_size_with_noswap(noswap_on, case):
+    """1 in the plain dot builds (matmul), 0 in the coarsened ones (dense_relu)
+    and the rest."""
     ck, run = compile_case(case, "pi")
-    assert bool(ck.stats.get("tmu_noswap")) == (ck.coarsen == 1)
-    assert _noswap_writes(ck) == ([0] if ck.coarsen == 1 else [])
+    value = _expected_noswap(case, ck)
+    assert ck.stats.get("tmu_noswap") == value and _noswap_values(ck) == [value]
     assert _noswap_path_errors(ck.words) == []
     if case.name in PI_RUNS and ck.coarsen == 1:          # (PITON_ISSUE coarsens recip at Pi size)
         _check(case, ck, run, PI_RUNS[case.name])
@@ -590,13 +793,14 @@ def test_suite_case_at_pi_size_with_noswap(noswap_on, case):
 @pytest.mark.parametrize("name", ["row_sum", "exp", "softmax", "transpose", "matmul_8x64x4", "matmul_8x64x8",
                                   "dense_relu", "mandel_16x16x2"])
 def test_noswap_pi_builds_assemble_with_vc4asm(noswap_on, monkeypatch, name):
-    """Pi-size builds with TMU_NOSWAP (dense_relu built plain): vc4asm
-    assembles our .qasm to the same words and its verifier (-V) reports
-    nothing."""
+    """Pi-size builds with TMU_NOSWAP, 1 in the dot kernels (dense_relu built
+    plain) and 0 in the others: vc4asm assembles our .qasm to the same words
+    and its verifier (-V) reports nothing."""
     if name == "dense_relu":
         monkeypatch.setenv("PITON_PERSISTENT", "0")
-    ck, _ = compile_case(CASES_BY_NAME[name], "pi")
-    assert ck.stats.get("tmu_noswap") == 1
+    case = CASES_BY_NAME[name]
+    ck, _ = compile_case(case, "pi")
+    assert _noswap_values(ck) == [_expected_noswap(case, ck)]
     words, warnings = vc4asm_assemble(ck.asm["qasm"], verify=True)
     assert words == [int(w) for w in ck.words]
     assert not warnings, warnings[:5]
