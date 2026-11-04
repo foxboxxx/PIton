@@ -329,7 +329,7 @@ class Lowering:
         self.in_pipelined_body = False
         self.exit_ifs = {}           # scf.if -> exit label of the loop it guards (fast_branches)
         # PITON_MM (compiler._mm_options): parts on, tt.dot -> its MMPlan, and the
-        # transposed dense parts of transposed A pointers (by their registers)
+        # column-block views of A pointers' dense parts (by their registers)
         self.mm = options.get("mm") or frozenset()
         self.mm_plans = {}
         self.mm_tdense = {}
@@ -4578,7 +4578,8 @@ class LoopStream:
             ld = plan.a_load
             ptr = lw.get(ld.operands[0])
             mask = lw.as_pred(lw.get(ld.operands[1])) if ld.attrs.get("has_mask") else None
-            if isinstance(ptr, Affine) and _mm_view_ok(ptr, plan.w, True) and (mask is None or _mm_view_ok(mask, plan.w)):
+            if isinstance(ptr, Affine) and _mm_view_ok(ptr, plan.w, True) \
+                    and (mask is None or _mm_view_ok(mask, plan.w)):
                 if ptr.dense is not None:
                     key = tuple(id(r) for r in ptr.dense.regs)
                     if key not in lw.mm_tdense:

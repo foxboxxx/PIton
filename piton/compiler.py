@@ -163,11 +163,11 @@ def _mm_options() -> dict:
              k step receiving the next step's registers spread over its
              rows (not all of A and a B row at the top of the iteration),
              A straight into accumulators
-    at    -- with order: A loaded transposed (lanes along M), so the k
-             steps of one A register follow each other and two
-             accumulators hold A, the next register arriving while the
-             current one is broadcast (not every register of the tile
-             cached or reloaded in each k step)
+    at    -- with order: A loaded as its 16 / M-column blocks (a register
+             holds every row of 16 / M consecutive k), so two accumulators
+             hold A, the next register arriving while the current one is
+             broadcast, instead of every row-major register being cached
+             or reloaded in each k step (an M-row TMU gather per request)
     rp    -- with order: B row addresses from an accumulator, so the TMU
              requests can share the broadcasts' instructions (a rotation
              takes regfile B's read port)
