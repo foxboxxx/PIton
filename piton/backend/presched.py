@@ -42,6 +42,8 @@ from .mir import Function, MInst, VReg
 # values over ones on the critical path (4 accumulators + 2 x 31 regfile
 # entries, leaving room for values live across the block).
 PRESSURE_LIMIT = 48
+# _cycle_order: the same limit counting values live through the block
+REGISTERS = int(__import__("os").environ.get("PITON_ISSUE_REGS", "50"))
 
 
 def _pure(ins: MInst) -> bool:
@@ -95,7 +97,7 @@ def schedule_block(insts: list, flags: bool = False) -> list:
     succs = [set() for _ in range(n)]
     preds = [set() for _ in range(n)]
 
-    def edge(a, b):
+    def edge(a, b, lat=1):
         if a != b and b not in succs[a]:
             succs[a].add(b)
             preds[b].add(a)
@@ -108,7 +110,7 @@ def schedule_block(insts: list, flags: bool = False) -> list:
 
 def _data_edges(insts, edge, pure, flag_edges):
     """Register, side-effect and barrier edges (and, with flag_edges, every
-    flag write and read in program order)."""
+    flag write and read in program order); edge(a, b, latency)."""
     last_def, readers = {}, {}
     last_flag_write, flag_readers = None, []
     last_ordered, last_barrier = None, None
@@ -120,7 +122,7 @@ def _data_edges(insts, edge, pure, flag_edges):
             if v in last_def:
                 edge(last_def[v], j)                  # WAW
             for r in readers.get(v, ()):
-                edge(r, j)                            # WAR
+                edge(r, j, 0)                         # WAR
         if flag_edges:
             if ins.reads_flags and last_flag_write is not None:
                 edge(last_flag_write, j)
@@ -214,11 +216,13 @@ def _grouped_order(insts):
             return None
     succs = [set() for _ in range(n)]
     preds = [set() for _ in range(n)]
+    lat = {}
 
-    def edge(a, b):
-        if a != b and b not in succs[a]:
+    def edge(a, b, k=1):
+        if a != b:
             succs[a].add(b)
             preds[b].add(a)
+            lat[a, b] = max(lat.get((a, b), 0), k)
 
     pure = [_pure(i) or _flag_only(i) for i in insts]
     _data_edges(insts, edge, pure, flag_edges=False)
@@ -260,9 +264,130 @@ def _grouped_order(insts):
                         seen.add(p)
                         stack.append(p)
                 else:
-                    edge(p, w)
-    order = _list_schedule(insts, succs, preds, writer=writer, live_in=live_in)
+                    edge(p, w, 0)
+    order = _cycle_order(insts, succs, preds, lat, writer, live_in)
     return order if len(order) == n else None
+
+
+def _units(ins: MInst) -> list:
+    """ALUs an instruction needs in _cycle_order: 'add' / 'mul' / 'any' per op
+    ('all' for a load immediate or semaphore, nothing for a bare signal)."""
+    if ins.kind != "alu":
+        return ["all"]
+    return [op.unit for op in ins.ops if op.op != "r4def"]
+
+
+def _cycle_order(insts, succs, preds, lat, writer, live_in):
+    """Order from a cycle-by-cycle model of the scheduler: per instruction one
+    add-ALU op, one mul-ALU op and one signal, edge latencies, and the flag
+    groups (one open at a time; a flag write never shares an instruction with
+    a conditional op). Picks by critical-path height (pressure-limited, as
+    _list_schedule); an op for either ALU takes the mul ALU while an add-only
+    op waits. Returns a shorter list if it gets stuck."""
+    n = len(insts)
+    height = [1] * n
+    for i in range(n - 1, -1, -1):
+        for t in succs[i]:
+            height[i] = max(height[i], height[t] + max(lat[i, t], 1))
+    units = [_units(ins) for ins in insts]
+    add_only = [bool(u) and all(x == "add" for x in u) for u in units]
+    remaining = {}
+    for ins in insts:
+        for v in ins.uses():
+            remaining[v] = remaining.get(v, 0) + 1
+    live = set()
+    # values read before any write here (constants, carried values) hold registers too
+    through, defined = set(), set()
+    for ins in insts:
+        through.update(v for v in ins.uses() if v not in defined)
+        defined.update(ins.defs())
+    limit = max(8, REGISTERS - len(through))
+    waiting = [len(p) for p in preds]
+    earliest = [0] * n
+    ready = [i for i in range(n) if waiting[i] == 0]
+    order = []
+    open_readers = set(live_in)
+    cycle = 0
+    idle = 0
+    while len(order) < n:
+        free = {"add": True, "mul": True, "sig": True}
+        has_cond = has_setf = False
+        placed = False
+        while True:
+            cands = [i for i in ready if earliest[i] <= cycle]
+            if open_readers:
+                cands = [i for i in cands if i not in writer]
+            if not cands:
+                break
+            if len(live) >= limit:
+                def key(i):
+                    frees = sum(1 for v in set(insts[i].uses())
+                                if remaining.get(v, 0) == insts[i].uses().count(v))
+                    return (frees - len(insts[i].defs()), height[i], -i)
+            else:
+                def key(i):
+                    return (height[i], -i)
+            cands.sort(key=key, reverse=True)
+            waits_add = any(add_only[i] for i in cands)
+            took = None
+            for i in cands:
+                ins = insts[i]
+                if ins.writes_flags and has_cond or ins.reads_flags and has_setf:
+                    continue
+                if ins.sig is not None and not free["sig"]:
+                    continue
+                need = units[i]
+                if need == ["all"]:
+                    if not (free["add"] and free["mul"] and free["sig"]):
+                        continue
+                    free = {"add": False, "mul": False, "sig": False}
+                    took = i
+                    break
+                trial = dict(free)
+                ok = True
+                for u in need:
+                    if u == "any":
+                        u = "mul" if (waits_add or not trial["add"]) and trial["mul"] else "add"
+                    if not trial[u]:
+                        ok = False
+                        break
+                    trial[u] = False
+                if not ok:
+                    continue
+                if ins.sig is not None:
+                    trial["sig"] = False
+                free = trial
+                took = i
+                break
+            if took is None:
+                break
+            i = took
+            placed = True
+            ready.remove(i)
+            order.append(i)
+            ins = insts[i]
+            has_cond = has_cond or ins.reads_flags
+            has_setf = has_setf or ins.writes_flags
+            if i in writer:
+                open_readers = set(writer[i])
+            open_readers.discard(i)
+            for v in ins.uses():
+                remaining[v] -= 1
+                if remaining[v] == 0:
+                    live.discard(v)
+            for v in ins.defs():
+                if remaining.get(v, 0):
+                    live.add(v)
+            for t in succs[i]:
+                earliest[t] = max(earliest[t], cycle + lat[i, t])
+                waiting[t] -= 1
+                if waiting[t] == 0:
+                    ready.append(t)
+        idle = 0 if placed else idle + 1
+        if idle > 8 and not any(earliest[i] > cycle for i in ready):
+            break                       # stuck (only writers while a group is open)
+        cycle += 1
+    return order
 
 
 def _descendants(i, succs, n) -> int:
