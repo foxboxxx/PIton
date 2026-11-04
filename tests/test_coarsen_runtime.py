@@ -5,8 +5,8 @@ hardware program (ck.coarsen, PITON_PERSISTENT, compiler._coarsening). With
 the switch on, the program reads the launch's factor, 1 ... ck.coarsen, from
 uniform coarsen0 (Lowering.begin_programs), and every launch path chooses it
 from the launched grid as _coarsening chooses it from a known one
-(runtime/launcher.py launch_coarsen): ck.coarsen for at least COARSEN_MIN_GRID
-programs, halved until COARSEN_MIN_PROGRAMS hardware programs remain, and 1
+(runtime/launcher.py launch_coarsen): ck.coarsen for at least COARSEN_LAUNCH_MIN_GRID
+programs, halved until COARSEN_LAUNCH_MIN_PROGRAMS hardware programs remain, and 1
 below, so a small launch runs the plain program's ids, one hardware program
 each. A forced factor (PITON_PERSISTENT=k) runs k ids in every launch. Every
 run is strict-emulated and compared bit for bit with the plain build.
@@ -47,7 +47,7 @@ from test_store_slots import contended  # noqa: E402
 from test_store_slots_protocol import protocol_errors  # noqa: E402
 
 rng = np.random.default_rng(31)
-LAUNCH = (compiler.COARSEN_MIN_GRID, compiler.COARSEN_MIN_PROGRAMS)
+LAUNCH = (compiler.COARSEN_LAUNCH_MIN_GRID, compiler.COARSEN_LAUNCH_MIN_PROGRAMS)
 
 
 @pytest.fixture
@@ -98,9 +98,9 @@ def _only(real, reload):
 
 def _expected_factor(k, gx):
     """compiler._coarsening's rule for a grid of gx programs and at most k ids."""
-    if gx < compiler.COARSEN_MIN_GRID:
+    if gx < LAUNCH[0]:
         return 1
-    while k > 1 and gx // k < compiler.COARSEN_MIN_PROGRAMS:
+    while k > 1 and gx // k < LAUNCH[1]:
         k //= 2
     return k
 
@@ -123,31 +123,32 @@ def test_switch(env, monkeypatch):
         assert ("coarsen", "coarsen0") not in ck.uniforms
         off.append((list(ck.words), ck.uniforms))
     assert off[0] == off[1] == off[2]
-    plain = _add(64, (64,))
+    plain = _add(64, (32,))
     env(1)
     on = _add(64)
     assert on.coarsen == 4 and on.coarsen_launch == LAUNCH and on.stats["coarsen_runtime"] == 1
     assert on.uniforms[on.uniforms.index(("nprog", "nprog0")) + 1] == ("coarsen", "coarsen0")
     assert "chosen per launch" in on.asm["qasm"]
-    again = _add(64, (64,))
+    again = _add(64, (32,))
     assert again.coarsen == 1 and list(again.words) == list(plain.words) and again.uniforms == plain.uniforms
 
 
 def test_factor_follows_the_launched_grid(env):
     """One build for 1024 programs: each launch gets the factor a build for
-    exactly its grid would have had (k = 4 for >= 512 programs, 2 for 256-511,
+    exactly its grid would have had (k = 4 for >= 128 programs, 2 for 64-127,
     1 below)."""
     env(1)
     on = _add(64)
-    grids = (1, 2, 13, 128, 255, 256, 257, 300, 511, 512, 513, 777, 1024)
+    grids = (1, 2, 13, 63, 64, 65, 127, 128, 255, 256, 300, 512, 1024)
     got = [launch_coarsen(on, (gx,)) for gx in grids]
-    assert got == [_expected_factor(4, gx) for gx in grids] == [1] * 5 + [2] * 4 + [4] * 4
-    env(1, runtime=False)
-    for gx in (255, 256, 511, 512, 1024):
+    assert got == [_expected_factor(4, gx) for gx in grids] == [1] * 4 + [2] * 3 + [4] * 6
+    for gx in (63, 64, 127, 128, 1024):
         assert _add(64, (gx,)).coarsen == launch_coarsen(on, (gx,)), gx
     # the launch decides, not the grid the build is for
-    env(1)
-    assert launch_coarsen(_add(64, (4096,)), (300,)) == 2
+    assert launch_coarsen(_add(64, (4096,)), (100,)) == 2
+    # the switch off keeps the compile-time thresholds
+    env(1, runtime=False)
+    assert [_add(64, (gx,)).coarsen for gx in (128, 255, 256, 512)] == [1, 1, 2, 4]
 
 
 def test_forced_factor_runs_in_every_launch(env):
@@ -186,10 +187,10 @@ def test_factor_in_the_code_wins(env, fake_pi):
 
 # -- one build, small and large launches ----------------------------------------------------
 
-@pytest.mark.parametrize("block,grids", [(64, (1, 13, 255, 256, 301, 513)), (128, (5, 257, 513))])
+@pytest.mark.parametrize("block,grids", [(64, (1, 13, 63, 64, 100, 128, 301, 513)), (128, (5, 100, 257, 513))])
 def test_small_and_large_launches(env, block, grids):
     """BLOCK 64: private VPM rows, 128: store slots. Each launch of the one
-    build is bit-identical to the plain build: below 256 programs it runs one
+    build is bit-identical to the plain build: below 64 programs it runs one
     id per hardware program, a few loop instructions more than the plain
     program; at full k it executes at most two instructions per hardware
     program more than the build with k fixed at compile time."""
@@ -301,7 +302,7 @@ def test_store_slots_under_contention(env):
     ck = compiler.compile(copy_kernel, COPY_SIG, {"BLOCK": 256}, grid=(1024,))
     assert ck.coarsen == 4 and ck.coarsen_launch == LAUNCH and ck.stats["store_slots"] == 1
     assert protocol_errors(ck.program) == []
-    for gx, ks in ((5, (None, 2, 4)), (9, (3,)), (257, (None,))):
+    for gx, ks in ((5, (None, 2, 4)), (9, (3,)), (100, (None,))):
         n = gx * 256 - 9
         values = {"x_ptr": rng.standard_normal(n).astype(np.float32), "out_ptr": np.zeros(n, np.float32), "n": n}
         want, _ = _run(plain, (gx,), values)
@@ -310,7 +311,7 @@ def test_store_slots_under_contention(env):
             got, _ = _run(ck, (gx,), values, coarsen=k, v3d=v3d)
             assert v3d.sems == [0] * 16
             _same(want, got, f"grid {gx} k={k}")
-    assert launch_coarsen(ck, (5,)) == 1 and launch_coarsen(ck, (257,)) == 2
+    assert launch_coarsen(ck, (5,)) == 1 and launch_coarsen(ck, (100,)) == 2
 
 
 def test_digits_dense_layer(env):
@@ -329,7 +330,7 @@ def test_digits_dense_layer(env):
     env(1)
     ck = compiler.compile(dense_layer_kernel, sig, constants, grid=full)
     assert ck.coarsen == 2 and ck.coarsen_launch == LAUNCH
-    assert [launch_coarsen(ck, (g,)) for g in (2, 8, 32, 128, 255, 256, 900)] == [1] * 5 + [2] * 2
+    assert [launch_coarsen(ck, (g,)) for g in (2, 8, 32, 63, 64, 128, 900)] == [1] * 4 + [2] * 3
     w = rng.standard_normal((k_in, n)).astype(np.float32)
     bias = rng.standard_normal(n).astype(np.float32)
     for rows in (4, 20):
@@ -357,11 +358,11 @@ def count_kernel(cnt_ptr, BLOCK: tl.constexpr):
 @pytest.mark.parametrize("persistent", [1, 4])
 def test_every_id_runs_once(env, persistent):
     """Every factor 1 ... 4 (and the launch's own) of one build on grids below,
-    at and above k, not multiples of it, and around COARSEN_MIN_GRID."""
+    at and above k, not multiples of it, and around the launch thresholds."""
     env(persistent)
     ck = compiler.compile(count_kernel, {"cnt_ptr": "*i32"}, {"BLOCK": 16}, grid=(1024,))
     assert ck.coarsen == 4 and ("coarsen", "coarsen0") in ck.uniforms
-    for gx in (1, 2, 3, 4, 5, 7, 9, 255, 256, 257, 1023):
+    for gx in (1, 2, 3, 4, 5, 7, 9, 63, 64, 65, 127, 128, 129, 255, 256, 1023):
         for k in (None, 3) if gx > 9 else (None, 1, 2, 3, 4):
             got, _ = _run(ck, (gx,), {"cnt_ptr": np.zeros((gx + 8) * 16, np.int32)}, coarsen=k)
             got = got["cnt_ptr"].reshape(-1, 16)
@@ -499,13 +500,13 @@ def test_generated_c_launcher(env, monkeypatch, tmp_path, which):
     large gx, one build) and writes the same uniforms as uniforms_for, with
     both uniform protocols; copy goes through piton_launch_slots; ids_kernel's
     forced factor holds for every 2-D launch; dense is examples/digits_pi.py's
-    first layer (batches of 1, 16, 256 and 1800 rows)."""
+    first layer (batches of 1, 16, 64, 256 and 1800 rows)."""
     monkeypatch.setenv("PITON_SLOTS_ONCE", "0")     # the stub runtime logs init and fini
     reloads = (False, True)
     if which == "add":
         kernel, sig, cons, grid = add_kernel, ADD_SIG, {"BLOCK_SIZE": 64}, (1024,)
         args = {"x_ptr": 0x1000, "y_ptr": 0x2000, "output_ptr": 0x3000, "n_elements": 777 * 64}
-        grids = [(1, 1, 1), (13, 1, 1), (255, 1, 1), (256, 1, 1), (300, 1, 1), (511, 1, 1), (512, 1, 1),
+        grids = [(1, 1, 1), (13, 1, 1), (63, 1, 1), (64, 1, 1), (100, 1, 1), (127, 1, 1), (128, 1, 1),
                  (777, 1, 1), (1024, 1, 1)]
         env(1)
     elif which == "copy":
@@ -526,7 +527,7 @@ def test_generated_c_launcher(env, monkeypatch, tmp_path, which):
         cons = dict(N=128, K=64, BLOCK_SIZE_M=bm, BLOCK_SIZE_N=bn, BLOCK_SIZE_K=bk, GROUP_SIZE_M=1,
                     ADD_BIAS=True, RELU=True)
         args = {"x_ptr": 0x1000, "w_ptr": 0x2000, "bias_ptr": 0x3000, "y_ptr": 0x4000, "M": 4}
-        grids = [(2, 1, 1), (8, 1, 1), (128, 1, 1), (900, 1, 1)]
+        grids = [(2, 1, 1), (8, 1, 1), (32, 1, 1), (128, 1, 1), (900, 1, 1)]
         reloads = (False,)                  # (the build it chooses)
         env(1)
     values = {n: (f2u(v) if isinstance(v, float) else v) for n, v in args.items()}
@@ -557,7 +558,7 @@ def test_generated_c_launcher(env, monkeypatch, tmp_path, which):
     if which == "add":
         assert [launch_coarsen(ck, g) for g in grids] == [1, 1, 1, 2, 2, 2, 4, 4, 4]
     if which == "dense":
-        assert [launch_coarsen(ck, g) for g in grids] == [1, 1, 1, 2]
+        assert [launch_coarsen(ck, g) for g in grids] == [1, 1, 1, 2, 2]
 
 
 def test_generated_c_without_the_switch(env):
@@ -725,12 +726,12 @@ def _want(ck, gx):
 def test_run_on_pi(env, fake_pi):
     env(1)
     ck = _add(64)
-    for gx in (13, 300, 600):
+    for gx in (13, 100, 600):
         values = _add_values(gx, 64)
         pi.run_on_pi(ck, (gx,), values)
         words, programs = fake_pi[-1]
         assert words == list(ck.words) and _ids(ck, programs) == _want(ck, gx)
-    assert [launch_coarsen(ck, (gx,)) for gx in (13, 300, 600)] == [1, 2, 4]
+    assert [launch_coarsen(ck, (gx,)) for gx in (13, 100, 600)] == [1, 2, 4]
 
 
 def test_profile_run_case(env, fake_pi):
