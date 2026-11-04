@@ -26,6 +26,10 @@ class CompiledKernel:
     constants: dict
     asm: dict = field(default_factory=dict)
     stats: dict = field(default_factory=dict)
+    # logical program ids per hardware program along axis 0 (PITON_PERSISTENT):
+    # launch ceil(grid[0] / coarsen) programs; uniform "pid0" is the hardware
+    # program's index, "nprog0" the logical grid
+    coarsen: int = 1
 
     @property
     def words(self):
@@ -227,6 +231,101 @@ def _compile_tile(fn, signature, constants, name, pid_max, options, chunk: int =
     return tile, prog, mf, lw, stats, asm
 
 
+# PITON_PERSISTENT=1 coarsens known 1-D grids of at least COARSEN_MIN_GRID
+# programs (21 per QPU) by the largest power of two up to COARSEN_MAX (short
+# program ids) or COARSEN_MAX_LONG that leaves COARSEN_MIN_PROGRAMS hardware
+# programs. The Pi BLOCK sweeps (perf/results/tune-2026-11-03-*.json) ran
+# 128-512 programs about equally fast and 64 (5 per QPU) 3-9% slower: the last
+# programs leave QPUs idle. With 256 programs of ~90 us (idiv at 4x BLOCK)
+# that tail cost 2% more than the per-program start saved, so ids that run
+# more than COARSEN_SHORT instructions, or run-time loops, get at most 2.
+COARSEN_MIN_GRID = 256
+COARSEN_MIN_PROGRAMS = 128
+COARSEN_MAX = 4
+COARSEN_MAX_LONG = 2
+COARSEN_SHORT = 1500
+# Fewer hardware programs leave a less even last round on the 12 QPUs, which
+# costs compute-bound kernels 2-6% (Pi, 2026-11-03: recip 0.975x, rsqrt 0.966x,
+# idiv 0.940x at 1.9-2.7 bytes per instruction) while kernels that wait on
+# memory gain (add/mul/fma 1.21-1.29x, dense_relu 1.12x at 8.2-8.9).
+COARSEN_MIN_BYTES = 4              # bytes loaded and stored per executed instruction
+
+
+def _id_length(tile, prog: Program, mf) -> Optional[int]:
+    """Instructions one program id executes at most: code outside loops once,
+    code inside them times the trip count of every loop (None when a loop runs
+    a run-time count). (With store slots the store after a rerolled loop, with
+    its four slot copies of acquire and release, is ~40% of the program.)"""
+    trips = 1
+    for op in tile.walk():
+        if op.name != "scf.for":
+            continue
+        lb, ub, step = (v.op.attrs["value"] if v.op is not None and v.op.name == "arith.constant" else None
+                        for v in op.operands[:3])
+        if lb is None or ub is None or not step or step < 0:
+            return None
+        trips *= max(1, -(-(ub - lb) // step))
+    depth = {b.label: b.loop_depth for b in mf.blocks}
+    starts = sorted((idx, label) for label, idx in prog.labels.items())
+    bounds = [idx for idx, _ in starts] + [len(prog.instrs)]
+    n, current = bounds[0], 0               # code before the first label: depth 0
+    for (idx, label), end in zip(starts, bounds[1:]):
+        current = depth.get(label, current)
+        n += (end - idx) * (trips if current else 1)
+    return n
+
+
+def _id_bytes(tile) -> Optional[int]:
+    """Bytes one program id loads and stores: every tensor load and store,
+    times the trip counts of its loops (None when a loop runs a run-time count)."""
+    def walk(block, trips):
+        n = 0
+        for op in block.ops:
+            if op.name in ("tt.load", "tt.store"):
+                n += trips * 4 * max(1, (op.result if op.name == "tt.load" else op.operands[1]).numel)
+            inner = trips
+            if op.name == "scf.for":
+                lb, ub, step = (v.op.attrs["value"] if v.op is not None and v.op.name == "arith.constant" else None
+                                for v in op.operands[:3])
+                if lb is None or ub is None or not step or step < 0:
+                    return None
+                inner = trips * max(1, -(-(ub - lb) // step))
+            for r in op.regions:
+                m = walk(r, inner)
+                if m is None:
+                    return None
+                n += m
+        return n
+    return walk(tile.body, 1)
+
+
+def _coarsening(tile, pid_max, id_length) -> int:
+    """Logical program ids per hardware program along axis 0 (PITON_PERSISTENT):
+    unset or 1 -> automatic, 0 -> 1 (one hardware program per id), k >= 2 -> k
+    for every grid. Kernels that never read tl.program_id(0) are not coarsened.
+    id_length() is _id_length of the plain build."""
+    env = os.environ.get("PITON_PERSISTENT", "1")
+    try:
+        want = int(env)
+    except ValueError:
+        raise ValueError(f"PITON_PERSISTENT={env!r}: expected 0, 1 or a factor >= 2") from None
+    if want <= 0 or not any(op.name == "tt.get_program_id" and op.attrs["axis"] == 0
+                            for op in tile.walk()):
+        return 1
+    bound = None if pid_max is None else pid_max[0] + 1
+    if want >= 2:
+        return want if bound is None else max(1, min(want, bound))
+    if bound is None or any(pid_max[1:]) or bound < COARSEN_MIN_GRID:
+        return 1
+    length = id_length()
+    if length is not None and (_id_bytes(tile) or 0) < COARSEN_MIN_BYTES * length:
+        return 1
+    k = COARSEN_MAX if length is not None and length <= COARSEN_SHORT else COARSEN_MAX_LONG
+    while k > 1 and bound // k < COARSEN_MIN_PROGRAMS:
+        k //= 2
+    return k
+
+
 def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stages: int = 2,
             name: Optional[str] = None, verify: bool = True, store_mutex: bool = True,
             grid=None) -> CompiledKernel:
@@ -249,7 +348,7 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
                # stores through shared 16-row VPM slots (backend/lower.py); PITON_STORE_SLOTS=0: private rows
                "store_slots": os.environ.get("PITON_STORE_SLOTS", "1") not in ("", "0")}
     try:
-        tile, prog, lw, stats, asm = _compile_program(fn, signature, constants, name, pid_max, options)
+        tile, prog, lw, stats, asm, coarsen = _compile_program(fn, signature, constants, name, pid_max, options)
     except RegAllocError:
         # PITON_FAST_IDIV: the straight-line division keeps a whole tile's operands,
         # both results and the block's cached lane offsets and constants live at
@@ -257,22 +356,26 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
         # (e.g. offs // N and offs % N of a 16x16 tile) gets that one
         if not fast_idiv_enabled():
             raise
-        tile, prog, lw, stats, asm = _compile_program(fn, signature, constants, name, pid_max,
-                                                      dict(options, fast_idiv=False))
+        tile, prog, lw, stats, asm, coarsen = _compile_program(fn, signature, constants, name, pid_max,
+                                                               dict(options, fast_idiv=False))
         stats["fast_idiv_fallback"] = 1
     prog.header = [f"{tile.name}: compiled by PIton (Triton -> VideoCore IV QPU)",
                    "uniforms: " + ", ".join(n for _, n in lw.uniforms),
                    "constants: " + ", ".join(f"{k}={v}" for k, v in constants.items())]
+    if coarsen > 1:
+        prog.header.append(f"coarsened: {coarsen} program ids (axis 0) per hardware program")
     asm["qasm"] = prog.qasm()
     stats["instructions"] = len(prog.instrs)
-    ck = CompiledKernel(tile.name, prog, list(lw.uniforms), dict(signature), constants, asm, stats)
+    ck = CompiledKernel(tile.name, prog, list(lw.uniforms), dict(signature), constants, asm, stats,
+                        coarsen)
     if verify:
         prog.words()     # every instruction must encode
     return ck
 
 
 def _compile_program(fn, signature, constants, name, pid_max, options):
-    """compile() up to the scheduled program: straight-line, else rerolled."""
+    """compile() up to the scheduled program: straight-line, else rerolled;
+    with PITON_PERSISTENT, coarsened (returns the ids per hardware program too)."""
     # PITON_REROLL_REDUCE: "rows" (the default) also rerolls 1-D kernels with
     # row reductions (softmax: one loop per pass, reroll.py); "tiles" loads
     # transposed 2-D tiles through transposed pointers (transpose; off by
@@ -345,4 +448,37 @@ def _compile_program(fn, signature, constants, name, pid_max, options):
             sub //= 2
     if prog is None:
         raise unrolled_error
-    return tile, prog, lw, stats, asm
+    # Each program pays a start and a final wait for its last store DMA, so with
+    # many short programs one hardware program runs several program ids in a loop
+    # (Lowering.begin_programs), chunked like the plain build. The kernel's
+    # uniforms stay in registers or are re-read for every id, whichever is
+    # shorter. Constants hoisted out of that loop stay live through every id;
+    # without hoisting a kernel needs only ~3 registers more than its plain
+    # build. If no version allocates, the plain build stays; so does a plain
+    # build with store slots whose coarsened versions allocate only without
+    # them. (With slots every store waits for its DMAs before it releases the
+    # slot, so only the start is saved; the private rows' last DMA of an id
+    # still runs on into the next.)
+    coarsen = _coarsening(tile, pid_max, lambda: _id_length(tile, prog, mf))
+    if coarsen > 1:
+        best = None
+        for hoist in (True, False):
+            for reload in (False, True):
+                opts = dict(options, coarsen=coarsen, coarsen_reload=reload, coarsen_hoist=hoist)
+                try:
+                    built = _compile_tile(fn, signature, constants, name, pid_max, opts, stats["rerolled"])
+                except RegAllocError:
+                    continue
+                if stats.get("store_slots") and not built[4].get("store_slots"):
+                    # it allocated only with the private VPM rows: the plain
+                    # build's 1 KiB slot DMAs gain more than coarsening
+                    continue
+                if best is None or _weighted_length(built[1], built[2]) < _weighted_length(best[1], best[2]):
+                    best = built
+            if best is not None:
+                break
+        if best is None:
+            coarsen = 1
+        else:
+            tile, prog, mf, lw, stats, asm = best
+    return tile, prog, lw, stats, asm, coarsen

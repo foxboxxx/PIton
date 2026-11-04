@@ -89,11 +89,17 @@ def uniforms_for(ck: CompiledKernel, values: dict, addrs: dict, pid, grid, zero_
     return out
 
 
-def program_ids(grid):
+def program_ids(grid, coarsen: int = 1):
+    """(program ids, logical grid) for every hardware program of a launch.
+
+    A kernel compiled with coarsen=k (ck.coarsen, PITON_PERSISTENT) runs k
+    consecutive axis-0 ids per hardware program: there are ceil(gx / k) of them
+    along axis 0, each given its own index as pid0 and the logical grid."""
     gx, gy, gz = (list(grid) + [1, 1, 1])[:3]
+    hx = -(-gx // coarsen)
     for z in range(gz):
         for y in range(gy):
-            for x in range(gx):
+            for x in range(hx):
                 yield (x, y, z), (gx, gy, gz)
 
 
@@ -135,7 +141,7 @@ def run_emulator(ck: CompiledKernel, grid, values: dict, num_qpus: int = 12, str
     zero = v.mem.alloc(64, 64)
     scratch = v.mem.alloc(64, 64)
     unifs = []
-    for pid, g in program_ids(grid):
+    for pid, g in program_ids(grid, ck.coarsen):
         a = v.mem.alloc(4 * max(len(ck.uniforms), 1), 16)
         u = uniforms_for(ck, values, addrs, pid, g, zero, scratch, a)
         if u:

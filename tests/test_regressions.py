@@ -425,7 +425,8 @@ def test_program_ids_beyond_65535():
     vals = {"x_ptr": x, "o_ptr": x, "n": G * B}
     for p in pids:
         a = v.mem.alloc(4 * len(ck.uniforms), 16)
-        v.mem.write_words(a, np.array(uniforms_for(ck, vals, addrs, (p, 0, 0), (G, 1, 1), zero, scratch, a),
+        hw = (p // ck.coarsen, 0, 0)            # the hardware program running id p (PITON_PERSISTENT)
+        v.mem.write_words(a, np.array(uniforms_for(ck, vals, addrs, hw, (G, 1, 1), zero, scratch, a),
                                       dtype=np.uint32))
         unifs.append(a)
     v.run(v.load(ck.words), unifs)

@@ -431,7 +431,7 @@ def run_on_pi(ck, grid, values: dict, repeats: int = 1, runner: Optional[PiRunne
     buffers.append(Buffer("__zero", 64))
     buffers.append(Buffer("__scratch", 64))
     programs = []
-    for pid, g in program_ids(grid):
+    for pid, g in program_ids(grid, ck.coarsen):
         u = []
         for kind, name in ck.uniforms:
             if kind == "arg":
@@ -478,7 +478,7 @@ def bench_matmul_on_pi(ck, M: int, N: int, K: int, grid, args_after_ptrs: list, 
             Buffer("c", 4 * M * N), Buffer("__zero", 64), Buffer("__scratch", 64)]
     scal = dict(args_after_ptrs)
     programs = []
-    for pid, g in program_ids(grid):
+    for pid, g in program_ids(grid, ck.coarsen):
         u = []
         for kind, name in ck.uniforms:
             if kind == "arg":

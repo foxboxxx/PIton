@@ -189,7 +189,7 @@ def _rename(fn, old, new):
 def licm(fn) -> int:
     hoisted = 0
     for head, latch in _loops(fn):
-        if head == 0:
+        if head == 0 or fn.blocks[head].label in fn.no_licm:
             continue
         loop_blocks = fn.blocks[head:latch + 1]
         pre = fn.blocks[head - 1]
