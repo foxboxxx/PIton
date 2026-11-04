@@ -9,7 +9,7 @@ from typing import Optional
 
 from . import frontend, ir, passes, reroll
 from .backend import opt, presched
-from .backend.lower import Lowering, fast_idiv_enabled
+from .backend.lower import Lowering, MMUnsupported, fast_idiv_enabled
 from .backend.regalloc import PortHints, RegAllocError, allocate, clone_function
 from .backend.sched import schedule_function
 from .qpu.asm import Program
@@ -183,10 +183,11 @@ def _mm_options() -> dict:
 def _build(tile, ranges, options: dict, interleave: bool):
     """Lower, allocate and schedule; returns (program, mir, lowering, stats, mir dumps)."""
     if options.get("mm") and not options.get("mm_tried"):
-        # PITON_MM: a dot loop whose registers do not fit gets the plain dot
+        # PITON_MM: a dot loop whose registers do not fit, or whose operands
+        # take a form the MM dot does not handle, gets the plain dot
         try:
             return _build(tile, ranges, dict(options, mm_tried=True), interleave)
-        except RegAllocError:
+        except (RegAllocError, MMUnsupported):
             built = _build(tile, ranges, dict(options, mm=None), interleave)
             built[3]["mm_fallback"] = 1
             return built

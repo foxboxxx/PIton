@@ -77,6 +77,41 @@ def _a_used_twice(a_ptr, b_ptr, out_ptr, sum_ptr, K: tl.constexpr, BM: tl.conste
     tl.store(sum_ptr + m * BK + ak, s)
 
 
+@piton.jit
+def _a_dense_by_iteration(a_ptr, b_ptr, out_ptr, kmod, K: tl.constexpr, BM: tl.constexpr, BN: tl.constexpr,
+                          BK: tl.constexpr):
+    # A's columns `% kmod`: a dense pointer part that is lowered again in
+    # every environment of the loop (prologue, body, next iteration)
+    m = tl.arange(0, BM)[:, None]
+    n = tl.arange(0, BN)[None, :]
+    ak = tl.arange(0, BK)[None, :]
+    bk = tl.arange(0, BK)[:, None]
+    acc = tl.zeros((BM, BN), tl.float32)
+    for i in range(K // BK):
+        a = tl.load(a_ptr + m * K + (i * BK + ak) % kmod)
+        b = tl.load(b_ptr + (i * BK + bk) * BN + n)
+        acc = tl.dot(a, b, acc)
+    tl.store(out_ptr + m * BN + n, acc)
+
+
+@piton.jit
+def _a_mask_carried(a_ptr, b_ptr, out_ptr, k, BM: tl.constexpr, BN: tl.constexpr, BK: tl.constexpr):
+    # A's mask carried by the loop: a compare in the prologue, a dense
+    # predicate in the body
+    m = tl.arange(0, BM)[:, None]
+    n = tl.arange(0, BN)[None, :]
+    ak = tl.arange(0, BK)[None, :]
+    bk = tl.arange(0, BK)[:, None]
+    acc = tl.zeros((BM, BN), tl.float32)
+    amask = (m >= 0) & (ak < k)
+    for i in range(tl.cdiv(k, BK)):
+        a = tl.load(a_ptr + m * k + i * BK + ak, mask=amask, other=0.0)
+        b = tl.load(b_ptr + (i * BK + bk) * BN + n, mask=i * BK + bk < k, other=0.0)
+        acc = tl.dot(a, b, acc)
+        amask = (m >= 0) & ((i + 1) * BK + ak < k)
+    tl.store(out_ptr + m * BN + n, acc)
+
+
 MATMUL_SIG = {"a_ptr": "*fp32", "b_ptr": "*fp32", "c_ptr": "*fp32", "M": "i32", "N": "i32",
               "stride_am": "i32", "stride_bk": "i32", "stride_cm": "i32"}
 
@@ -391,3 +426,29 @@ def test_plan_order_and_spacing():
     row = lower.MMPlan(None, "A", "B", 4, 8, 4, 0)
     assert row.top == [("a", 0), ("a", 1)] + [("b", cb) for cb in range(4)]
     assert row.entries()[:3] == [("A", 0), ("A", 1), ("B", 0)]
+
+
+@pytest.mark.parametrize("kernel,bm,bn,bk", [(_a_dense_by_iteration, 8, 32, 8), (_a_dense_by_iteration, 16, 16, 4),
+                                             (_a_mask_carried, 8, 32, 8), (_a_mask_carried, 16, 16, 4)])
+def test_a_view_that_changes_in_the_loop_falls_back(monkeypatch, kernel, bm, bn, bk):
+    """The column-block view of A is checked in the prologue; a body (or
+    next-iteration) pointer whose dense part is lowered again, or a carried
+    mask that is dense there, has no free view: the build falls back to the
+    plain dot (it raised KeyError / AttributeError) with the same bits."""
+    if kernel is _a_dense_by_iteration:
+        k = 4 * bk
+        sig = {"a_ptr": "*fp32", "b_ptr": "*fp32", "out_ptr": "*fp32", "kmod": "i32"}
+        cons = dict(K=k, BM=bm, BN=bn, BK=bk)
+        extra = dict(kmod=k)
+    else:
+        k = 2 * bk + 3
+        sig = {"a_ptr": "*fp32", "b_ptr": "*fp32", "out_ptr": "*fp32", "k": "i32"}
+        cons = dict(BM=bm, BN=bn, BK=bk)
+        extra = dict(k=k)
+    rng = np.random.default_rng(180 + bm + bk)
+    a = rng.integers(-3, 4, (bm, k)).astype(np.float32)
+    b = rng.integers(-3, 4, (k, bn)).astype(np.float32)
+    values = dict(a_ptr=a, b_ptr=b, out_ptr=np.full((bm, bn), np.nan, np.float32), **extra)
+    out, ck = _off_and_on(monkeypatch, "1", kernel, sig, cons, (1,), values, ["out_ptr"])
+    np.testing.assert_array_equal(out["out_ptr"], a @ b)
+    assert ck.stats["mm_fallback"] == 1 and not ck.stats.get("mm_dots")

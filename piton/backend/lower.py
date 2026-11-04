@@ -3704,7 +3704,13 @@ class Lowering:
     def mm_view_a(self, x, shape, w):
         """A dot's A operand (M, K) pointer or mask as the (K / w, M, w) tile
         of its w-column blocks (MMPlan.w): register r holds A[:, w r : w r + w]
-        row-major.  Emits nothing (_mm_prepare checked mm_view_ok)."""
+        row-major.  Emits nothing (LoopStream._emitter checked _mm_view_ok,
+        and _mm_prepare permuted the pointer's dense part)."""
+        if isinstance(x, Affine) and x.dense is not None \
+                and tuple(id(r) for r in x.dense.regs) not in self.mm_tdense:
+            # e.g. a dense part that depends on the loop variable: its view
+            # would cost a permutation in every iteration
+            raise MMUnsupported("PITON_MM: A pointer's dense part differs from the prologue's")
         m, k = shape
         vshape = (k // w, m, w)
         if isinstance(x, Pred):
@@ -4520,6 +4526,11 @@ class LoopStream:
         if mask is not None and mask.kind == "const" and mask.value:
             mask = None
         if self.plan is not None and self.plan.w and ld is self.plan.a_load:
+            if not _mm_a_view_ok(ptr, mask, self.plan.w):
+                # _mm_prepare checked the prologue's pointer and mask; the body's
+                # (or the next iteration's) can take another form, e.g. a
+                # loop-carried mask, dense here, is a compare there
+                raise MMUnsupported("PITON_MM: A pointer or mask has no column-block view here")
             ptr = lw.mm_view_a(ptr, ld.result.shape, self.plan.w)
             mask = None if mask is None else lw.mm_view_a(mask, ld.result.shape, self.plan.w)
         if self.plan is not None and "rp" in lw.mm and ld is self.plan.b_load and mask is None:
@@ -4578,8 +4589,7 @@ class LoopStream:
             ld = plan.a_load
             ptr = lw.get(ld.operands[0])
             mask = lw.as_pred(lw.get(ld.operands[1])) if ld.attrs.get("has_mask") else None
-            if isinstance(ptr, Affine) and _mm_view_ok(ptr, plan.w, True) \
-                    and (mask is None or _mm_view_ok(mask, plan.w)):
+            if _mm_a_view_ok(ptr, mask, plan.w):
                 if ptr.dense is not None:
                     key = tuple(id(r) for r in ptr.dense.regs)
                     if key not in lw.mm_tdense:
@@ -4782,6 +4792,17 @@ def _other_fixup(ld) -> bool:
     if isinstance(other, float):
         return other != 0.0 or math.copysign(1.0, other) < 0
     return int(other) != 0
+
+
+class MMUnsupported(CompilationError):
+    """PITON_MM: the dot's loop takes a form the MM lowering does not handle
+    (compiler._build then builds the kernel with the plain dot)."""
+
+
+def _mm_a_view_ok(ptr, mask, w) -> bool:
+    """The A load's pointer and mask (None: unmasked) have free w-column-block
+    views (Lowering.mm_view_a)."""
+    return isinstance(ptr, Affine) and _mm_view_ok(ptr, w, True) and (mask is None or _mm_view_ok(mask, w))
 
 
 def _mm_view_ok(x, w, dense=False) -> bool:
