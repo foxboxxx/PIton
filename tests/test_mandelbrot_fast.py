@@ -11,6 +11,7 @@ import pytest
 import piton
 import piton.language as tl
 from piton import compiler
+from piton.qpu.asm import find_vc4asm, vc4asm_assemble
 from piton.qpu.emulator import _qpu_fadd, _qpu_fmul
 from piton.runtime.launcher import run_emulator
 
@@ -596,7 +597,8 @@ def test_level1_demo_builds(fast):
     """The HDMI demo's kernels as examples/mandelbrot_pi.py builds them (640 x
     480 grid, ROWS 8) at level 1: port-aware allocation is kept, the programs
     stay under the ~500-instruction cache, no store slots (at most 2 rows per
-    column block; TILE_H 8 does not fit the registers), and the boot check
+    column block; TILE_H 8 does not fit the registers), vc4asm -V assembles
+    the .qasm to the same words, and the boot check
     holds: each build's counts on the patch equal the expected counts, which
     come from the first configuration (the level-0 kernel gives the same)."""
     step = np.float32(3.5 / 100.0 / 640)
@@ -610,6 +612,9 @@ def test_level1_demo_builds(fast):
                               dict(BLOCK=block, UNROLL=16, ROWS=8, TILE_H=tile_h), grid=(640 // block, 480 // 8))
         assert ck.stats["port_alloc"] >= 1 and len(ck.words) < 500, (block, ck.stats["port_alloc"], len(ck.words))
         assert not ck.stats.get("store_slots")
+        if find_vc4asm() is not None:
+            words, warnings = vc4asm_assemble(ck.asm["qasm"], verify=True)
+            assert words == [int(w) for w in ck.words] and not warnings, warnings[:5]
         x0, y0, s, w, h, iters = patch
         vals = {"out_ptr": np.full(w * h, 0xFFFFFFFF, np.uint32), "palette_ptr": identity, "x0": x0, "y0": y0,
                 "step": s, "width": w, "pitch": w, "max_iter": iters}
