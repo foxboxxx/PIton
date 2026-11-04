@@ -15,6 +15,7 @@ from .backend.sched import schedule_function
 from .qpu.asm import Program
 
 PORT_ROUNDS = 4         # port-aware allocation attempts per build (PITON_PORT_ALLOC)
+PRESCHED_BIASES = [(3.0,), (3.0, 1.0, 0.5)]     # PITON_ISSUE: presched.py _cycle_order biases per build
 
 
 @dataclass
@@ -104,8 +105,7 @@ def _port_better(new: Program, new_mf, old: Program, old_mf) -> bool:
     return cost(new) < cost(old)
 
 
-def _port_aware(original, name: str, missed: list, copy_of: dict, rounds: int = PORT_ROUNDS,
-                issue: bool = False):
+def _port_aware(original, name: str, missed: list, copy_of: dict, rounds: int = PORT_ROUNDS):
     """Port-aware allocations of `original` (regalloc.py, "Port-aware file
     choice"), starting from the pairs the scheduler could not form with the
     plain allocation (`missed`, `copy_of`): each round allocates a fresh
@@ -121,7 +121,7 @@ def _port_aware(original, name: str, missed: list, copy_of: dict, rounds: int = 
             alloc = allocate(mf, hints=hints)
             dropped = opt.drop_self_moves(mf)
             missed = []
-            prog = schedule_function(mf, name, missed=missed, prefer_mul=issue)
+            prog = schedule_function(mf, name, missed=missed)
         except (RegAllocError, RuntimeError):
             return
         yield prog, mf, alloc, dropped
@@ -129,7 +129,7 @@ def _port_aware(original, name: str, missed: list, copy_of: dict, rounds: int = 
             return
 
 
-def _build(tile, ranges, options: dict, interleave: bool):
+def _build(tile, ranges, options: dict, interleave: bool, alphas=None):
     """Lower, allocate and schedule; returns (program, mir, lowering, stats, mir dumps)."""
     port_alloc = os.environ.get("PITON_PORT_ALLOC", "1") != "0"     # PITON_PORT_ALLOC=0: plain allocation only
     issue = options.get("issue", False)
@@ -138,7 +138,7 @@ def _build(tile, ranges, options: dict, interleave: bool):
         mf = lw.run()
         stats = dict(lw.stats)
         stats.update(opt.run(mf, issue=issue))
-        stats["presched_blocks"] = presched.run(mf, flags=issue) if interleave else 0
+        stats["presched_blocks"] = presched.run(mf, flags=issue, alphas=alphas) if interleave else 0
         mir = mf.dump()
         original = clone_function(mf) if port_alloc else None
         try:
@@ -156,15 +156,18 @@ def _build(tile, ranges, options: dict, interleave: bool):
     stats["self_moves_dropped"] = opt.drop_self_moves(mf)
     mir_alloc = mf.dump()
     missed = [] if original is not None else None
-    prog = schedule_function(mf, tile.name, missed=missed, prefer_mul=issue)
+    prog = schedule_function(mf, tile.name, missed=missed)
     if original is not None:
         # The plain allocation stays unless a port-aware one schedules shorter.
         stats["port_alloc"] = 0
-        for attempt, (p, f, a, dropped) in enumerate(_port_aware(original, tile.name, missed, alloc.copy_of,
-                                                                   issue=issue), 1):
+        for attempt, (p, f, a, dropped) in enumerate(_port_aware(original, tile.name, missed, alloc.copy_of), 1):
             if _port_better(p, f, prog, mf):
                 prog, mf, mir_alloc = p, f, f.dump()
                 stats.update(port_alloc=attempt, copies_inserted=a.copies_inserted, self_moves_dropped=dropped)
+    if issue:
+        # the chosen allocation again, each block also with either-ALU ops on the
+        # mul ALU (sched.py prefer_mul; never longer)
+        prog = schedule_function(mf, tile.name, prefer_mul=True)
     return prog, mf, lw, stats, mir, mir_alloc
 
 
@@ -193,15 +196,18 @@ def _compile_tile(fn, signature, constants, name, pid_max, options, chunk: int =
         # fit: the private VPM rows need fewer
         return _compile_tile(fn, signature, constants, name, pid_max, dict(options, store_slots=False), chunk)
     stats["presched"] = 0
-    candidate = None
     if os.environ.get("PITON_PRESCHED", "1") != "0":       # PITON_PRESCHED=0: A/B comparisons
-        try:
-            candidate = _build(tile, ranges, options, interleave=True)
-        except RegAllocError:
-            pass
-    if candidate is not None and _weighted_length(candidate[0], candidate[1]) < _weighted_length(prog, mf):
-        prog, mf, lw, stats, asm["mir"], asm["mir_alloc"] = candidate
-        stats["presched"] = 1
+        # PITON_ISSUE: flag groups ordered by the cycle model (presched.py), close to
+        # program order and also the best of three biases per block
+        sets = PRESCHED_BIASES if options.get("issue") else [None]
+        for k, alphas in enumerate(sets, 1):
+            try:
+                candidate = _build(tile, ranges, options, interleave=True, alphas=alphas)
+            except RegAllocError:
+                continue
+            if _weighted_length(candidate[0], candidate[1]) < _weighted_length(prog, mf):
+                prog, mf, lw, stats, asm["mir"], asm["mir_alloc"] = candidate
+                stats["presched"] = k
     stats["rerolled"] = chunk
     return tile, prog, mf, lw, stats, asm
 

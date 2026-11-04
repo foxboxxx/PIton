@@ -42,8 +42,12 @@ from .mir import Function, MInst, VReg
 # values over ones on the critical path (4 accumulators + 2 x 31 regfile
 # entries, leaving room for values live across the block).
 PRESSURE_LIMIT = 48
-# _cycle_order: the same limit counting values live through the block
-REGISTERS = int(__import__("os").environ.get("PITON_ISSUE_REGS", "50"))
+# _cycle_order: registers for block values and values live through the block
+REGISTERS = 50
+# _cycle_order: priority = height - bias * (program position); the original
+# order is one chain after another, so a bias staggers the chains (one runs
+# ahead while the next fills the idle ALU) instead of running them in lockstep
+DEFAULT_BIASES = (3.0, 1.0, 0.5)
 
 
 def _pure(ins: MInst) -> bool:
@@ -86,12 +90,12 @@ def _barrier(ins: MInst) -> bool:
     return ins.kind in ("branch", "sem") or ins.sig == "thrend"
 
 
-def schedule_block(insts: list, flags: bool = False) -> list:
+def schedule_block(insts: list, flags: bool = False, alphas=None) -> list:
     n = len(insts)
     if n < 3:
         return insts
     if flags:
-        order = _grouped_order(insts)
+        order = _grouped_order(insts, alphas)
         if order is not None:
             return [insts[i] for i in order]
     succs = [set() for _ in range(n)]
@@ -206,7 +210,7 @@ def _list_schedule(insts, succs, preds, writer=None, live_in=()):
     return order
 
 
-def _grouped_order(insts):
+def _grouped_order(insts, alphas):
     """The flag-group order (module docstring), or None to keep the old one."""
     n = len(insts)
     for j, ins in enumerate(insts):
@@ -265,8 +269,12 @@ def _grouped_order(insts):
                         stack.append(p)
                 else:
                     edge(p, w, 0)
-    order = _cycle_order(insts, succs, preds, lat, writer, live_in)
-    return order if len(order) == n else None
+    best = None
+    for alpha in alphas or DEFAULT_BIASES:
+        order, cycles = _cycle_order(insts, succs, preds, lat, writer, live_in, alpha)
+        if len(order) == n and (best is None or cycles < best[1]):
+            best = (order, cycles)
+    return best[0] if best is not None else None
 
 
 def _units(ins: MInst) -> list:
@@ -277,7 +285,7 @@ def _units(ins: MInst) -> list:
     return [op.unit for op in ins.ops if op.op != "r4def"]
 
 
-def _cycle_order(insts, succs, preds, lat, writer, live_in):
+def _cycle_order(insts, succs, preds, lat, writer, live_in, alpha=0.0):
     """Order from a cycle-by-cycle model of the scheduler: per instruction one
     add-ALU op, one mul-ALU op and one signal, edge latencies, and the flag
     groups (one open at a time; a flag write never shares an instruction with
@@ -326,7 +334,7 @@ def _cycle_order(insts, succs, preds, lat, writer, live_in):
                     return (frees - len(insts[i].defs()), height[i], -i)
             else:
                 def key(i):
-                    return (height[i], -i)
+                    return (height[i] - alpha * i, -i)
             cands.sort(key=key, reverse=True)
             waits_add = any(add_only[i] for i in cands)
             took = None
@@ -387,7 +395,7 @@ def _cycle_order(insts, succs, preds, lat, writer, live_in):
         if idle > 8 and not any(earliest[i] > cycle for i in ready):
             break                       # stuck (only writers while a group is open)
         cycle += 1
-    return order
+    return order, cycle
 
 
 def _descendants(i, succs, n) -> int:
@@ -402,12 +410,14 @@ def _descendants(i, succs, n) -> int:
     return out
 
 
-def run(fn: Function, flags: bool = False) -> int:
+def run(fn: Function, flags: bool = False, alphas=None) -> int:
     """Reorder every block in place; returns the number of blocks changed.
-    flags: let flag groups of independent chains interleave (PITON_ISSUE)."""
+    flags: let flag groups of independent chains interleave (PITON_ISSUE),
+    ordered by _cycle_order with the bias (of those in `alphas`) that it
+    models shortest."""
     changed = 0
     for b in fn.blocks:
-        new = schedule_block(b.insts, flags)
+        new = schedule_block(b.insts, flags, alphas)
         if any(x is not y for x, y in zip(new, b.insts)):
             b.insts = new
             changed += 1
