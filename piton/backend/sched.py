@@ -34,6 +34,12 @@ the switch:
     the plain one, the move, and the move with a bonus of 1, 2 or 5 cycles
     for ops of the ALU with more single-unit ops left) and the shortest
     schedule is kept (the earlier one on ties);
+  * a dot product's multiply-add pairs stay atomic, except that the add of
+    the last product before each A broadcast (lower.py op_tt_dot, MInst
+    `split`) may also be scheduled on its own: the broadcast's rotation
+    leaves the add ALU idle, and that add is the one op ready for it; both
+    forms are scheduled and the shorter kept (allocation still sees the
+    pair, so the joint form always encodes);
   * the pairs every one of those schedules missed for the read ports go to
     the port-aware allocation (regalloc.PortHints), each weighted by the
     share of schedules that missed it, so its next attempt does not depend
@@ -45,7 +51,7 @@ all latency and hazard rules hold for each.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from itertools import combinations
 from typing import Optional
 
@@ -316,7 +322,21 @@ def _node_for(i, m: MInst) -> Node:
     return Node(i, m, ops, res, list(m.ops))
 
 
-def build_dag(minsts) -> list:
+def _split_pairs(minsts) -> list:
+    """One MInst per op of each atomic MInst marked `split` (PITON_PAIR)."""
+    out = []
+    for m in minsts:
+        if m.split and m.atomic:
+            out += [replace(m, ops=[op], atomic=False, split=False) for op in m.ops]
+        else:
+            out.append(m)
+    return out
+
+
+def build_dag(minsts, split: bool = False) -> list:
+    """split: the ops of atomic MInsts marked `split` get a node each (PITON_PAIR)."""
+    if split:
+        minsts = _split_pairs(minsts)
     nodes = [_node_for(i, m) for i, m in enumerate(minsts)]
     last_w = {}
     readers = {}
@@ -542,16 +562,19 @@ def schedule_block(minsts, terminator: Optional[MInst] = None, missed: Optional[
     docstring; the later ones only while none reaches _lower_bound), and
     `missed` gets the pairs of all those built, each at weight / their
     number."""
-    nodes = build_dag(minsts)
     if not pair_enabled():
-        return _list_schedule(nodes, missed, weight)
+        return _list_schedule(build_dag(minsts), missed, weight)
     best, pairs, built = None, [], 0
-    bound = _lower_bound(nodes)
-    for swap, balance in PAIR_MODES:
-        out = _list_schedule(nodes, pairs if missed is not None else None, weight, swap, balance)
-        built += 1
-        if best is None or len(out) < len(best):
-            best = out
+    for split in (False, True) if any(m.split for m in minsts) else (False,):
+        nodes = build_dag(minsts, split)
+        bound = _lower_bound(nodes)
+        for swap, balance in PAIR_MODES:
+            out = _list_schedule(nodes, pairs if missed is not None else None, weight, swap, balance)
+            built += 1
+            if best is None or len(out) < len(best):
+                best = out
+            if len(best) <= bound:
+                break
         if len(best) <= bound:
             break
     if missed is not None:

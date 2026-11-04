@@ -84,6 +84,7 @@ class MInst:
     ops: list = field(default_factory=list)      # MOps (alu), or ldi destinations
     sig: Optional[str] = None       # ldtmu0 / ldtmu1 / thrend
     atomic: bool = False            # keep `ops` together in one instruction
+    split: bool = False             # atomic, but the scheduler may also place the ops apart (PITON_PAIR)
     imm: int = 0                    # ldi value
     ldi_mode: int = 0
     bcond: str = "always"           # branch

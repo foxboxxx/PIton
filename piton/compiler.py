@@ -11,7 +11,7 @@ from . import frontend, ir, passes, reroll
 from .backend import opt, presched
 from .backend.lower import Lowering, fast_idiv_enabled
 from .backend.regalloc import PortHints, RegAllocError, allocate, clone_function
-from .backend.sched import schedule_function
+from .backend.sched import pair_enabled, schedule_function
 from .qpu.asm import Program
 
 PORT_ROUNDS = 4         # port-aware allocation attempts per build (PITON_PORT_ALLOC)
@@ -364,6 +364,10 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
         # `if tl.max(x) > c` branches on the lanes of x, and a loop guarded by
         # such an if exits when it fails (examples/mandelbrot.py)
         options["fast_branches"] = True
+    if pair_enabled():
+        # PITON_PAIR (backend/sched.py "Pairing"): a dot product's add before each
+        # broadcast is left free to pair (lower.py op_tt_dot)
+        options["pair"] = True
     try:
         tile, prog, lw, stats, asm, coarsen = _compile_program(fn, signature, constants, name, pid_max, options)
     except RegAllocError:
