@@ -200,9 +200,13 @@ def _compile_tile(fn, signature, constants, name, pid_max, options, chunk: int =
         # PITON_ISSUE: flag groups ordered by the cycle model (presched.py), close to
         # program order and also the best of three biases per block
         sets = PRESCHED_BIASES if options.get("issue") else [None]
-        for k, alphas in enumerate(sets, 1):
+        variants = [(alphas, options) for alphas in sets]
+        if stats.get("loop_lanes"):
+            # and with lane registers per column block in loops (lower.py "Issue")
+            variants += [(alphas, dict(options, loop_lanes=True)) for alphas in sets]
+        for k, (alphas, opts) in enumerate(variants, 1):
             try:
-                candidate = _build(tile, ranges, options, interleave=True, alphas=alphas)
+                candidate = _build(tile, ranges, opts, interleave=True, alphas=alphas)
             except RegAllocError:
                 continue
             if _weighted_length(candidate[0], candidate[1]) < _weighted_length(prog, mf):

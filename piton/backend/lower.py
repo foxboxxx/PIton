@@ -75,6 +75,11 @@ same bits with fewer (add-ALU) operations:
     offset - (n - lane) (lane_cmp_operands): the same 32-bit difference, so
     the same flags, with n - lane computed once instead of an add per
     register and mask.
+  * option loop_lanes (compiler.py builds with and without it and keeps the
+    shorter): inside a loop, the registers of a 1-D block get one lane
+    register per column block (lane + 16 j, as 2-D tiles already do), which
+    LICM hoists, so their addresses and masks (n - lane - 16 j) need no
+    per-iteration offset chain; it costs a register per column block.
 """
 
 from __future__ import annotations
@@ -326,6 +331,7 @@ class Lowering:
         self.row_gap_fits = None
         self.divcache = {}
         self.issue = bool(options.get("issue"))       # PITON_ISSUE (module docstring, "Issue")
+        self.loop_lanes = self.issue and bool(options.get("loop_lanes"))
         self.in_pipelined_body = False
         self.use_counts = {}
         for o in fn.walk():
@@ -1139,7 +1145,11 @@ class Lowering:
             # by several rows and there are few column blocks
             nblocks = max(1, a.shape[-1] // LANES) if a.shape else 1
             rows = numel(a.shape[:-1]) if len(a.shape) > 1 else 1
-            if lr is None or nblocks > 4 or rows < 2:
+            looped = self.issue and rows < 2 and self.loop_depth > 0 and lr is not None and nblocks <= 4
+            if looped:
+                self.stats["loop_lanes"] = self.stats.get("loop_lanes", 0) + 1
+            # (PITON_ISSUE "loop_lanes": in a loop every iteration reuses them, LICM hoists them)
+            if lr is None or nblocks > 4 or (rows < 2 and not (looped and self.loop_lanes)):
                 row = self.s_add(row, col) if not (col.is_const and row.is_const) else \
                     C(_wrap(col.const + row.const))
             else:
