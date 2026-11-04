@@ -115,12 +115,20 @@ def test_suite_case_coarsened_with_slots(env, name, size, k):
 
 @pytest.mark.parametrize("name", ["copy", "add", "exp", "log", "recip", "transpose", "softmax"])
 def test_automatic_factor_keeps_slots(env, name):
-    """PITON_PERSISTENT=1 at Pi sizes: the coarsened build keeps the plain
-    build's 1 KiB slot stores and passes the protocol check."""
+    """PITON_PERSISTENT=1 at Pi sizes coarsens the kernels that wait on memory
+    (copy, add) and leaves the compute-bound ones alone (compiler.COARSEN_MIN_BYTES);
+    a coarsened build, automatic or forced, keeps the plain build's 1 KiB slot
+    stores and passes the protocol check."""
     from perf.suite import CASES_BY_NAME, compile_case
     env(1)
     ck, run = compile_case(CASES_BY_NAME[name], "pi")
-    _check_coarsened(ck, 2 if name in ("transpose", "softmax") else 4)
+    if name in ("copy", "add"):
+        _check_coarsened(ck, 4)
+    else:
+        assert ck.coarsen == 1
+    k = 2 if name in ("transpose", "softmax") else 4
+    env(k)
+    _check_coarsened(compile_case(CASES_BY_NAME[name], "pi")[0], k)
 
 
 # -- the id loop and the slot protocol ----------------------------------------------------
