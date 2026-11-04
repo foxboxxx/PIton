@@ -194,6 +194,9 @@ def _compile_tile(fn, signature, constants, name, pid_max, options, chunk: int =
     try:
         prog, mf, lw, stats, asm["mir"], asm["mir_alloc"] = _build(tile, ranges, options, interleave=False)
     except RegAllocError:
+        if options.get("issue"):
+            # PITON_ISSUE values (CSE, hoisted compares) can need more registers: the default build
+            return _compile_tile(fn, signature, constants, name, pid_max, dict(options, issue=False), chunk)
         if not options.get("store_slots"):
             raise
         # the store slot's registers (or a rerolled loop's store queue) did not

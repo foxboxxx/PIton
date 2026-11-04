@@ -67,7 +67,7 @@ same bits with fewer (add-ALU) operations:
     sets inf for every x it changes (x > 88.7228 / x >= 128) and keep_nan
     the NaNs, so every result that is kept was computed from the same xc.
   * exp: the `or` of 0x3F000000 into a sign bit is a byte-wise add without
-    carries (v8adds, either ALU); the two shifts by 23 are mul24 by the small
+    carries (v8adds, on the mul ALU); the two shifts by 23 are mul24 by the small
     immediate 1.0, whose low 24 bits are 2**23 ((x mod 2**24) * 2**23 =
     x << 23 mod 2**32).
   * log: e = (x - bits(sqrt(1/2))) >> 23 and m = x - (e << 23) (mul24 again)
@@ -2293,8 +2293,12 @@ class Lowering:
             self.op("fmul", y, xc, self.fk(1.4426950408889634))
         half = i()                                    # +-0.5 with the sign of y
         self.op("and", half, y, self.const_reg(0x80000000))
-        # (bytes 0x00 / 0x80 + 0x3F: no carry, so v8adds is the or on either ALU)
-        self.op("v8adds" if self.issue else "or", half, half, self.const_reg(0x3F000000))
+        # (bytes 0x00 / 0x80 + 0x3F: no carry, so v8adds is the or on the mul ALU; on
+        # the add ALU vc4asm would encode it differently)
+        if self.issue:
+            self.op("v8adds", half, half, self.const_reg(0x3F000000), unit="mul")
+        else:
+            self.op("or", half, half, self.const_reg(0x3F000000))
         t = f()
         self.op("fadd", t, y, half)
         n = i()

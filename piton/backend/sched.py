@@ -369,9 +369,14 @@ class Bundle:
 
     def try_add(self, n: Node, prefer_mul: bool = False) -> bool:
         """Add n if it fits; prefer_mul puts an op that runs on either ALU on
-        the mul ALU when both are free (PITON_ISSUE: an add-only op is waiting)."""
+        the mul ALU when both are free (PITON_ISSUE: an add-only op is waiting).
+        Not a move of an immediate or a discarded result (a peripheral read):
+        vc4asm assembles those on the mul ALU to other bits (a load immediate,
+        another condition)."""
+        aop = n.alu_ops[0] if len(n.alu_ops) == 1 else None
         if prefer_mul and len(n.mops) == 1 and n.mops[0].unit == "any" and self.kind == "alu" \
-                and self.add is None and self.mul is None and n.minst.kind == "alu":
+                and self.add is None and self.mul is None and n.minst.kind == "alu" \
+                and aop.dst != isa.NOP and not any(isinstance(x, Imm) for x in (aop.a, aop.b)):
             if self._try_add(n, "mul"):
                 return True
         return self._try_add(n)
