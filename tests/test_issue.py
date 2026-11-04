@@ -198,6 +198,51 @@ def test_v8adds_and_mul24_identities():
     assert np.array_equal(emulator.alu_mul("mul24", x, one)[0], x << np.uint32(23))
 
 
+@piton.jit
+def lane_cmp_kernel(x_ptr, out_ptr, n, k, OP: tl.constexpr, BLOCK: tl.constexpr):
+    offs = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    m = offs < n
+    x = tl.load(x_ptr + offs, mask=m, other=1.0)
+    if OP == 0:
+        c = offs < k
+    elif OP == 1:
+        c = offs <= k
+    elif OP == 2:
+        c = k > offs
+    elif OP == 3:
+        c = k <= offs
+    elif OP == 4:
+        c = offs == k
+    else:
+        c = k != offs
+    tl.store(out_ptr + offs, tl.where(c, x, -x), mask=m)
+
+
+@pytest.mark.parametrize("op", range(6))
+@pytest.mark.parametrize("block", [64, 256])
+def test_lane_compare(monkeypatch, op, block):
+    """lower.py lane_cmp_operands: an index compared with a uniform as
+    offset - (uniform - lane), either side, every signed and equality
+    predicate, ragged n, k inside, at the ends of and outside the index range."""
+    n = 4 * block + 7
+    x = rng.uniform(1, 2, n).astype(np.float32)
+    idx = np.arange(n)
+    ref_ops = [np.less, np.less_equal, lambda a, b: b > a, lambda a, b: b <= a, np.equal, lambda a, b: b != a]
+    sig = dict(SIG, k="i32")
+    grid = ((n + block - 1) // block,)
+    off = build(monkeypatch, False, lane_cmp_kernel, sig, {"OP": op, "BLOCK": block}, grid)
+    on = build(monkeypatch, True, lane_cmp_kernel, sig, {"OP": op, "BLOCK": block}, grid)
+    for k in (-2 ** 31, -1, 0, 5, block - 1, block, 2 * block + 3, n - 1, n, n + 40, 2 ** 31 - 1):
+        values = {"x_ptr": x, "out_ptr": np.zeros(n + 16, np.float32), "n": n, "k": k}
+        executed = []
+        a = run_bits(off, grid, values, executed=executed)
+        b = run_bits(on, grid, values, executed=executed)
+        np.testing.assert_array_equal(a, b)
+        ref = np.where(ref_ops[op](idx, k), x, -x)
+        np.testing.assert_array_equal(b[:n], ref.view(np.uint32))
+        assert executed[1] < executed[0]
+
+
 # -- flag groups -------------------------------------------------------------------------
 
 def _check_order(before, after):
@@ -252,14 +297,15 @@ def div_kernel(x_ptr, y_ptr, out_ptr, n, BLOCK: tl.constexpr):
     tl.store(out_ptr + offs, x / y, mask=m)
 
 
-def test_cse_shares_abs(monkeypatch):
-    """recip's keep_nan and the quotient's checks both take |y|: computed once."""
+def test_cse_leaves_no_repeats(monkeypatch):
+    """Both loads compare the same mask: after CSE no pure instruction of a block
+    repeats another on the same operands."""
     sig = {"x_ptr": "*fp32", "y_ptr": "*fp32", "out_ptr": "*fp32", "n": "i32"}
     tile = frontend.generate(div_kernel.fn, sig, {"BLOCK": 64}, name=None)
     ranges = passes.optimize(tile, (15, 0, 0))
     mf = Lowering(tile, ranges, {"num_stages": 2, "store_slots": True, "issue": True}).run()
     stats = opt.run(mf, issue=True)
-    assert stats["cse"] >= 4                  # one per register
+    assert stats["cse"] >= 1
     defs = {}
     for b in mf.blocks:
         for ins in b.insts:

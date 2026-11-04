@@ -71,6 +71,10 @@ same bits with fewer (add-ALU) operations:
     it out of rerolled loops; the prefetch index of a unit-step loop with a
     constant bound is min(iv + 1, ub - 1) instead of a compare and two
     moves.
+  * an index (lane register + offset) compared with a uniform n is
+    offset - (n - lane) (lane_cmp_operands): the same 32-bit difference, so
+    the same flags, with n - lane computed once instead of an add per
+    register and mask.
 """
 
 from __future__ import annotations
@@ -1435,6 +1439,31 @@ class Lowering:
         d = self.materialize(x)
         return self.reg_of(d, j)
 
+    def lane_cmp_operands(self, pred, a, b, j):
+        """(PITON_ISSUE) x', y' for register j of a signed or equality compare of
+        x = lane register + offset against a uniform y, with x' - y' == x - y
+        (mod 2**32, so the same flags): offset - (y - lane), where y - lane is
+        computed once per block (LICM hoists it), so the compare needs no add
+        per register. None where it does not apply."""
+        if pred[0] == "u":
+            return None
+        for aff, uni, swap in ((a, b, False), (b, a, True)):
+            u = _uniform_scalar(uni)
+            if not isinstance(aff, Affine) or u is None or _uniform_scalar(aff) is not None:
+                continue
+            lr, off = self.affine_reg(aff, j)
+            if lr is None or (off.is_const and off.const == 0):
+                x, y = (self.operand(off) if lr is None else lr), self.operand(u)
+            else:
+                key = ("lanecmp", lr.id, repr(u), self.cur.label)
+                if key not in self.consts:
+                    ny = self.new("lc")
+                    self.op("sub", ny, self.operand(u), lr)
+                    self.consts[key] = ny
+                x, y = self.operand(off), self.consts[key]
+            return (y, x) if swap else (x, y)
+        return None
+
     def set_flags(self, p: Pred, j: int) -> str:
         """Emit flag computation for register j of predicate p; return the
         condition code that is true where p holds."""
@@ -1444,8 +1473,12 @@ class Lowering:
             pred, a, b, is_float = p.value
             if is_float:
                 return self.float_cmp_flags(pred, a, b, j)
-            x = self.pred_elem_operands(a, j)
-            y = self.pred_elem_operands(b, j)
+            xy = self.lane_cmp_operands(pred, a, b, j) if self.issue and not p.wide else None
+            if xy is not None:
+                x, y = xy
+            else:
+                x = self.pred_elem_operands(a, j)
+                y = self.pred_elem_operands(b, j)
             if pred in ("ult", "ule", "ugt", "uge"):
                 x, y = self.flip_sign(x), self.flip_sign(y)
                 pred = "s" + pred[1:]
