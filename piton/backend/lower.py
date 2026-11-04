@@ -1842,19 +1842,32 @@ class Lowering:
         runs the whole kernel once for each logical program id pid0 * k ...
         min(pid0 * k + k, num_programs(0)) - 1. Its uniforms pid0, nprog0 (and
         unif_base when the kernel's uniforms are re-read for every id) follow the
-        kernel's own, so the uniform indices of ArgReload stay valid."""
+        kernel's own, so the uniform indices of ArgReload stay valid.
+        With coarsen_runtime (PITON_COARSEN_RUNTIME) the launch chooses the
+        factor, 1 ... k, and passes it as uniform coarsen0 (after nprog0)."""
         hw, n = VReg("pid0"), VReg("nprog0")
         self.prog_uniforms = [("pid", "pid0", hw), ("nprog", "nprog0", n)]
+        runtime = self.opts.get("coarsen_runtime")
+        if runtime:
+            per = VReg("coarsen0")
+            self.prog_uniforms.append(("coarsen", "coarsen0", per))
         if self.opts.get("coarsen_reload"):
             self.unif_base = VReg("unif_base")
             self.prog_uniforms.append(("self", "unif_base", self.unif_base))
         self.nprog_regs[0] = n                  # tl.num_programs(0): the logical grid
         self.stats.update(coarsen=k, coarsen_reload=int(bool(self.opts.get("coarsen_reload"))),
                           coarsen_hoist=int(self.opts.get("coarsen_hoist", True)))
-        hw_max = -(-(self.ranges.pid_max[0] + 1) // k) - 1 if self.ranges is not None else None
         lo, end, top = self.new("plo"), self.new("phi"), self.new("phi")
-        self.imul(lo, hw, self.operand(C(k)), (0, hw_max) if hw_max is not None else None, None, None, C(k))
-        self.op("add", end, lo, self.operand(C(k)))
+        if runtime:
+            self.stats["coarsen_runtime"] = 1
+            # a launch with factor 1 has a hardware program per id
+            hw_max = self.ranges.pid_max[0] if self.ranges is not None else None
+            self.imul(lo, hw, per, (0, hw_max) if hw_max is not None else None, (1, k))
+            self.op("add", end, lo, per)
+        else:
+            hw_max = -(-(self.ranges.pid_max[0] + 1) // k) - 1 if self.ranges is not None else None
+            self.imul(lo, hw, self.operand(C(k)), (0, hw_max) if hw_max is not None else None, None, None, C(k))
+            self.op("add", end, lo, self.operand(C(k)))
         self.op("min", top, end, n)
         self.prog_last = self.new("phi")
         self.op("sub", self.prog_last, top, Imm(1))
