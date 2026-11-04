@@ -411,6 +411,36 @@ def test_dense_layers(monkeypatch, batch):
         assert ck.stats.get("mm_dots", 0) == int(bn % 16 == 0)
 
 
+@pytest.mark.parametrize("bm,bn", [(16, 32), (8, 64)])
+def test_dense_layer_wider_tiles(monkeypatch, bm, bn):
+    """Tiles with more A rows per B row than the digits layers' 4x64x4, which
+    allocate only with the MM dot (bias and ReLU live through the epilogue),
+    give the 4x64x4 plain build's bits: every output sums its k in order."""
+    from nn_kernels import dense_tiles
+    batch, k, n = 21, 64, 128
+    rng = np.random.default_rng(166 + bm)
+    x = rng.random((batch, k), np.float32)
+    wt = (rng.random((k, n), np.float32) - 0.5).astype(np.float32)
+    bias = (rng.random(n, np.float32) - 0.5).astype(np.float32)
+    sig = {"x_ptr": "*fp32", "w_ptr": "*fp32", "bias_ptr": "*fp32", "y_ptr": "*fp32", "M": "i32"}
+    values = dict(x_ptr=x, w_ptr=wt, bias_ptr=bias, y_ptr=np.full((batch, n), np.nan, np.float32), M=batch)
+
+    def build(mm, tile):
+        cons = dict(N=n, K=k, BLOCK_SIZE_M=tile[0], BLOCK_SIZE_N=tile[1], BLOCK_SIZE_K=tile[2], GROUP_SIZE_M=1,
+                    ADD_BIAS=True, RELU=True)
+        grid = (((batch + tile[0] - 1) // tile[0]) * (n // tile[1]),)
+        return _build(monkeypatch, mm, dense_layer_kernel, sig, cons, grid), grid
+
+    plain, grid = build(None, dense_tiles(n))
+    ref = _run(plain, grid, values)["y_ptr"]
+    with pytest.raises(RegAllocError):
+        build(None, (bm, bn, 4))
+    ck, grid = build("1", (bm, bn, 4))
+    assert ck.stats["mm_a_blocks"] == 1
+    np.testing.assert_array_equal(_run(ck, grid, values)["y_ptr"].view(np.uint32), ref.view(np.uint32))
+    np.testing.assert_allclose(ref, np.maximum(x.astype(np.float64) @ wt + bias, 0), rtol=1e-4, atol=1e-4)
+
+
 @pytest.mark.parametrize("kernel,extra", [(_two_dots, {}), (_a_used_twice, {"sum_ptr": "*fp32"})])
 def test_kernels_left_alone(monkeypatch, kernel, extra):
     """Two dots in one loop, or A used by more than the dot: no MM dot."""
