@@ -1,0 +1,150 @@
+[
+ {
+  "GROUP_SIZE_M": 1,
+  "name": "matmul_8x64x8",
+  "note": "tutorial 03, 8x64x8",
+  "instructions": 2701,
+  "programs": 128,
+  "times_us": [
+   4260,
+   3750,
+   4425,
+   3450,
+   3897
+  ],
+  "best_us": 3450,
+  "counters": {
+   "idle": 324672,
+   "valid": 6949376,
+   "tmu_stall": 998752,
+   "sb_stall": 0,
+   "icache_hit": 1737344,
+   "icache_miss": 5344,
+   "unif_miss": 108,
+   "tmu_quads": 2375680,
+   "tmu_miss": 153740,
+   "vdw_stall": 0,
+   "l2_hit": 99192,
+   "l2_miss": 60000
+  },
+  "busy": 0.6714372946859903,
+  "tmu": 0.09649777777777778,
+  "idle": 0.031369275362318844,
+  "icache_miss": 0.0030665271121394075,
+  "checked": {
+   "c_ptr": 1009
+  },
+  "errors": {}
+ },
+ {
+  "GROUP_SIZE_M": 2,
+  "name": "matmul_8x64x8",
+  "note": "tutorial 03, 8x64x8",
+  "instructions": 2707,
+  "programs": 128,
+  "times_us": [
+   4125,
+   4150,
+   4149,
+   4147,
+   4145
+  ],
+  "best_us": 4125,
+  "counters": {
+   "idle": 398796,
+   "valid": 6952448,
+   "tmu_stall": 2853436,
+   "sb_stall": 0,
+   "icache_hit": 1738112,
+   "icache_miss": 5376,
+   "unif_miss": 112,
+   "tmu_quads": 2375680,
+   "tmu_miss": 105752,
+   "vdw_stall": 0,
+   "l2_hit": 50795,
+   "l2_miss": 60445
+  },
+  "busy": 0.5618139797979798,
+  "tmu": 0.23058068686868688,
+  "idle": 0.0322259393939394,
+  "icache_miss": 0.0030834740474267675,
+  "checked": {
+   "c_ptr": 1009
+  },
+  "errors": {}
+ },
+ {
+  "GROUP_SIZE_M": 4,
+  "name": "matmul_8x64x8",
+  "note": "tutorial 03, 8x64x8",
+  "instructions": 2707,
+  "programs": 128,
+  "times_us": [
+   4227,
+   4229,
+   4148,
+   4210,
+   4222
+  ],
+  "best_us": 4148,
+  "counters": {
+   "idle": 391088,
+   "valid": 6952448,
+   "tmu_stall": 3198868,
+   "sb_stall": 0,
+   "icache_hit": 1738112,
+   "icache_miss": 5376,
+   "unif_miss": 112,
+   "tmu_quads": 2375680,
+   "tmu_miss": 99584,
+   "vdw_stall": 0,
+   "l2_hit": 39607,
+   "l2_miss": 65465
+  },
+  "busy": 0.5586988106718097,
+  "tmu": 0.25706107360977176,
+  "idle": 0.03142783670845387,
+  "icache_miss": 0.0030834740474267675,
+  "checked": {
+   "c_ptr": 1009
+  },
+  "errors": {}
+ },
+ {
+  "GROUP_SIZE_M": 8,
+  "name": "matmul_8x64x8",
+  "note": "tutorial 03, 8x64x8",
+  "instructions": 2707,
+  "programs": 128,
+  "times_us": [
+   4175,
+   4137,
+   4146,
+   4140,
+   4146
+  ],
+  "best_us": 4137,
+  "counters": {
+   "idle": 395812,
+   "valid": 6952448,
+   "tmu_stall": 3082164,
+   "sb_stall": 0,
+   "icache_hit": 1738112,
+   "icache_miss": 5376,
+   "unif_miss": 112,
+   "tmu_quads": 2375680,
+   "tmu_miss": 99584,
+   "vdw_stall": 0,
+   "l2_hit": 48308,
+   "l2_miss": 56764
+  },
+  "busy": 0.560184352590444,
+  "tmu": 0.24834131012811217,
+  "idle": 0.03189203126258964,
+  "icache_miss": 0.0030834740474267675,
+  "checked": {
+   "c_ptr": 1009
+  },
+  "errors": {}
+ }
+]

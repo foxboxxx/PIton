@@ -1,0 +1,150 @@
+[
+ {
+  "GROUP_SIZE_M": 1,
+  "name": "dense_relu",
+  "note": "digits layer 1",
+  "instructions": 726,
+  "programs": 900,
+  "times_us": [
+   5078,
+   5041,
+   5045,
+   5035,
+   5050
+  ],
+  "best_us": 5035,
+  "counters": {
+   "idle": 113728,
+   "valid": 7884000,
+   "tmu_stall": 3815188,
+   "sb_stall": 0,
+   "icache_hit": 1971000,
+   "icache_miss": 12402,
+   "unif_miss": 675,
+   "tmu_quads": 4089600,
+   "tmu_miss": 250424,
+   "vdw_stall": 0,
+   "l2_hit": 129490,
+   "l2_miss": 134011
+  },
+  "busy": 0.5219463753723933,
+  "tmu": 0.25257782191327377,
+  "idle": 0.007529162528963919,
+  "icache_miss": 0.0062528927569902625,
+  "checked": {
+   "y_ptr": 1024
+  },
+  "errors": {}
+ },
+ {
+  "GROUP_SIZE_M": 2,
+  "name": "dense_relu",
+  "note": "digits layer 1",
+  "instructions": 1491,
+  "programs": 900,
+  "times_us": [
+   5729,
+   5628,
+   5614,
+   5640,
+   5617
+  ],
+  "best_us": 5614,
+  "counters": {
+   "idle": 71468,
+   "valid": 8910000,
+   "tmu_stall": 3170676,
+   "sb_stall": 0,
+   "icache_hit": 2227500,
+   "icache_miss": 25200,
+   "unif_miss": 675,
+   "tmu_quads": 4089600,
+   "tmu_miss": 145528,
+   "vdw_stall": 0,
+   "l2_hit": 98387,
+   "l2_miss": 73016
+  },
+  "busy": 0.529034556465978,
+  "tmu": 0.18826006412540078,
+  "idle": 0.004243439021493885,
+  "icache_miss": 0.011186576108669596,
+  "checked": {
+   "y_ptr": 1024
+  },
+  "errors": {}
+ },
+ {
+  "GROUP_SIZE_M": 4,
+  "name": "dense_relu",
+  "note": "digits layer 1",
+  "instructions": 1491,
+  "programs": 900,
+  "times_us": [
+   5673,
+   5580,
+   5567,
+   5554,
+   5589
+  ],
+  "best_us": 5554,
+  "counters": {
+   "idle": 75828,
+   "valid": 8910000,
+   "tmu_stall": 3131964,
+   "sb_stall": 0,
+   "icache_hit": 2227500,
+   "icache_miss": 25201,
+   "unif_miss": 675,
+   "tmu_quads": 4089600,
+   "tmu_miss": 140626,
+   "vdw_stall": 0,
+   "l2_hit": 93854,
+   "l2_miss": 72648
+  },
+  "busy": 0.5347497299243789,
+  "tmu": 0.18797047173208498,
+  "idle": 0.004550954267194814,
+  "icache_miss": 0.011187015054372506,
+  "checked": {
+   "y_ptr": 1024
+  },
+  "errors": {}
+ },
+ {
+  "GROUP_SIZE_M": 8,
+  "name": "dense_relu",
+  "note": "digits layer 1",
+  "instructions": 1491,
+  "programs": 900,
+  "times_us": [
+   5616,
+   5550,
+   5559,
+   5546,
+   5573
+  ],
+  "best_us": 5546,
+  "counters": {
+   "idle": 76428,
+   "valid": 8910000,
+   "tmu_stall": 3077464,
+   "sb_stall": 0,
+   "icache_hit": 2227500,
+   "icache_miss": 25200,
+   "unif_miss": 675,
+   "tmu_quads": 4089600,
+   "tmu_miss": 140626,
+   "vdw_stall": 0,
+   "l2_hit": 101473,
+   "l2_miss": 65028
+  },
+  "busy": 0.5355210962856113,
+  "tmu": 0.18496598148815963,
+  "idle": 0.004593580959249909,
+  "icache_miss": 0.011186576108669596,
+  "checked": {
+   "y_ptr": 1024
+  },
+  "errors": {}
+ }
+]

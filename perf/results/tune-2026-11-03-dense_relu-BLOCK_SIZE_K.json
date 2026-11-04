@@ -1,0 +1,113 @@
+[
+ {
+  "BLOCK_SIZE_K": 4,
+  "name": "dense_relu",
+  "note": "digits layer 1",
+  "instructions": 614,
+  "programs": 900,
+  "times_us": [
+   4504,
+   4414,
+   4470,
+   4400,
+   4422
+  ],
+  "best_us": 4400,
+  "counters": {
+   "idle": 90508,
+   "valid": 8265600,
+   "tmu_stall": 4131108,
+   "sb_stall": 0,
+   "icache_hit": 2066400,
+   "icache_miss": 183,
+   "unif_miss": 877,
+   "tmu_quads": 4089600,
+   "tmu_miss": 253279,
+   "vdw_stall": 0,
+   "l2_hit": 96052,
+   "l2_miss": 158287
+  },
+  "busy": 0.6261818181818182,
+  "tmu": 0.3129627272727273,
+  "idle": 0.006856666666666666,
+  "icache_miss": 8.855197202338352e-05,
+  "checked": {
+   "y_ptr": 1024
+  },
+  "errors": {}
+ },
+ {
+  "BLOCK_SIZE_K": 8,
+  "name": "dense_relu",
+  "note": "digits layer 1",
+  "instructions": 726,
+  "programs": 900,
+  "times_us": [
+   5057,
+   5043,
+   5040,
+   5042,
+   5042
+  ],
+  "best_us": 5040,
+  "counters": {
+   "idle": 114808,
+   "valid": 7884000,
+   "tmu_stall": 3828108,
+   "sb_stall": 0,
+   "icache_hit": 1971000,
+   "icache_miss": 12362,
+   "unif_miss": 678,
+   "tmu_quads": 4089600,
+   "tmu_miss": 250576,
+   "vdw_stall": 0,
+   "l2_hit": 130692,
+   "l2_miss": 132924
+  },
+  "busy": 0.5214285714285715,
+  "tmu": 0.25318174603174604,
+  "idle": 0.007593121693121693,
+  "icache_miss": 0.006232851088202759,
+  "checked": {
+   "y_ptr": 1024
+  },
+  "errors": {}
+ },
+ {
+  "BLOCK_SIZE_K": 16,
+  "name": "dense_relu",
+  "note": "digits layer 1",
+  "instructions": 987,
+  "programs": 900,
+  "times_us": [
+   5548,
+   5532,
+   5523,
+   5526,
+   5524
+  ],
+  "best_us": 5523,
+  "counters": {
+   "idle": 124172,
+   "valid": 8388000,
+   "tmu_stall": 2790700,
+   "sb_stall": 0,
+   "icache_hit": 2097000,
+   "icache_miss": 24549,
+   "unif_miss": 675,
+   "tmu_quads": 4089600,
+   "tmu_miss": 246600,
+   "vdw_stall": 0,
+   "l2_hit": 129447,
+   "l2_miss": 142377
+  },
+  "busy": 0.5062466051059207,
+  "tmu": 0.16842899390427907,
+  "idle": 0.007494236224274247,
+  "icache_miss": 0.011571262318240115,
+  "checked": {
+   "y_ptr": 1024
+  },
+  "errors": {}
+ }
+]

@@ -1,0 +1,113 @@
+[
+ {
+  "piton.reroll.SUB": 32,
+  "name": "log",
+  "note": "",
+  "instructions": 210,
+  "programs": 1024,
+  "times_us": [
+   2439,
+   2435,
+   2435,
+   2433,
+   2431
+  ],
+  "best_us": 2431,
+  "counters": {
+   "idle": 98244,
+   "valid": 4530176,
+   "tmu_stall": 1619804,
+   "sb_stall": 0,
+   "icache_hit": 1132544,
+   "icache_miss": 72,
+   "unif_miss": 576,
+   "tmu_quads": 262144,
+   "tmu_miss": 16384,
+   "vdw_stall": 0,
+   "l2_hit": 302,
+   "l2_miss": 16730
+  },
+  "busy": 0.621167695050048,
+  "tmu": 0.22210393528040587,
+  "idle": 0.013470999588646648,
+  "icache_miss": 6.35696476122534e-05,
+  "checked": {
+   "out_ptr": 1021
+  },
+  "errors": {}
+ },
+ {
+  "piton.reroll.SUB": 64,
+  "name": "log",
+  "note": "",
+  "instructions": 307,
+  "programs": 1024,
+  "times_us": [
+   1717,
+   1703,
+   1701,
+   1696,
+   1700
+  ],
+  "best_us": 1696,
+  "counters": {
+   "idle": 73940,
+   "valid": 3887104,
+   "tmu_stall": 221096,
+   "sb_stall": 0,
+   "icache_hit": 971776,
+   "icache_miss": 105,
+   "unif_miss": 576,
+   "tmu_quads": 262144,
+   "tmu_miss": 16384,
+   "vdw_stall": 0,
+   "l2_hit": 325,
+   "l2_miss": 16740
+  },
+  "busy": 0.7639748427672955,
+  "tmu": 0.04345440251572327,
+  "idle": 0.014532232704402516,
+  "icache_miss": 0.00010803791822249844,
+  "checked": {
+   "out_ptr": 1021
+  },
+  "errors": {}
+ },
+ {
+  "piton.reroll.SUB": 128,
+  "name": "log",
+  "note": "",
+  "instructions": 307,
+  "programs": 1024,
+  "times_us": [
+   1722,
+   1715,
+   1704,
+   1711,
+   1701
+  ],
+  "best_us": 1701,
+  "counters": {
+   "idle": 73632,
+   "valid": 3887104,
+   "tmu_stall": 222828,
+   "sb_stall": 0,
+   "icache_hit": 971776,
+   "icache_miss": 105,
+   "unif_miss": 576,
+   "tmu_quads": 262144,
+   "tmu_miss": 16384,
+   "vdw_stall": 0,
+   "l2_hit": 325,
+   "l2_miss": 16740
+  },
+  "busy": 0.7617291789143641,
+  "tmu": 0.043666078777189886,
+  "idle": 0.014429159318048206,
+  "icache_miss": 0.00010803791822249844,
+  "checked": {
+   "out_ptr": 1021
+  },
+  "errors": {}
+ }
+]

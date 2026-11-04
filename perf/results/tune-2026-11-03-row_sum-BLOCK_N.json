@@ -1,0 +1,150 @@
+[
+ {
+  "BLOCK_N": 32,
+  "name": "row_sum",
+  "note": "",
+  "instructions": 177,
+  "programs": 64,
+  "times_us": [
+   164,
+   141,
+   147,
+   140,
+   144
+  ],
+  "best_us": 140,
+  "counters": {
+   "idle": 59484,
+   "valid": 185088,
+   "tmu_stall": 142844,
+   "sb_stall": 0,
+   "icache_hit": 46272,
+   "icache_miss": 69,
+   "unif_miss": 44,
+   "tmu_quads": 73728,
+   "tmu_miss": 4448,
+   "vdw_stall": 0,
+   "l2_hit": 275,
+   "l2_miss": 4286
+  },
+  "busy": 0.4406857142857143,
+  "tmu": 0.3401047619047619,
+  "idle": 0.14162857142857144,
+  "icache_miss": 0.001488962258043633,
+  "checked": {
+   "out_ptr": 256
+  },
+  "errors": {}
+ },
+ {
+  "BLOCK_N": 64,
+  "name": "row_sum",
+  "note": "",
+  "instructions": 203,
+  "programs": 64,
+  "times_us": [
+   170,
+   144,
+   141,
+   142,
+   147
+  ],
+  "best_us": 141,
+  "counters": {
+   "idle": 56692,
+   "valid": 128000,
+   "tmu_stall": 190160,
+   "sb_stall": 0,
+   "icache_hit": 32000,
+   "icache_miss": 78,
+   "unif_miss": 46,
+   "tmu_quads": 73728,
+   "tmu_miss": 4480,
+   "vdw_stall": 0,
+   "l2_hit": 231,
+   "l2_miss": 4373
+  },
+  "busy": 0.30260047281323876,
+  "tmu": 0.4495508274231679,
+  "idle": 0.13402364066193853,
+  "icache_miss": 0.0024315730407132616,
+  "checked": {
+   "out_ptr": 256
+  },
+  "errors": {}
+ },
+ {
+  "BLOCK_N": 128,
+  "name": "row_sum",
+  "note": "",
+  "instructions": 252,
+  "programs": 64,
+  "times_us": [
+   180,
+   155,
+   152,
+   163,
+   152
+  ],
+  "best_us": 152,
+  "counters": {
+   "idle": 58656,
+   "valid": 102912,
+   "tmu_stall": 234768,
+   "sb_stall": 0,
+   "icache_hit": 25728,
+   "icache_miss": 96,
+   "unif_miss": 46,
+   "tmu_quads": 73728,
+   "tmu_miss": 4505,
+   "vdw_stall": 0,
+   "l2_hit": 95,
+   "l2_miss": 4552
+  },
+  "busy": 0.2256842105263158,
+  "tmu": 0.5148421052631579,
+  "idle": 0.12863157894736843,
+  "icache_miss": 0.0037174721189591076,
+  "checked": {
+   "out_ptr": 256
+  },
+  "errors": {}
+ },
+ {
+  "BLOCK_N": 256,
+  "name": "row_sum",
+  "note": "",
+  "instructions": 360,
+  "programs": 64,
+  "times_us": [
+   182,
+   165,
+   165,
+   158,
+   162
+  ],
+  "best_us": 158,
+  "counters": {
+   "idle": 66396,
+   "valid": 92160,
+   "tmu_stall": 252300,
+   "sb_stall": 0,
+   "icache_hit": 23040,
+   "icache_miss": 135,
+   "unif_miss": 42,
+   "tmu_quads": 73728,
+   "tmu_miss": 4608,
+   "vdw_stall": 0,
+   "l2_hit": 109,
+   "l2_miss": 4676
+  },
+  "busy": 0.19443037974683544,
+  "tmu": 0.5322784810126582,
+  "idle": 0.14007594936708861,
+  "icache_miss": 0.005825242718446602,
+  "checked": {
+   "out_ptr": 256
+  },
+  "errors": {}
+ }
+]

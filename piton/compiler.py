@@ -10,9 +10,11 @@ from typing import Optional
 from . import frontend, ir, passes, reroll
 from .backend import opt, presched
 from .backend.lower import Lowering, fast_idiv_enabled
-from .backend.regalloc import RegAllocError, allocate
+from .backend.regalloc import PortHints, RegAllocError, allocate, clone_function
 from .backend.sched import schedule_function
 from .qpu.asm import Program
+
+PORT_ROUNDS = 4         # port-aware allocation attempts per build (PITON_PORT_ALLOC)
 
 
 @dataclass
@@ -54,8 +56,81 @@ def _weighted_length(prog: Program, mf) -> int:
     return total
 
 
+def _block_lengths(prog: Program) -> dict:
+    starts = sorted((idx, label) for label, idx in prog.labels.items())
+    bounds = [idx for idx, _ in starts] + [len(prog.instrs)]
+    out = {None: bounds[0]}
+    for (idx, label), end in zip(starts, bounds[1:]):
+        out[label] = end - idx
+    return out
+
+
+def _likely_blocks(mf) -> set:
+    """Labels on the path that predicts forward conditional branches not
+    taken and backward ones taken: partial-store paths of ragged tails,
+    skipped chunks and the slow division path are off it."""
+    index = {b.label: i for i, b in enumerate(mf.blocks)}
+    likely, stack = set(), [mf.blocks[0].label] if mf.blocks else []
+    while stack:
+        label = stack.pop()
+        if label in likely:
+            continue
+        likely.add(label)
+        i = index[label]
+        last = mf.blocks[i].insts[-1] if mf.blocks[i].insts else None
+        if last is not None and last.sig == "thrend":
+            continue
+        if last is not None and last.kind == "branch":
+            if last.bcond == "always" or index[last.target] <= i:
+                stack.append(last.target)
+            if last.bcond == "always":
+                continue
+        if i + 1 < len(mf.blocks):
+            stack.append(mf.blocks[i + 1].label)
+    return likely
+
+
+def _port_better(new: Program, new_mf, old: Program, old_mf) -> bool:
+    """Is `new` shorter, weighting blocks by 100^loop depth and those off the
+    likely path at 1/1000 (plain 100^depth cannot tell a block every program
+    runs from a ragged-tail path: copy traded one instruction off each unused
+    partial-store block for three on its main path)."""
+    depth = {b.label: b.loop_depth for b in old_mf.blocks}
+    likely = _likely_blocks(old_mf)
+
+    def cost(prog):
+        return sum(n * 100 ** depth.get(label, 0) * (1000 if label in likely or label is None else 1)
+                   for label, n in _block_lengths(prog).items())
+    return cost(new) < cost(old)
+
+
+def _port_aware(original, name: str, missed: list, copy_of: dict, rounds: int = PORT_ROUNDS):
+    """Port-aware allocations of `original` (regalloc.py, "Port-aware file
+    choice"), starting from the pairs the scheduler could not form with the
+    plain allocation (`missed`, `copy_of`): each round allocates a fresh
+    clone, schedules it, and adds the pairs it still missed for the next.
+    Yields (program, mir, allocator, self moves dropped); stops when an
+    attempt fails to allocate or schedule (the plain allocation then stays)
+    or the scheduler misses nothing new."""
+    hints = PortHints()
+    hints.add(missed, copy_of)
+    for _ in range(rounds):
+        mf = clone_function(original)
+        try:
+            alloc = allocate(mf, hints=hints)
+            dropped = opt.drop_self_moves(mf)
+            missed = []
+            prog = schedule_function(mf, name, missed=missed)
+        except (RegAllocError, RuntimeError):
+            return
+        yield prog, mf, alloc, dropped
+        if not hints.add(missed, alloc.copy_of):
+            return
+
+
 def _build(tile, ranges, options: dict, interleave: bool):
     """Lower, allocate and schedule; returns (program, mir, lowering, stats, mir dumps)."""
+    port_alloc = os.environ.get("PITON_PORT_ALLOC", "1") != "0"     # PITON_PORT_ALLOC=0: plain allocation only
     for cache_dot_a in (True, False):
         lw = Lowering(tile, ranges, dict(options, cache_dot_a=cache_dot_a))
         mf = lw.run()
@@ -63,6 +138,7 @@ def _build(tile, ranges, options: dict, interleave: bool):
         stats.update(opt.run(mf))
         stats["presched_blocks"] = presched.run(mf) if interleave else 0
         mir = mf.dump()
+        original = clone_function(mf) if port_alloc else None
         try:
             alloc = allocate(mf)
         except RegAllocError:
@@ -77,7 +153,15 @@ def _build(tile, ranges, options: dict, interleave: bool):
     stats["copies_inserted"] = alloc.copies_inserted
     stats["self_moves_dropped"] = opt.drop_self_moves(mf)
     mir_alloc = mf.dump()
-    prog = schedule_function(mf, tile.name)
+    missed = [] if original is not None else None
+    prog = schedule_function(mf, tile.name, missed=missed)
+    if original is not None:
+        # The plain allocation stays unless a port-aware one schedules shorter.
+        stats["port_alloc"] = 0
+        for attempt, (p, f, a, dropped) in enumerate(_port_aware(original, tile.name, missed, alloc.copy_of), 1):
+            if _port_better(p, f, prog, mf):
+                prog, mf, mir_alloc = p, f, f.dump()
+                stats.update(port_alloc=attempt, copies_inserted=a.copies_inserted, self_moves_dropped=dropped)
     return prog, mf, lw, stats, mir, mir_alloc
 
 
@@ -87,14 +171,24 @@ def _compile_tile(fn, signature, constants, name, pid_max, options, chunk: int =
     tile = frontend.generate(fn, signature, constants, name=name)
     asm = {"ttir": tile.dump()}
     if chunk:
-        reroll.run(tile, chunk)
+        if options.get("store_slots"):
+            reroll.run(tile, chunk, queue=True)     # (the block's store after the loop)
+        else:
+            reroll.run(tile, chunk)
         asm["ttir_rerolled"] = tile.dump()
     ranges = passes.optimize(tile, pid_max)
     asm["ttir_opt"] = tile.dump()
     # Interleaving independent chains before allocation (presched.py) usually
     # shortens the schedule but needs more registers; keep whichever version
     # allocates and runs shorter, weighting loop bodies by their depth.
-    prog, mf, lw, stats, asm["mir"], asm["mir_alloc"] = _build(tile, ranges, options, interleave=False)
+    try:
+        prog, mf, lw, stats, asm["mir"], asm["mir_alloc"] = _build(tile, ranges, options, interleave=False)
+    except RegAllocError:
+        if not options.get("store_slots"):
+            raise
+        # the store slot's registers (or a rerolled loop's store queue) did not
+        # fit: the private VPM rows need fewer
+        return _compile_tile(fn, signature, constants, name, pid_max, dict(options, store_slots=False), chunk)
     stats["presched"] = 0
     candidate = None
     if os.environ.get("PITON_PRESCHED", "1") != "0":       # PITON_PRESCHED=0: A/B comparisons
@@ -127,7 +221,9 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
     if grid is not None:
         g = tuple(grid) if isinstance(grid, (tuple, list)) else (grid,)
         pid_max = tuple(max(1, int(x)) - 1 for x in g) + (0,) * (3 - len(g))
-    options = {"num_stages": num_stages, "store_mutex": store_mutex}
+    options = {"num_stages": num_stages, "store_mutex": store_mutex,
+               # stores through shared 16-row VPM slots (backend/lower.py); PITON_STORE_SLOTS=0: private rows
+               "store_slots": os.environ.get("PITON_STORE_SLOTS", "1") not in ("", "0")}
     try:
         tile, prog, lw, stats, asm = _compile_program(fn, signature, constants, name, pid_max, options)
     except RegAllocError:
