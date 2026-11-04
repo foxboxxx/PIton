@@ -53,15 +53,15 @@ LAUNCH = (compiler.COARSEN_LAUNCH_MIN_GRID, compiler.COARSEN_LAUNCH_MIN_PROGRAMS
 @pytest.fixture
 def env(monkeypatch):
     """env(persistent, runtime): PITON_PERSISTENT (None = the plain build "0",
-    1 = automatic, k = forced) and PITON_COARSEN_RUNTIME "1" or unset."""
+    1 = automatic, k = forced) and PITON_COARSEN_RUNTIME "1" or "0".
+    PITON_COARSEN_STORES=0 (tests/test_coarsen_stores.py): the digits' second
+    layer, matmul and row_sum stay coarsened, with the conservative limits."""
     monkeypatch.delenv("PITON_STORE_SLOTS", raising=False)
+    monkeypatch.setenv("PITON_COARSEN_STORES", "0")
 
     def set_env(persistent=1, runtime=True):
         monkeypatch.setenv("PITON_PERSISTENT", "0" if persistent is None else str(persistent))
-        if runtime:
-            monkeypatch.setenv("PITON_COARSEN_RUNTIME", "1")
-        else:
-            monkeypatch.delenv("PITON_COARSEN_RUNTIME", raising=False)
+        monkeypatch.setenv("PITON_COARSEN_RUNTIME", "1" if runtime else "0")
     return set_env
 
 
@@ -108,21 +108,21 @@ def _expected_factor(k, gx):
 # -- the switch and the factor ------------------------------------------------------------
 
 def test_switch(env, monkeypatch):
-    """Unset, "" or "0": the compile-time factor, no coarsen0 uniform; "1": the
-    same factor read from coarsen0 right after nprog0. Builds that are not
-    coarsened are the same code either way."""
+    """"" or "0": the compile-time factor, no coarsen0 uniform; "1" or unset (on
+    by default): the same factor read from coarsen0 right after nprog0. Builds
+    that are not coarsened are the same code either way."""
     env(1, runtime=False)
     off = []
-    for value in (None, "", "0"):
-        if value is None:
-            monkeypatch.delenv("PITON_COARSEN_RUNTIME", raising=False)
-        else:
-            monkeypatch.setenv("PITON_COARSEN_RUNTIME", value)
+    for value in ("", "0"):
+        monkeypatch.setenv("PITON_COARSEN_RUNTIME", value)
         ck = _add(64)
         assert ck.coarsen == 4 and ck.coarsen_launch is None and "coarsen_runtime" not in ck.stats
         assert ("coarsen", "coarsen0") not in ck.uniforms
         off.append((list(ck.words), ck.uniforms))
-    assert off[0] == off[1] == off[2]
+    assert off[0] == off[1]
+    monkeypatch.delenv("PITON_COARSEN_RUNTIME")
+    default = _add(64)
+    assert ("coarsen", "coarsen0") in default.uniforms
     plain = _add(64, (32,))
     env(1)
     on = _add(64)

@@ -122,7 +122,7 @@ def test_automatic_factor_keeps_slots(env, name):
     # (PITON_ISSUE: recip's cheaper special-value checks fit a straight-line build,
     # 399 instructions per id where the rerolled one ran 834: 5.1 bytes per
     # instruction, above COARSEN_MIN_BYTES, so it is coarsened like copy and add)
-    issue = os.environ.get("PITON_ISSUE", "0") not in ("", "0")
+    issue = os.environ.get("PITON_ISSUE", "1") not in ("", "0")
     if name in ("copy", "add") or issue and name == "recip":
         _check_coarsened(ck, 4)
     else:

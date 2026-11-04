@@ -16,7 +16,7 @@ are barriers. A soft register-pressure limit stops it from starting more
 chains than the register file can hold; compile() also keeps the original
 order whenever that allocates better or schedules shorter.
 
-Flag groups (PITON_ISSUE=1)
+Flag groups (PITON_ISSUE, on by default)
 ---------------------------
 There is one set of condition flags, and the special-value checks of the
 math kernels set them several times per register (exp: 4, recip: 8), so

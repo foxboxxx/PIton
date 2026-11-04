@@ -50,7 +50,7 @@ each program id runs every store's acquire ... release itself, so no slot is
 held from one id into the next or into the thread end, and no id leaves a
 slot DMA running for the next id to overlap.
 
-Issue (PITON_ISSUE=1)
+Issue (PITON_ISSUE, on by default; =0 turns it off)
 ---------------------
 The math kernels are bound by instruction issue on the Pi, mostly by add-ALU
 work in their special-value checks. With the switch on, these produce the

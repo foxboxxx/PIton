@@ -37,7 +37,7 @@ def _builds():
 @pytest.fixture
 def stores(monkeypatch):
     monkeypatch.setenv("PITON_PERSISTENT", "1")
-    monkeypatch.delenv("PITON_COARSEN_RUNTIME", raising=False)
+    monkeypatch.setenv("PITON_COARSEN_RUNTIME", "0")
 
     def set_switch(value):
         if value is None:
@@ -48,19 +48,20 @@ def stores(monkeypatch):
 
 
 def test_switch(stores):
-    """Unset, "" and "0" coarsen as before (every build the same code); "1"
-    leaves the sparse stores plain."""
-    stores(None)
+    """"" and "0" coarsen by E1's rule alone (every build the same code); "1"
+    and unset (on by default) leave the sparse stores plain."""
+    stores("0")
     base = _builds()
     assert {n: ck.coarsen for n, ck in base.items()} == \
         {"add": 4, "copy": 4, "dense1": 2, "dense2": 2, "dense3": 2, "matmul": 2, "row_sum": 2}
     stores("")
     assert all(list(ck.words) == list(base[n].words) and ck.uniforms == base[n].uniforms
                for n, ck in _builds().items())
-    stores("0")
-    assert all(list(ck.words) == list(base[n].words) for n, ck in _builds().items())
+    stores(None)
+    default = _builds()
     stores("1")
     on = _builds()
+    assert all(list(ck.words) == list(default[n].words) for n, ck in on.items())
     assert {n: ck.coarsen for n, ck in on.items()} == \
         {"add": 4, "copy": 4, "dense1": 2, "dense2": 1, "dense3": 1, "matmul": 1, "row_sum": 1}
     for n in ("add", "copy", "dense1"):

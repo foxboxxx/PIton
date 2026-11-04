@@ -84,19 +84,23 @@ def inputs(bits, n):
 
 # -- the switch --------------------------------------------------------------------------
 
-def test_off_unless_one(monkeypatch):
+def test_on_unless_zero(monkeypatch):
+    """On by default (accepted on the Pi 2026-11-04); "" or "0" turn it off."""
     cons = {"OP": 4, "BLOCK": 256}
     words = []
-    for value in (None, "", "0"):
+    for value in ("", "0"):
+        monkeypatch.setenv("PITON_ISSUE", value)
+        words.append(pcompile(sfu_kernel, SIG, cons, grid=(16,)).words)
+    assert words[0] == words[1]
+    on = []
+    for value in (None, "1"):
         if value is None:
             monkeypatch.delenv("PITON_ISSUE", raising=False)
         else:
             monkeypatch.setenv("PITON_ISSUE", value)
-        words.append(pcompile(sfu_kernel, SIG, cons, grid=(16,)).words)
-    assert words[0] == words[1] == words[2]
-    monkeypatch.setenv("PITON_ISSUE", "1")
-    on = pcompile(sfu_kernel, SIG, cons, grid=(16,))
-    assert on.stats["cse"] >= 0 and len(on.program.instrs) < len(words[0])
+        on.append(pcompile(sfu_kernel, SIG, cons, grid=(16,)))
+    assert on[0].words == on[1].words
+    assert on[0].stats["cse"] >= 0 and len(on[0].program.instrs) < len(words[0])
 
 
 # -- same bits ---------------------------------------------------------------------------

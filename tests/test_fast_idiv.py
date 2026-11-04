@@ -491,7 +491,7 @@ def test_register_pressure_falls_back(fast):
     # (PITON_ISSUE: MIR CSE shares the tile's repeated index arithmetic, 379
     # instructions, so it fits with the straight-line division: 2185 instructions
     # where the branching one takes 4959; the broadcast tile below still falls back)
-    issue = os.environ.get("PITON_ISSUE", "0") not in ("", "0")
+    issue = os.environ.get("PITON_ISSUE", "1") not in ("", "0")
     assert ck.stats.get("fast_idiv_fallback") == (None if issue else 1)
     offs = np.arange(n)
     np.testing.assert_array_equal(o[:n], offs // N * 3 + offs % N)

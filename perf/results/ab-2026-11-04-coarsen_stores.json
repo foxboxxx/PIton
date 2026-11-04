@@ -1,0 +1,347 @@
+{
+ "env": "PITON_COARSEN_STORES",
+ "off": "0",
+ "on": "1",
+ "targets": [],
+ "accept": false,
+ "why": "slower: transpose 0.973x",
+ "rows": [
+  {
+   "name": "copy",
+   "instructions_off": 249,
+   "instructions_on": 249,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "add",
+   "instructions_off": 333,
+   "instructions_on": 333,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "mul",
+   "instructions_off": 332,
+   "instructions_on": 332,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "fma",
+   "instructions_off": 312,
+   "instructions_on": 312,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "scaled_relu",
+   "instructions_off": 402,
+   "instructions_on": 402,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "exp",
+   "instructions_off": 347,
+   "instructions_on": 347,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "exp2",
+   "instructions_off": 328,
+   "instructions_on": 328,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "log",
+   "instructions_off": 344,
+   "instructions_on": 344,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "log2",
+   "instructions_off": 338,
+   "instructions_on": 337,
+   "off_us": 1138,
+   "on_us": 1137,
+   "speedup": 1.0008795074758134,
+   "off": [
+    {
+     "times_us": [
+      1155,
+      1138,
+      1142,
+      1140,
+      1140
+     ],
+     "busy": 0.7294575278265963,
+     "tmu": 0.0004522554188635032,
+     "idle": 0.022195664909197423,
+     "icache_miss": 0.0001878887249100302
+    }
+   ],
+   "on": [
+    {
+     "times_us": [
+      1155,
+      1138,
+      1138,
+      1137,
+      1140
+     ],
+     "busy": 0.725295807681032,
+     "tmu": 0.0005359132219290531,
+     "idle": 0.021417766051011432,
+     "icache_miss": 0.00018913278576428237
+    }
+   ]
+  },
+  {
+   "name": "recip",
+   "instructions_off": 414,
+   "instructions_on": 414,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "rsqrt",
+   "instructions_off": 313,
+   "instructions_on": 313,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "sqrt",
+   "instructions_off": 301,
+   "instructions_on": 304,
+   "off_us": 1157,
+   "on_us": 1156,
+   "speedup": 1.0008650519031141,
+   "off": [
+    {
+     "times_us": [
+      1173,
+      1157,
+      1157,
+      1157,
+      1158
+     ],
+     "busy": 0.5569899164505906,
+     "tmu": 0.0025525785076346875,
+     "idle": 0.021219245174301356,
+     "icache_miss": 0.00021099228430176034
+    }
+   ],
+   "on": [
+    {
+     "times_us": [
+      1177,
+      1159,
+      1161,
+      1156,
+      1159
+     ],
+     "busy": 0.5610149942329873,
+     "tmu": 0.0012906574394463668,
+     "idle": 0.021343713956170702,
+     "icache_miss": 0.00020965998084283312
+    }
+   ]
+  },
+  {
+   "name": "idiv",
+   "instructions_off": 629,
+   "instructions_on": 629,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "row_sum",
+   "instructions_off": 187,
+   "instructions_on": 187,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "row_max",
+   "instructions_off": 188,
+   "instructions_on": 188,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "transpose",
+   "instructions_off": 1016,
+   "instructions_on": 1046,
+   "off_us": 754,
+   "on_us": 775,
+   "speedup": 0.9729032258064516,
+   "off": [
+    {
+     "times_us": [
+      781,
+      754,
+      754,
+      754,
+      756
+     ],
+     "busy": 0.40969053934571176,
+     "tmu": 0.0035561450044208666,
+     "idle": 0.04117241379310345,
+     "icache_miss": 0.03156768325307651
+    },
+    {
+     "times_us": [
+      783,
+      755,
+      759,
+      757,
+      756
+     ],
+     "busy": 0.40914790286975716,
+     "tmu": 0.0036467991169977926,
+     "idle": 0.04102958057395144,
+     "icache_miss": 0.03156768325307651
+    },
+    {
+     "times_us": [
+      782,
+      756,
+      754,
+      754,
+      756
+     ],
+     "busy": 0.40969053934571176,
+     "tmu": 0.0036162687886825817,
+     "idle": 0.04101679929266136,
+     "icache_miss": 0.03156768325307651
+    }
+   ],
+   "on": [
+    {
+     "times_us": [
+      806,
+      780,
+      781,
+      778,
+      779
+     ],
+     "busy": 0.4102142245072836,
+     "tmu": 0.0042793487574978575,
+     "idle": 0.040202227934875746,
+     "icache_miss": 0.03158984981874676
+    },
+    {
+     "times_us": [
+      806,
+      778,
+      778,
+      778,
+      778
+     ],
+     "busy": 0.4102142245072836,
+     "tmu": 0.0041096829477292205,
+     "idle": 0.041383033419023135,
+     "icache_miss": 0.03158984981874676
+    },
+    {
+     "times_us": [
+      805,
+      776,
+      775,
+      777,
+      775
+     ],
+     "busy": 0.4118021505376344,
+     "tmu": 0.004142795698924731,
+     "idle": 0.04001720430107527,
+     "icache_miss": 0.03159376782687149
+    }
+   ]
+  },
+  {
+   "name": "softmax",
+   "instructions_off": 484,
+   "instructions_on": 483,
+   "off_us": 397,
+   "on_us": 396,
+   "speedup": 1.0025252525252526,
+   "off": [
+    {
+     "times_us": [
+      408,
+      401,
+      398,
+      397,
+      399
+     ],
+     "busy": 0.8468849706129303,
+     "tmu": 0.010918555835432409,
+     "idle": 0.05644332493702771,
+     "icache_miss": 0.0006776812995628758
+    }
+   ],
+   "on": [
+    {
+     "times_us": [
+      409,
+      405,
+      396,
+      398,
+      399
+     ],
+     "busy": 0.8481616161616161,
+     "tmu": 0.015232323232323233,
+     "idle": 0.05644107744107744,
+     "icache_miss": 0.0006783695328771199
+    }
+   ]
+  },
+  {
+   "name": "matmul_8x64x4",
+   "instructions_off": 1124,
+   "instructions_on": 1124,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "matmul_8x64x8",
+   "instructions_off": 1383,
+   "instructions_on": 1383,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "dense_relu",
+   "instructions_off": 550,
+   "instructions_on": 550,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "mandel_32x16",
+   "instructions_off": 487,
+   "instructions_on": 487,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "mandel_16x16x2",
+   "instructions_off": 478,
+   "instructions_on": 478,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "compute_peak",
+   "instructions_off": 148,
+   "instructions_on": 148,
+   "same": true,
+   "speedup": 1.0
+  }
+ ]
+}
