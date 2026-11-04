@@ -714,6 +714,48 @@ def remat_across_loops(fn: ir.Function, max_ops: int = 64) -> int:
     return count
 
 
+def drop_dead_other(fn: ir.Function) -> int:
+    """(PITON_ISSUE) Drop `other` from masked float loads whose masked lanes are
+    never observed: every use, through lane-wise arith / math ops of the same
+    shape, ends as the value of a store under the same mask, so a masked lane
+    only reaches lanes that store skips. Those lanes then read the zero page
+    (backend/lower.py load_tokens) instead of being set to `other` register by
+    register (a compare and a conditional move each). Returns the loads changed."""
+    uses = {}
+    for op in fn.walk():
+        for i, o in enumerate(op.operands):
+            if o is not None:
+                uses.setdefault(o.id, []).append((op, i))
+    dropped = 0
+    for op in list(fn.walk()):
+        if op.name != "tt.load" or not op.attrs.get("has_other") or not op.result.is_tensor \
+                or not op.result.dtype.is_float:
+            continue
+        mask = op.operands[1]
+        ok, stack, seen = True, [op.result], set()
+        while stack and ok:
+            v = stack.pop()
+            if v.id in seen:
+                continue
+            seen.add(v.id)
+            for user, i in uses.get(v.id, ()):
+                if user.name == "tt.store" and i == 1 and len(user.operands) > 2 and user.operands[2] is mask:
+                    continue
+                if (user.name.startswith(("arith.", "math.")) or user.name == "tt.bitcast") and \
+                        not user.regions and user.results and all(r.shape == v.shape for r in user.results):
+                    stack.extend(user.results)
+                    continue
+                ok = False
+                break
+        if ok:
+            other = op.operands.pop(2)
+            op.attrs["has_other"] = False
+            if op in other.uses:
+                other.uses.remove(op)
+            dropped += 1
+    return dropped
+
+
 def optimize(fn: ir.Function, pid_max=None) -> RangeAnalysis:
     canonicalize(fn)
     for _ in range(4):

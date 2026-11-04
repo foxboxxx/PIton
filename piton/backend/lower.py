@@ -80,6 +80,10 @@ same bits with fewer (add-ALU) operations:
     register per column block (lane + 16 j, as 2-D tiles already do), which
     LICM hoists, so their addresses and masks (n - lane - 16 j) need no
     per-iteration offset chain; it costs a register per column block.
+  * passes.drop_dead_other: a masked float load whose value only reaches
+    stores under the same mask loses its `other` (the math kernels' 1.0),
+    so its masked lanes read the zero page without a compare and
+    conditional move per register.
 """
 
 from __future__ import annotations

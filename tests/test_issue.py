@@ -243,6 +243,49 @@ def test_lane_compare(monkeypatch, op, block):
         assert executed[1] < executed[0]
 
 
+@piton.jit
+def other_kernel(x_ptr, out_ptr, n, CASE: tl.constexpr, BLOCK: tl.constexpr):
+    offs = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    m = offs < n
+    x = tl.load(x_ptr + offs, mask=m, other=2.0)
+    y = tl.where(x > 1.5, x * 3.0, -x)
+    if CASE == 0:
+        tl.store(out_ptr + offs, y, mask=m)                     # dead: only lanes the store skips
+    elif CASE == 1:
+        tl.store(out_ptr + offs, y, mask=offs < n + 3)          # another mask
+    elif CASE == 2:
+        tl.store(out_ptr + offs, y)                             # no mask
+    elif CASE == 3:
+        tl.store(out_ptr + offs, y - tl.max(y, axis=0), mask=m)     # a reduction reads every lane
+    elif CASE == 4:
+        tl.store(out_ptr + offs, x, mask=(x > 1.5) & m)         # the value decides the mask
+    else:
+        tl.store(out_ptr + offs, y, mask=m)
+        tl.store(out_ptr + offs + 1, y, mask=offs + 1 < n)      # also under another mask
+
+
+@pytest.mark.parametrize("case", range(6))
+def test_drop_dead_other(monkeypatch, case):
+    """passes.drop_dead_other: only where every use ends in a store under the
+    load's own mask; the outputs keep their bits either way."""
+    tile = frontend.generate(other_kernel.fn, SIG, {"CASE": case, "BLOCK": 64}, name=None)
+    assert passes.drop_dead_other(tile) == (1 if case == 0 else 0)
+    n = 4 * 64 - 5
+    x = np.resize(np.array([0.5, 1.0, 1.75, 2.0, -3.0, 4.0], np.float32), n)
+    values = {"x_ptr": x, "out_ptr": np.full(n + 64, np.nan, np.float32), "n": n}
+    both_ways(monkeypatch, other_kernel, SIG, {"CASE": case, "BLOCK": 64}, 64, values, n)
+
+
+def test_drop_dead_other_keeps_int_loads():
+    @piton.jit
+    def k(x_ptr, out_ptr, n, BLOCK: tl.constexpr):
+        offs = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+        m = offs < n
+        tl.store(out_ptr + offs, 7 // tl.load(x_ptr + offs, mask=m, other=1), mask=m)
+    tile = frontend.generate(k.fn, {"x_ptr": "*i32", "out_ptr": "*i32", "n": "i32"}, {"BLOCK": 64}, name=None)
+    assert passes.drop_dead_other(tile) == 0
+
+
 # -- flag groups -------------------------------------------------------------------------
 
 def _check_order(before, after):

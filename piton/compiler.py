@@ -176,6 +176,8 @@ def _compile_tile(fn, signature, constants, name, pid_max, options, chunk: int =
     scheduling; picks the better of the plain and pre-scheduled builds."""
     tile = frontend.generate(fn, signature, constants, name=name)
     asm = {"ttir": tile.dump()}
+    if options.get("issue"):
+        passes.drop_dead_other(tile)          # (PITON_ISSUE: masked lanes no store reads)
     if chunk:
         if options.get("store_slots"):
             reroll.run(tile, chunk, queue=True)     # (the block's store after the loop)
