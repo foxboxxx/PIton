@@ -799,20 +799,46 @@ def fix_block_boundaries(blocks_instrs: list, preds: dict, order: list) -> None:
                 out.append(t + ins)
         return out
 
+    def needed(tail, head):
+        """Nops between tail and head for every latency across them."""
+        need = 0
+        for i, t in enumerate(tail):
+            tr = instr_res(t)
+            dist_tail = len(tail) - i      # distance to head[0]
+            for j, h in enumerate(head[:4]):
+                req = required_distance(tr, instr_res(h))
+                if req > dist_tail + j:
+                    need = max(need, req - (dist_tail + j))
+        return need
+
+    pair = pair_enabled()
+    succs = {}
+    for lbl, ps in preds.items():
+        for p in ps:
+            succs.setdefault(p, set()).add(lbl)
     changed = True
     while changed:
         changed = False
         for label in order:
             head = blocks_instrs[label]
-            for tail in [t for p in preds.get(label, []) for t in tails(p, 4)]:
-                need = 0
-                for i, t in enumerate(tail):
-                    tr = instr_res(t)
-                    dist_tail = len(tail) - i      # distance to head[0]
-                    for j, h in enumerate(head[:4]):
-                        req = required_distance(tr, instr_res(h))
-                        if req > dist_tail + j:
-                            need = max(need, req - (dist_tail + j))
+            ps = preds.get(label, [])
+            if pair and len(ps) > 1:
+                # PITON_PAIR: a hazard only on the way in from blocks that fall
+                # through into this one and nowhere else (a loop's preheader) is
+                # padded at their end, so the other predecessors (the loop's back
+                # edge) do not run the nops
+                needs = {p: max(needed(t, head) for t in tails(p, 4)) for p in ps}
+                late = [p for p in ps if needs[p]]
+                if late and len(late) < len(ps) and all(
+                        succs.get(p) == {label} and order.index(p) + 1 == order.index(label)
+                        and not any(ins.kind == "branch" for ins in blocks_instrs[p][-4:]) for p in late):
+                    for p in late:
+                        blocks_instrs[p] = blocks_instrs[p] + [Instr.nop("boundary hazard")
+                                                               for _ in range(needs[p])]
+                    changed = True
+                    continue
+            for tail in [t for p in ps for t in tails(p, 4)]:
+                need = needed(tail, head)
                 if need:
                     blocks_instrs[label] = [Instr.nop("boundary hazard") for _ in range(need)] + head
                     head = blocks_instrs[label]
