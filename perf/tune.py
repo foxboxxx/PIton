@@ -3,15 +3,18 @@
 Each value of the swept constant is one boot, best of --repeats launches,
 outputs checked. For constants that set how many elements a program handles
 (BLOCK, BLOCK_SIZE) the 1-D grid is rescaled so the problem stays the same.
+A dotted name sweeps a compiler module setting instead (backlog D3).
 
     .venv/bin/python perf/tune.py copy BLOCK=256,512,1024,2048
     .venv/bin/python perf/tune.py mandel_32x16 UNROLL=1,2,4
+    .venv/bin/python perf/tune.py exp piton.reroll.SUB=16,32,64,128
 """
 from __future__ import annotations
 
 import argparse
 import dataclasses
 from datetime import date
+import importlib
 import json
 import os
 import sys
@@ -21,7 +24,7 @@ from perf.profile_pi import RESULTS, run_case  # noqa: E402
 from perf.suite import CASES_BY_NAME, constants_for  # noqa: E402
 from piton.runtime.pi import PiRunner  # noqa: E402
 
-PER_PROGRAM = ("BLOCK", "BLOCK_SIZE")
+PER_PROGRAM = ("BLOCK", "BLOCK_SIZE", "BLOCK_M")      # with a 1-D grid
 
 
 def variant(case, name: str, value: int):
@@ -51,7 +54,12 @@ def main(argv=None):
     rows = []
     for v in (int(x) for x in values.split(",")):
         try:
-            r = run_case(variant(case, name, v), args.repeats, runner)
+            if "." in name:
+                module, attr = name.rsplit(".", 1)
+                setattr(importlib.import_module(module), attr, v)
+                r = run_case(case, args.repeats, runner)
+            else:
+                r = run_case(variant(case, name, v), args.repeats, runner)
             rows.append({name: v, **r})
             print(f"{name}={v}: {r['best_us']} us  instr {r['instructions']}  progs {r['programs']}  "
                   f"busy {100 * r['busy']:.1f}%  {'ok' if not r['errors'] else 'WRONG'}", flush=True)

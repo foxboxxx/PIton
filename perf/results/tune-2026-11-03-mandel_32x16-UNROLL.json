@@ -1,0 +1,113 @@
+[
+ {
+  "UNROLL": 16,
+  "name": "mandel_32x16",
+  "note": "32x16x1, zoom 1000",
+  "instructions": 496,
+  "programs": 1200,
+  "times_us": [
+   42420,
+   42406,
+   42409,
+   42398,
+   42411
+  ],
+  "best_us": 42398,
+  "counters": {
+   "idle": 2003552,
+   "valid": 123861168,
+   "tmu_stall": 269984,
+   "sb_stall": 0,
+   "icache_hit": 30965292,
+   "icache_miss": 522,
+   "unif_miss": 1514,
+   "tmu_quads": 307200,
+   "tmu_miss": 132,
+   "vdw_stall": 0,
+   "l2_hit": 1265,
+   "l2_miss": 903
+  },
+  "busy": 0.9737972545874806,
+  "tmu": 0.0021226158466594335,
+  "idle": 0.015751937984496124,
+  "icache_miss": 1.685729947225027e-05,
+  "checked": {
+   "out_ptr": 1021
+  },
+  "errors": {}
+ },
+ {
+  "UNROLL": 22,
+  "name": "mandel_32x16",
+  "note": "32x16x1, zoom 1000",
+  "instructions": 672,
+  "programs": 1200,
+  "times_us": [
+   42011,
+   41984,
+   41959,
+   41991,
+   41979
+  ],
+  "best_us": 41959,
+  "counters": {
+   "idle": 1943392,
+   "valid": 119510832,
+   "tmu_stall": 297968,
+   "sb_stall": 0,
+   "icache_hit": 29877708,
+   "icache_miss": 115034,
+   "unif_miss": 1513,
+   "tmu_quads": 307200,
+   "tmu_miss": 132,
+   "vdw_stall": 0,
+   "l2_hit": 115807,
+   "l2_miss": 872
+  },
+  "busy": 0.9494254867847184,
+  "tmu": 0.0023671361726129475,
+  "idle": 0.01543881725811705,
+  "icache_miss": 0.0038353945764611984,
+  "checked": {
+   "out_ptr": 1021
+  },
+  "errors": {}
+ },
+ {
+  "UNROLL": 32,
+  "name": "mandel_32x16",
+  "note": "32x16x1, zoom 1000",
+  "instructions": 864,
+  "programs": 1200,
+  "times_us": [
+   63106,
+   63517,
+   63208,
+   63067,
+   63216
+  ],
+  "best_us": 63067,
+  "counters": {
+   "idle": 3227364,
+   "valid": 129665320,
+   "tmu_stall": 153888,
+   "sb_stall": 0,
+   "icache_hit": 32416330,
+   "icache_miss": 1048413,
+   "unif_miss": 1487,
+   "tmu_quads": 307200,
+   "tmu_miss": 132,
+   "vdw_stall": 0,
+   "l2_hit": 1049143,
+   "l2_miss": 889
+  },
+  "busy": 0.6853310500473042,
+  "tmu": 0.0008133572232704901,
+  "idle": 0.01705785910222462,
+  "icache_miss": 0.0313288824599669,
+  "checked": {
+   "out_ptr": 1021
+  },
+  "errors": {}
+ }
+]

@@ -196,7 +196,9 @@ def resources_of(alu_ops, sig=None, kind="alu", setf=False, cond_any=False) -> R
         r.tmu_recv = True
         r.periph += 1
     if kind == "sem":
-        r.writes.add(("sem",))
+        # a store slot's semaphore fences the VPM writes, DMAs and vw_wait
+        # (lower.py slot_acquire / slot_release): nothing crosses it
+        r.writes.update((("sem",), ("vpm",), ("mem",), ("mutex",)))
         r.periph += 1
     if setf:
         r.setf = True
@@ -350,6 +352,7 @@ class Bundle:
         self.unif = False
         self.has_cond = False
         self.comment = []
+        self.rejected = []          # nodes refused only because the instruction did not encode
 
     @property
     def empty(self):
@@ -443,6 +446,8 @@ class Bundle:
             isa.encode(isa.canonicalize(self.to_instr()))
         except EncodeError:
             self.add, self.mul, self.sig, self.setf, self.setf_unit = saved
+            if n not in self.rejected:
+                self.rejected.append(n)
             return False
         self.nodes.append(n)
         self.periph += r.periph
@@ -453,8 +458,31 @@ class Bundle:
         return True
 
 
-def schedule_block(minsts, terminator: Optional[MInst] = None):
-    """Returns list[Instr] for one block (terminator branch excluded)."""
+def _missed_pair(bundle: Bundle, ready: list):
+    """Ready single-op nodes that only the encoding (read ports, write swap,
+    ...) kept out of a bundle that still has the ALU they need free, each as
+    the [(unit, MOp)] list the instruction would have held."""
+    if bundle.kind != "alu" or bundle.empty or (bundle.add is None) == (bundle.mul is None):
+        return []
+    free = "add" if bundle.add is None else "mul"
+    held = []
+    for node in bundle.nodes:
+        for mop, aop in zip(node.mops, node.alu_ops):
+            held.append(("add" if aop is bundle.add else "mul", mop))
+    out = []
+    for n in bundle.rejected:
+        if n in ready and len(n.mops) == 1 and n.mops[0].unit in (free, "any"):
+            out.append(held + [(free, n.mops[0])])
+    return out
+
+
+def schedule_block(minsts, terminator: Optional[MInst] = None, missed: Optional[list] = None,
+                   weight: float = 1):
+    """Returns list[Instr] for one block (terminator branch excluded).
+
+    missed: if given, collects (weight, [(unit, MOp)]) for every instruction
+    left with an idle ALU that a ready operation could have filled but for
+    the encoding (register allocation reads these, regalloc.PortHints)."""
     nodes = build_dag(minsts)
     remaining = set(range(len(nodes)))
     earliest = {n.idx: 0 for n in nodes}
@@ -485,6 +513,9 @@ def schedule_block(minsts, terminator: Optional[MInst] = None):
             stuck = [n for n in ready if earliest[n.idx] <= cycle]
             if stuck:
                 raise RuntimeError(f"cannot encode {stuck[0].minst!r} ({[str(a) for a in stuck[0].alu_ops]})")
+        if missed is not None:
+            pairs = _missed_pair(bundle, ready)
+            missed.extend((weight / len(pairs), p) for p in pairs)
         out.append(bundle.to_instr() if not bundle.empty else Instr.nop())
         cycle += 1
         if len(out) > 100000:
@@ -524,7 +555,7 @@ def fill_delay_slots(body: list, branch: Instr) -> list:
     while k < 3 and k < len(body):
         cand = body[len(body) - 1 - k]
         r = instr_res(cand)
-        if r.setf or cand.kind == "branch" or cand.sig == "thrend":
+        if r.setf or cand.kind in ("branch", "sem") or cand.sig == "thrend":
             break
         k += 1
     moved = body[len(body) - k:] if k else []
@@ -643,8 +674,9 @@ def fix_block_boundaries(blocks_instrs: list, preds: dict, order: list) -> None:
                     changed = True
 
 
-def schedule_function(fn, name: str) -> Program:
-    """Schedule an allocated mir.Function into a Program."""
+def schedule_function(fn, name: str, missed: Optional[list] = None) -> Program:
+    """Schedule an allocated mir.Function into a Program (missed: see
+    schedule_block; weighted by 100^loop depth, as compiler.py weighs blocks)."""
     fn.compute_cfg()
     preds = fn.preds()
     per_block = {}
@@ -659,7 +691,7 @@ def schedule_function(fn, name: str) -> Program:
             term = insts.pop()
         ends = insts and insts[-1].sig == "thrend"
         end_inst = insts.pop() if ends else None
-        body = schedule_block(insts)
+        body = schedule_block(insts, missed=missed, weight=100 ** b.loop_depth)
         if term is not None:
             br = Instr(kind="branch", bcond=term.bcond, target=term.target, rel=True,
                        add=AluOp("mov", isa.NOP, isa.NOP), mul=AluOp("mov", isa.NOP, isa.NOP))
