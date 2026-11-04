@@ -47,9 +47,12 @@ def main(argv=None):
     ap.add_argument("case")
     ap.add_argument("sweep", help="NAME=v1,v2,...")
     ap.add_argument("--repeats", type=int, default=5)
+    ap.add_argument("--label", default="", help="suffix for the results file, e.g. 'slots'")
     args = ap.parse_args(argv)
     case = CASES_BY_NAME[args.case]
     name, values = args.sweep.split("=")
+    if name not in constants_for(case, "pi") and "." not in name:
+        ap.error(f"{args.case} has no constant {name} (it has {', '.join(constants_for(case, 'pi'))})")
     runner = PiRunner(timeout=240)
     rows = []
     for v in (int(x) for x in values.split(",")):
@@ -67,11 +70,12 @@ def main(argv=None):
             rows.append({name: v, "failed": f"{type(ex).__name__}: {str(ex).splitlines()[0][:200]}"})
             print(f"{name}={v}: FAILED {rows[-1]['failed']}", flush=True)
     os.makedirs(RESULTS, exist_ok=True)
-    path = os.path.join(RESULTS, f"tune-{date.today().isoformat()}-{args.case}-{name}.json")
+    label = f"-{args.label}" if args.label else ""
+    path = os.path.join(RESULTS, f"tune-{date.today().isoformat()}-{args.case}-{name}{label}.json")
     with open(path, "w") as f:
         json.dump(rows, f, indent=1)
     print(f"wrote {path}", file=sys.stderr)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
