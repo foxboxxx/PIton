@@ -53,9 +53,14 @@ def build(monkeypatch, issue, kernel, sig, cons, grid):
     return pcompile(kernel, sig, cons, grid=bound)
 
 
-def run_bits(ck, grid, values, out="out_ptr"):
+def run_bits(ck, grid, values, out="out_ptr", executed=None):
+    """Output bits; `executed` (a list) gets the number of instructions executed."""
     values = {k: (v.copy() if isinstance(v, np.ndarray) else v) for k, v in values.items()}
-    run_emulator(ck, grid, values)
+    v3d = emulator.V3D()
+    v3d.pc_counts = [0] * len(ck.program.instrs)
+    run_emulator(ck, grid, values, v3d=v3d)
+    if executed is not None:
+        executed.append(sum(v3d.pc_counts))
     return values[out].view(np.uint32).copy()
 
 
@@ -63,11 +68,12 @@ def both_ways(monkeypatch, kernel, sig, cons, block, values, n, out="out_ptr"):
     grid = ((n + block - 1) // block,)
     off = build(monkeypatch, False, kernel, sig, cons, grid)
     on = build(monkeypatch, True, kernel, sig, cons, grid)
-    a, b = run_bits(off, grid, values, out), run_bits(on, grid, values, out)
+    executed = []
+    a, b = run_bits(off, grid, values, out, executed), run_bits(on, grid, values, out, executed)
     bad = np.flatnonzero(a != b)
     assert bad.size == 0, (f"{bad.size} outputs differ, first at {bad[0]}: "
                            f"0x{a[bad[0]]:08x} (off) != 0x{b[bad[0]]:08x} (on)")
-    return off, on
+    return executed
 
 
 def inputs(bits, n):
@@ -79,7 +85,7 @@ def inputs(bits, n):
 # -- the switch --------------------------------------------------------------------------
 
 def test_off_unless_one(monkeypatch):
-    cons = {"OP": 2, "BLOCK": 256}
+    cons = {"OP": 4, "BLOCK": 256}
     words = []
     for value in (None, "", "0"):
         if value is None:
@@ -100,7 +106,7 @@ def test_sfu_kernel_bits(monkeypatch, op):
     """exp2 log2 1/x rsqrt exp sqrt, rerolled (BLOCK 256) with a ragged tail."""
     n = 4096 - 37
     off, on = both_ways(monkeypatch, sfu_kernel, SIG, {"OP": op, "BLOCK": 256}, 256, inputs(specials(), n), n)
-    assert len(on.program.instrs) <= len(off.program.instrs) + 8
+    assert on < off             # executed instructions
 
 
 def test_log_kernel_bits(monkeypatch):
@@ -121,7 +127,7 @@ def test_constant_numerator_bits(monkeypatch, a):
     """a / x for a constant a: normal, negative, zero, denormal, huge, infinite."""
     n = 1024 - 3
     off, on = both_ways(monkeypatch, const_div_kernel, SIG, {"A": a, "BLOCK": 64}, 64, inputs(specials(), n), n)
-    assert len(on.program.instrs) < len(off.program.instrs)
+    assert on < off
 
 
 @piton.jit
