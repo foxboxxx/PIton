@@ -61,8 +61,8 @@ def sems_in(ck):
 
 # -- the switch ------------------------------------------------------------------------
 
-def test_off_unless_set(monkeypatch):
-    monkeypatch.delenv("PITON_STORE_SLOTS", raising=False)
+def test_on_unless_zero(monkeypatch):
+    monkeypatch.setenv("PITON_STORE_SLOTS", "")
     off = build(copy_kernel, SIG_COPY, {"BLOCK": 256}, (16,))
     monkeypatch.setenv("PITON_STORE_SLOTS", "0")
     zero = build(copy_kernel, SIG_COPY, {"BLOCK": 256}, (16,))
@@ -75,6 +75,8 @@ def test_off_unless_set(monkeypatch):
     assert sorted(sems_in(on)) == sorted([(True, s) for s in SLOT_SEMAPHORES] +
                                          [(False, s) for s in SLOT_SEMAPHORES])
     assert slot_semaphores(on.words) == SLOT_SEMAPHORES and slot_semaphores(off.words) == ()
+    monkeypatch.delenv("PITON_STORE_SLOTS", raising=False)
+    assert build(copy_kernel, SIG_COPY, {"BLOCK": 256}, (16,)).words == on.words
 
 
 def test_small_stores_keep_private_rows(slots, monkeypatch):
@@ -376,7 +378,7 @@ def test_rerolled_queue_ragged(slots, n, extra):
 
 
 def test_reroll_without_switch_has_no_queue(monkeypatch):
-    monkeypatch.delenv("PITON_STORE_SLOTS", raising=False)
+    monkeypatch.setenv("PITON_STORE_SLOTS", "0")
     ck = build(sfu_kernel, SIG_SFU, {"OP": 4, "BLOCK": 256}, (32,))
     assert ck.stats["rerolled"] == 64 and "piton.shift_in" not in ck.asm["ttir_rerolled"] and not sems_in(ck)
 

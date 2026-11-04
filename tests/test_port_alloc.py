@@ -119,18 +119,20 @@ def test_clone_keeps_ids_and_leaves_the_original_unallocated():
 # ---------------------------------------------------------------------------
 
 
-def test_switch_defaults_off(monkeypatch):
+def test_switch_defaults_on(monkeypatch):
+    case = CASES_BY_NAME["mandel_32x16"]
     monkeypatch.delenv("PITON_PORT_ALLOC", raising=False)
-    case = CASES_BY_NAME["add"]
-    assert "port_alloc" not in compile_case(case, "emu")[0].stats
+    default = compile_case(case, "emu")[0]
+    monkeypatch.setenv("PITON_PORT_ALLOC", "1")
+    assert list(compile_case(case, "emu")[0].words) == list(default.words)
     monkeypatch.setenv("PITON_PORT_ALLOC", "0")
-    assert "port_alloc" not in compile_case(case, "emu")[0].stats
+    assert "port_alloc" not in compile_case(CASES_BY_NAME["add"], "emu")[0].stats
 
 
 @pytest.mark.parametrize("error", [regalloc.RegAllocError, RuntimeError])
 def test_failed_port_aware_attempt_keeps_the_plain_allocation(monkeypatch, error):
     case = CASES_BY_NAME["mandel_32x16"]
-    monkeypatch.delenv("PITON_PORT_ALLOC", raising=False)
+    monkeypatch.setenv("PITON_PORT_ALLOC", "0")
     plain, run = compile_case(case, "emu")
     real = compiler.allocate
 

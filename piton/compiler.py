@@ -130,7 +130,7 @@ def _port_aware(original, name: str, missed: list, copy_of: dict, rounds: int = 
 
 def _build(tile, ranges, options: dict, interleave: bool):
     """Lower, allocate and schedule; returns (program, mir, lowering, stats, mir dumps)."""
-    port_alloc = os.environ.get("PITON_PORT_ALLOC", "0") != "0"     # PITON_PORT_ALLOC=1: port-aware
+    port_alloc = os.environ.get("PITON_PORT_ALLOC", "1") != "0"     # PITON_PORT_ALLOC=0: plain allocation only
     for cache_dot_a in (True, False):
         lw = Lowering(tile, ranges, dict(options, cache_dot_a=cache_dot_a))
         mf = lw.run()
@@ -222,8 +222,8 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
         g = tuple(grid) if isinstance(grid, (tuple, list)) else (grid,)
         pid_max = tuple(max(1, int(x)) - 1 for x in g) + (0,) * (3 - len(g))
     options = {"num_stages": num_stages, "store_mutex": store_mutex,
-               # PITON_STORE_SLOTS=1: stores through shared 16-row VPM slots (backend/lower.py)
-               "store_slots": os.environ.get("PITON_STORE_SLOTS", "0") not in ("", "0")}
+               # stores through shared 16-row VPM slots (backend/lower.py); PITON_STORE_SLOTS=0: private rows
+               "store_slots": os.environ.get("PITON_STORE_SLOTS", "1") not in ("", "0")}
     use_reroll = os.environ.get("PITON_REROLL", "1") != "0"
     sub = reroll.SUB
     try:
