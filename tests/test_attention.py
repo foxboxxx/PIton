@@ -6,9 +6,12 @@ import numpy as np
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "examples"))
-import piton.compiler as pc
 from attention import attention_kernel
+
+import piton.compiler as pc
 from piton.runtime.launcher import run_emulator
+
+GUARD = np.float32(-1234.5)
 
 
 def reference(q, k, v, scale, causal):
@@ -20,19 +23,22 @@ def reference(q, k, v, scale, causal):
     return (p / p.sum(axis=1, keepdims=True)) @ v.astype(np.float64)
 
 
-def run_attention(q, k, v, causal, bm=4, bn=16):
-    seq, d = q.shape
-    scale = float(d) ** -0.5
-    grid = ((seq + bm - 1) // bm,)
-    constants = dict(HEAD_DIM=d, BLOCK_M=bm, BLOCK_N=bn, CAUSAL=causal)
+def run_attention(q, k, v, causal, bm=4, bn=16, heads=1, scale=None):
+    """q/k/v are [seq, heads * d]; head h reads columns h*d .. (h+1)*d."""
+    seq, width = q.shape
+    d = width // heads
+    scale = float(d) ** -0.5 if scale is None else scale
+    grid = ((seq + bm - 1) // bm, heads)
+    constants = {"HEAD_DIM": d, "BLOCK_M": bm, "BLOCK_N": bn, "CAUSAL": causal, "STRIDE": width}
     signature = dict.fromkeys(("q_ptr", "k_ptr", "v_ptr", "o_ptr"), "*fp32")
     signature.update(seq="i32", sm_scale="fp32")
     compiled = pc.compile(attention_kernel, signature, constants, grid=grid)
-    out = np.full(seq * d + 32, np.float32(-1234.5), dtype=np.float32)
-    args = dict(q_ptr=q, k_ptr=k, v_ptr=v, o_ptr=out, seq=seq, sm_scale=np.float32(scale))
+    out = np.full(seq * width + 32, GUARD, dtype=np.float32)
+    args = {"q_ptr": q, "k_ptr": k, "v_ptr": v, "o_ptr": out,
+            "seq": seq, "sm_scale": np.float32(scale)}
     run_emulator(compiled, grid, args, strict=True)
-    np.testing.assert_array_equal(out[seq * d:], np.float32(-1234.5))
-    return out[:seq * d].reshape(seq, d), scale
+    np.testing.assert_array_equal(out[seq * width:], GUARD)
+    return out[:seq * width].reshape(seq, width), scale
 
 
 @pytest.mark.parametrize("causal", [False, True])
@@ -53,3 +59,26 @@ def test_online_softmax_rescale(causal):
     k[35:] *= 5
     actual, scale = run_attention(q, k, v, causal)
     np.testing.assert_allclose(actual, reference(q, k, v, scale, causal), rtol=1e-3, atol=1e-4)
+
+
+@pytest.mark.parametrize("causal", [False, True])
+@pytest.mark.parametrize("heads,seq,bm", [(2, 21, 4), (4, 9, 2)])
+def test_multi_head_strided(heads, seq, bm, causal):
+    """Heads interleaved in one [seq, heads*16] buffer, as a projection writes them.
+
+    STRIDE=64 with BLOCK_M=4 exceeds the register file, so 4 heads use BLOCK_M=2.
+    """
+    rng = np.random.default_rng(heads * 31 + seq)
+    q, k, v = (rng.normal(0, 1, (seq, heads * 16)).astype(np.float32) for _ in range(3))
+    actual, scale = run_attention(q, k, v, causal, bm=bm, heads=heads)
+    for h in range(heads):
+        cols = slice(h * 16, (h + 1) * 16)
+        np.testing.assert_allclose(actual[:, cols], reference(q[:, cols], k[:, cols], v[:, cols], scale, causal),
+                                   rtol=1e-3, atol=1e-4)
+
+
+def test_sm_scale_is_honoured():
+    rng = np.random.default_rng(11)
+    q, k, v = (rng.normal(0, 1, (12, 16)).astype(np.float32) for _ in range(3))
+    actual, scale = run_attention(q, k, v, False, scale=0.6)
+    np.testing.assert_allclose(actual, reference(q, k, v, scale, False), rtol=1e-3, atol=1e-4)
