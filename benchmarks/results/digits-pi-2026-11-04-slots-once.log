@@ -1,0 +1,5 @@
+Batch    1 (padded    4): QPU 0.218 ms, ARM VFP 0.720 ms, 3.30x speedup, 4,587 images/s
+Batch   16 (padded   16): QPU 0.318 ms, ARM VFP 1.446 ms, 4.55x speedup, 50,314 images/s
+Batch   64 (padded   64): QPU 0.534 ms, ARM VFP 4.516 ms, 8.46x speedup, 119,850 images/s
+Batch  256 (padded  256): QPU 1.481 ms, ARM VFP 18.584 ms, 12.55x speedup, 172,856 images/s
+Batch 1797 (padded 1800): QPU 9.289 ms, ARM VFP 133.771 ms, 14.40x speedup, 193,455 images/s

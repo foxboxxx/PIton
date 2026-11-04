@@ -46,6 +46,12 @@ uint32_t piton_launch(uint32_t code, const uint32_t *unifs, uint32_t n);
 uint32_t piton_launch_slots(uint32_t code, const uint32_t *unifs, uint32_t n,
                             uint32_t init, uint32_t fini);
 
+// piton_launch_slots without the per-launch init and fini (the default; PITON_SLOTS_ONCE=0: the other):
+// `init` runs before the first slot launch after boot, and the semaphores stay
+// at 1 between launches. Saves two one-program launches and their cache
+// clears per call (~10 us each), which short launches notice.
+uint32_t piton_launch_slots_once(uint32_t code, const uint32_t *unifs, uint32_t n, uint32_t init);
+
 // Bus address of a pointer inside a piton_buf_t.
 static inline uint32_t piton_bus(const piton_buf_t *b, const volatile void *p) {
     return b->bus + (uint32_t)((const volatile char *)p - (const volatile char *)b->cpu);

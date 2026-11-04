@@ -532,9 +532,10 @@ def test_waited_reservations_end_with_their_run(slots):
 
 # -- the Pi side -----------------------------------------------------------------------------
 
-def test_generated_launch_runs_init_kernel_fini(slots, tmp_path):
+def test_generated_launch_runs_init_kernel_fini(slots, tmp_path, monkeypatch):
     """The generated firmware calls piton_launch_slots with the init / fini
     programs it embedded after the kernel; run it against a stand-in runtime."""
+    monkeypatch.setenv("PITON_SLOTS_ONCE", "0")      # the per-launch init / fini (test_slots_once_launches: the other)
     cc = shutil.which("cc")
     if cc is None:
         pytest.skip("host C compiler is unavailable")
@@ -591,8 +592,9 @@ uint32_t piton_launch_slots(uint32_t code, const uint32_t *unifs, uint32_t n, ui
     assert log.count("PROGRAMS 4") == 2 and log.count("PITON_TIME 5") == 2
 
 
-def test_aot_launcher_uses_launch_slots(slots):
+def test_aot_launcher_uses_launch_slots(slots, monkeypatch):
     from piton.tools.compile import emit_c
+    monkeypatch.setenv("PITON_SLOTS_ONCE", "0")      # the per-launch init / fini (test_slots_once_launches: the other)
     ck = build(copy_kernel, SIG_COPY, {"BLOCK": 256}, (4,))
     header, body = emit_c(ck, "copyk")
     init, fini = semaphore_programs(slot_semaphores(ck.words))
@@ -614,6 +616,28 @@ def test_slot_kernel_qasm_assembles_with_vc4asm(slots):
     for prog in semaphore_programs(SLOT_SEMAPHORES):
         text = Program("p", [isa.decode(w) for w in prog]).qasm()
         assert list(vc4asm_assemble(text, verify=True)[0]) == list(prog)
+
+
+def test_slots_once_launches(slots, monkeypatch):
+    """PITON_SLOTS_ONCE=1: both generated launchers call piton_launch_slots_once
+    with the init program only (pi/runtime/piton_rt.c runs it once per boot)."""
+    from piton.runtime.pi import Buffer, PiRunner
+    from piton.tools.compile import emit_c
+    ck = build(copy_kernel, SIG_COPY, {"BLOCK": 256}, (4,))
+    sems = slot_semaphores(ck.words)
+    runner = object.__new__(PiRunner)
+    words = 8 * len(ck.words)
+    for once in ("0", "1"):
+        monkeypatch.setenv("PITON_SLOTS_ONCE", once)
+        source = runner._generate(ck.words, [Buffer("x", 4096), Buffer("out", 4096)],
+                                  [[("buf", "x", 0), ("buf", "out", 0), 1024, p, 0] for p in range(4)],
+                                  ["out"], 2, "slots", {}, semaphores=sems)
+        _, body = emit_c(ck, "copyk")
+        if once == "1":
+            assert f"piton_launch_slots_once(m.bus, unif_ptrs, 4, m.bus + {words}u);" in source
+            assert f"piton_launch_slots_once(code_buf.bus, unif_ptrs, n, code_buf.bus + {words});" in body
+        else:
+            assert "piton_launch_slots_once" not in source + body
 
 
 MATMUL_SIG = {"a_ptr": "*fp32", "b_ptr": "*fp32", "c_ptr": "*fp32", "M": "i32", "N": "i32",

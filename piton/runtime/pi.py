@@ -29,7 +29,7 @@ from typing import Optional
 import numpy as np
 
 from . import power
-from .launcher import semaphore_programs, slot_semaphores
+from .launcher import semaphore_programs, slot_semaphores, slots_once
 
 RUNTIME_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "pi", "runtime")
 
@@ -277,7 +277,10 @@ class PiRunner:
         out.append(f"    for (unsigned r = 0; r < {repeats}; r++) {{")
         if perf_events:
             out.append(f"        piton_perf_start(perf_events, {len(perf_events)});")
-        if slot_code:
+        if slot_code and slots_once():
+            out.append(f"        uint32_t t = piton_launch_slots_once(m.bus, unif_ptrs, {len(programs)}, "
+                       f"m.bus + {slot_code[0]}u);")
+        elif slot_code:
             out.append(f"        uint32_t t = piton_launch_slots(m.bus, unif_ptrs, {len(programs)}, "
                        f"m.bus + {slot_code[0]}u, m.bus + {slot_code[1]}u);")
         else:
