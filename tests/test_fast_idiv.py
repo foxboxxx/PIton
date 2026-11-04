@@ -503,7 +503,202 @@ def test_register_pressure_falls_back(fast):
     np.testing.assert_array_equal(o.view(np.uint32), q + r)
 
 
-KERNELS = [divmod_k, ranged_k, by_scalar_k, by_const_k, scalar_k, regions_k, index_split_k, bcast_divmod_k]
+# -- adversarial review: compiled paths the model alone covered ---------------------
+
+@piton.jit
+def onestep_k(x_ptr, y_ptr, o_ptr, KIND: tl.constexpr, U: tl.constexpr, BLOCK: tl.constexpr):
+    offs = tl.arange(0, BLOCK)
+    x = tl.load(x_ptr + offs)
+    y = tl.load(y_ptr + offs)
+    if KIND == 0:          # 2049 <= b: quotients up to 2**20 with an inexact dividend
+        a, b = x & 0x7FFFFFFF, (y & 0xFFFF) + 2049
+    elif KIND == 1:        # exact dividend, b up to 2**30
+        a, b = x & 0xFFFFFF, (y & 0x3FFFFFFF) + 16
+    else:                  # 2048 <= b < 2**24: a < 2**31 = 2**20 * 2048
+        a, b = x & 0x7FFFFFFF, (y & 0x7FFFFF) + 2048
+    if U:
+        a = a.to(tl.uint32, bitcast=True)
+        b = b.to(tl.uint32, bitcast=True)
+    tl.store(o_ptr + offs, (a // b).to(tl.int32, bitcast=True))
+    tl.store(o_ptr + BLOCK + offs, (a % b).to(tl.int32, bitcast=True))
+
+
+ONESTEP = {0: (2049, 0xFFFF, 0x7FFFFFFF), 1: (16, 0x3FFFFFFF, 0xFFFFFF), 2: (2048, 0x7FFFFF, 0x7FFFFFFF)}
+
+
+@pytest.mark.parametrize("U", [0, 1])
+@pytest.mark.parametrize("kind", [0, 1, 2])
+def test_one_step_divisor_lower_bound(fast, kind, U):
+    """The one-step path with ub_min > 1 (ua < 2**20 ub_min) on the emulator, at
+    its bound: the smallest divisors, dividends k b - 1, k b, k b + b - 1 at the
+    largest k, many with the low bits that itof truncates set."""
+    off, span, amax = ONESTEP[kind]
+    n = 1024
+    b = np.concatenate([np.arange(off, off + n // 2), rng.integers(off, off + span + 1, n // 2)])
+    k = np.clip(amax // b - rng.integers(0, 3, n), 0, None)
+    a = np.clip(k * b + rng.choice([-1, 0, 1], n) * (b - 1), 0, amax)
+    a = np.where((rng.random(n) < 0.3) & (a > 255), a | 127, a)
+    a = np.minimum(a, amax).astype(np.uint32)
+    o = np.zeros(2 * n, np.int32)
+    ck = onestep_k[(1,)](a.view(np.int32), (b - off).astype(np.int32), o, KIND=kind, U=U, BLOCK=n)
+    assert "idiv_one_step" in ck.stats and "idiv_full" not in ck.stats and "idiv_short" not in ck.stats
+    q, r = _ref(a, b.astype(np.uint32), not U)
+    np.testing.assert_array_equal(o.view(np.uint32), np.concatenate([q, r]))
+
+
+@piton.jit
+def single_valued_k(x_ptr, y_ptr, o_ptr, C: tl.constexpr, U: tl.constexpr, BLOCK: tl.constexpr):
+    offs = tl.arange(0, BLOCK)
+    x = tl.load(x_ptr + offs)
+    b = tl.minimum(tl.maximum(tl.load(y_ptr + offs), C), C)     # range (C, C), not folded
+    if U:
+        x = x.to(tl.uint32, bitcast=True)
+        b = b.to(tl.uint32, bitcast=True)
+    tl.store(o_ptr + offs, (x // b).to(tl.int32, bitcast=True))
+    tl.store(o_ptr + BLOCK + offs, (x % b).to(tl.int32, bitcast=True))
+
+
+@pytest.mark.parametrize("U,c", [(0, 1), (0, 8), (0, 7), (0, -1), (0, -8), (0, -2 ** 31), (0, 2 ** 31 - 1),
+                                 (1, 1), (1, 8), (1, 1000), (1, 2 ** 24 + 1)])
+def test_single_valued_divisor_range(fast, U, c):
+    """A divisor register whose range is one value is divided as that constant
+    (_idiv_fast), without the 1 / power-of-two shortcuts."""
+    x = np.concatenate([_edges(dense=False), _random(256)[0]])[:256]
+    o = np.zeros(2 * len(x), np.int32)
+    single_valued_k[(1,)](x.view(np.int32), rng.integers(-1000, 1000, len(x)).astype(np.int32), o,
+                          C=c, U=U, BLOCK=len(x))
+    q, r = _ref(x, np.full(len(x), c & M32, np.uint32), not U)
+    np.testing.assert_array_equal(o.view(np.uint32), np.concatenate([q, r]), err_msg=str(c))
+
+
+@piton.jit
+def uconst_k(x_ptr, o_ptr, C: tl.constexpr, BLOCK: tl.constexpr):
+    offs = tl.arange(0, BLOCK)
+    x = tl.load(x_ptr + offs).to(tl.uint32, bitcast=True)
+    c = tl.full((BLOCK,), C, tl.uint32)
+    tl.store(o_ptr + offs, (x // c).to(tl.int32, bitcast=True))
+    tl.store(o_ptr + BLOCK + offs, (x % c).to(tl.int32, bitcast=True))
+
+
+@pytest.mark.parametrize("c", [1, 8, 7, 2 ** 24, 2 ** 31, 2 ** 31 + 1, 0xFFFFFF00, M32])
+def test_tile_by_unsigned_constant(fast, c):
+    x = np.concatenate([_edges(dense=False), _random(256)[0]])[:256]
+    o = np.zeros(2 * len(x), np.int32)
+    uconst_k[(1,)](x.view(np.int32), o, C=c, BLOCK=len(x))
+    q, r = _ref(x, np.full(len(x), c, np.uint32), False)
+    np.testing.assert_array_equal(o.view(np.uint32), np.concatenate([q, r]), err_msg=str(c))
+
+
+def _w(v):
+    return ((v + 2 ** 31) % 2 ** 32) - 2 ** 31
+
+
+def _cdiv(x, y):
+    q = np.sign(x) * np.sign(y) * (np.abs(x) // np.abs(y))
+    return _w(q), _w(x - q * y)
+
+
+@piton.jit
+def scalar_regions_k(o, a, b, n):
+    if a > 0:
+        q = a // b
+    else:
+        q = a % b
+    acc = q + a // b
+    s = b
+    t = a
+    for i in range(n):
+        acc += t // s - t % s
+        t = t // s + 7 * (t % s) + a // b
+        s = s + 3
+    tl.store(o, acc + a % b)
+    tl.store(o + 1, t)
+
+
+@pytest.mark.parametrize("a,b,n", [(1000000007, 13, 4), (-1000000007, 13, 4), (-2 ** 31, -7, 3),
+                                   (2 ** 31 - 1, 2 ** 24 + 3, 2), (12345, -2 ** 31, 2), (-5, 3, 0)])
+def test_scalar_divisions_across_regions(fast, a, b, n):
+    """Scalar // and % in if branches and a loop whose dividend and divisor are
+    carried: the cache never hands a region another region's result."""
+    o = np.zeros(2, np.int32)
+    scalar_regions_k[(1,)](o, a, b, n)
+    a, b = np.int64(a), np.int64(b)
+    q = _cdiv(a, b)[0] if a > 0 else _cdiv(a, b)[1]
+    acc = _w(q + _cdiv(a, b)[0])
+    s, t = b, a
+    for _ in range(n):
+        acc = _w(acc + _cdiv(t, s)[0] - _cdiv(t, s)[1])
+        t = _w(_cdiv(t, s)[0] + 7 * _cdiv(t, s)[1] + _cdiv(a, b)[0])
+        s = _w(s + 3)
+    assert list(o) == [_w(acc + _cdiv(a, b)[1]), t]
+
+
+@piton.jit
+def carried_divisor_k(x_ptr, o_ptr, b, n, BLOCK: tl.constexpr):
+    offs = tl.arange(0, BLOCK)
+    x = tl.load(x_ptr + offs)
+    s = b
+    acc = x
+    for i in range(n):
+        acc = (acc // s) * 3 + acc % s + x // s
+        s = s * 2 + 1
+    tl.store(o_ptr + offs, acc)
+    tl.store(o_ptr + BLOCK + offs, x // s + x % s)
+
+
+def test_tile_division_by_carried_scalar(fast):
+    """x // s and x % s by a loop-carried scalar share one division per iteration
+    (keyed by the scalar), never across iterations or after the loop."""
+    B, n = 64, 5
+    x = rng.integers(-2 ** 31, 2 ** 31, B).astype(np.int32)
+    o = np.zeros(2 * B, np.int32)
+    carried_divisor_k[(1,)](x, o, 3, n, BLOCK=B)
+    xs, s, acc = x.astype(np.int64), 3, x.astype(np.int64)
+    for _ in range(n):
+        q, r = _cdiv(acc, s)
+        acc = _w(q * 3 + r + _cdiv(xs, s)[0])
+        s = _w(s * 2 + 1)
+    np.testing.assert_array_equal(o[:B], acc)
+    np.testing.assert_array_equal(o[B:], _w(sum(_cdiv(xs, s))))
+
+
+@piton.jit
+def tail_divmod_k(x_ptr, y_ptr, o_ptr, n, BLOCK: tl.constexpr):
+    offs = tl.arange(0, BLOCK)
+    m = offs < n
+    x = tl.load(x_ptr + offs, mask=m, other=0)
+    y = tl.load(y_ptr + offs, mask=m, other=0)
+    tl.store(o_ptr + offs, x // y, mask=m)
+    tl.store(o_ptr + BLOCK + offs, x % y, mask=m)
+
+
+def test_masked_tail_with_zero_divisors(fast):
+    """Masked-off lanes divide 0 by 0 (NaN reciprocal): the valid lanes and the
+    untouched output are unaffected."""
+    B, n = 64, 37
+    x, y = _random(B)
+    o = np.full(2 * B, 12345, np.int32)
+    tail_divmod_k[(1,)](x.view(np.int32), y.view(np.int32), o, n, BLOCK=B)
+    q, r = _ref(x[:n], y[:n], True)
+    np.testing.assert_array_equal(o[:n].view(np.uint32), q)
+    np.testing.assert_array_equal(o[B:B + n].view(np.uint32), r)
+    assert (o[n:B] == 12345).all() and (o[B + n:] == 12345).all()
+
+
+@pytest.mark.parametrize("bm,bn", [(4, 16), (2, 8), (16, 4)])
+def test_broadcast_operands(fast, bm, bn):
+    x = rng.integers(-2 ** 31, 2 ** 31, bm).astype(np.int32)
+    y = (rng.integers(1, 2 ** 31, bn) >> rng.integers(0, 31, bn)).astype(np.int32) * rng.choice([-1, 1], bn)
+    y = np.where(y == 0, 3, y).astype(np.int32)
+    o = np.zeros(bm * bn, np.int32)
+    bcast_divmod_k[(1,)](x, y, o, BM=bm, BN=bn)
+    X, Y = (g.ravel() for g in np.meshgrid(x, y, indexing="ij"))
+    q, r = _ref(X, Y, True)
+    np.testing.assert_array_equal(o.view(np.uint32), q + r)
+
+
+KERNELS = [divmod_k, ranged_k, by_scalar_k, by_const_k, scalar_k, regions_k, index_split_k, bcast_divmod_k,
+           onestep_k, single_valued_k, uconst_k, scalar_regions_k, carried_divisor_k, tail_divmod_k]
 IDIV_SIG = {"x_ptr": "*i32", "y_ptr": "*i32", "q_ptr": "*i32", "r_ptr": "*i32", "n": "i32"}
 
 
