@@ -36,6 +36,16 @@ void piton_free(piton_buf_t *b);
 // QPU. Returns the elapsed time in microseconds.
 uint32_t piton_launch(uint32_t code, const uint32_t *unifs, uint32_t n);
 
+// piton_launch for kernels that store through shared VPM slots
+// (PITON_STORE_SLOTS, piton/backend/lower.py). Hardware semaphores keep their
+// counts across launches and are 0 after reset: `init` (one program that
+// releases each slot semaphore) runs to completion first, then the n
+// programs, then `fini` (acquires each), so the semaphores end at 0 again.
+// Both come from piton.runtime.launcher.semaphore_programs. Returns the total
+// time in microseconds.
+uint32_t piton_launch_slots(uint32_t code, const uint32_t *unifs, uint32_t n,
+                            uint32_t init, uint32_t fini);
+
 // Bus address of a pointer inside a piton_buf_t.
 static inline uint32_t piton_bus(const piton_buf_t *b, const volatile void *p) {
     return b->bus + (uint32_t)((const volatile char *)p - (const volatile char *)b->cpu);

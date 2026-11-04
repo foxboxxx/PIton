@@ -171,14 +171,24 @@ def _compile_tile(fn, signature, constants, name, pid_max, options, chunk: int =
     tile = frontend.generate(fn, signature, constants, name=name)
     asm = {"ttir": tile.dump()}
     if chunk:
-        reroll.run(tile, chunk)
+        if options.get("store_slots"):
+            reroll.run(tile, chunk, queue=True)     # (the block's store after the loop)
+        else:
+            reroll.run(tile, chunk)
         asm["ttir_rerolled"] = tile.dump()
     ranges = passes.optimize(tile, pid_max)
     asm["ttir_opt"] = tile.dump()
     # Interleaving independent chains before allocation (presched.py) usually
     # shortens the schedule but needs more registers; keep whichever version
     # allocates and runs shorter, weighting loop bodies by their depth.
-    prog, mf, lw, stats, asm["mir"], asm["mir_alloc"] = _build(tile, ranges, options, interleave=False)
+    try:
+        prog, mf, lw, stats, asm["mir"], asm["mir_alloc"] = _build(tile, ranges, options, interleave=False)
+    except RegAllocError:
+        if not options.get("store_slots"):
+            raise
+        # the store slot's registers (or a rerolled loop's store queue) did not
+        # fit: the private VPM rows need fewer
+        return _compile_tile(fn, signature, constants, name, pid_max, dict(options, store_slots=False), chunk)
     stats["presched"] = 0
     candidate = None
     if os.environ.get("PITON_PRESCHED", "1") != "0":       # PITON_PRESCHED=0: A/B comparisons
@@ -211,7 +221,9 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
     if grid is not None:
         g = tuple(grid) if isinstance(grid, (tuple, list)) else (grid,)
         pid_max = tuple(max(1, int(x)) - 1 for x in g) + (0,) * (3 - len(g))
-    options = {"num_stages": num_stages, "store_mutex": store_mutex}
+    options = {"num_stages": num_stages, "store_mutex": store_mutex,
+               # PITON_STORE_SLOTS=1: stores through shared 16-row VPM slots (backend/lower.py)
+               "store_slots": os.environ.get("PITON_STORE_SLOTS", "0") not in ("", "0")}
     use_reroll = os.environ.get("PITON_REROLL", "1") != "0"
     sub = reroll.SUB
     try:
