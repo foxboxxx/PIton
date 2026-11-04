@@ -1,0 +1,423 @@
+{
+ "env": "PITON_MANDEL_FAST",
+ "off": "0",
+ "on": "1",
+ "targets": [
+  "mandel_32x16",
+  "mandel_16x16x2"
+ ],
+ "accept": true,
+ "why": "faster: mandel_32x16 1.239x, mandel_16x16x2 1.162x",
+ "rows": [
+  {
+   "name": "copy",
+   "instructions_off": 276,
+   "instructions_on": 276,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "add",
+   "instructions_off": 367,
+   "instructions_on": 367,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "mul",
+   "instructions_off": 364,
+   "instructions_on": 364,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "fma",
+   "instructions_off": 379,
+   "instructions_on": 379,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "scaled_relu",
+   "instructions_off": 419,
+   "instructions_on": 419,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "exp",
+   "instructions_off": 409,
+   "instructions_on": 409,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "exp2",
+   "instructions_off": 399,
+   "instructions_on": 399,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "log",
+   "instructions_off": 436,
+   "instructions_on": 436,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "log2",
+   "instructions_off": 420,
+   "instructions_on": 420,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "recip",
+   "instructions_off": 372,
+   "instructions_on": 372,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "rsqrt",
+   "instructions_off": 371,
+   "instructions_on": 371,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "sqrt",
+   "instructions_off": 354,
+   "instructions_on": 354,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "idiv",
+   "instructions_off": 692,
+   "instructions_on": 692,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "row_sum",
+   "instructions_off": 203,
+   "instructions_on": 203,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "row_max",
+   "instructions_off": 205,
+   "instructions_on": 205,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "transpose",
+   "instructions_off": 1062,
+   "instructions_on": 1032,
+   "off_us": 793,
+   "on_us": 770,
+   "speedup": 1.0298701298701298,
+   "off": [
+    {
+     "times_us": [
+      819,
+      793,
+      795,
+      796,
+      796
+     ],
+     "busy": 0.40850441361916773,
+     "tmu": 0.00291046658259773,
+     "idle": 0.058770912147961325,
+     "icache_miss": 0.03189327467903507
+    },
+    {
+     "times_us": [
+      821,
+      797,
+      797,
+      800,
+      801
+     ],
+     "busy": 0.40645420326223336,
+     "tmu": 0.0028858218318695106,
+     "idle": 0.05902132998745295,
+     "icache_miss": 0.03189327467903507
+    },
+    {
+     "times_us": [
+      820,
+      794,
+      795,
+      795,
+      794
+     ],
+     "busy": 0.4079899244332494,
+     "tmu": 0.0028278757346767423,
+     "idle": 0.05878925272879933,
+     "icache_miss": 0.03189327467903507
+    }
+   ],
+   "on": [
+    {
+     "times_us": [
+      798,
+      771,
+      775,
+      773,
+      774
+     ],
+     "busy": 0.40599394725464766,
+     "tmu": 0.00490272373540856,
+     "idle": 0.059553826199740596,
+     "icache_miss": 0.031689138746705495
+    },
+    {
+     "times_us": [
+      795,
+      776,
+      774,
+      775,
+      777
+     ],
+     "busy": 0.40442032730404825,
+     "tmu": 0.0050008613264427215,
+     "idle": 0.06032730404823428,
+     "icache_miss": 0.031689138746705495
+    },
+    {
+     "times_us": [
+      795,
+      771,
+      772,
+      770,
+      772
+     ],
+     "busy": 0.4065212121212121,
+     "tmu": 0.004763636363636364,
+     "idle": 0.059551515151515154,
+     "icache_miss": 0.031689138746705495
+    }
+   ]
+  },
+  {
+   "name": "softmax",
+   "instructions_off": 1097,
+   "instructions_on": 1097,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "matmul_8x64x4",
+   "instructions_off": 1136,
+   "instructions_on": 1136,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "matmul_8x64x8",
+   "instructions_off": 1423,
+   "instructions_on": 1423,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "dense_relu",
+   "instructions_off": 573,
+   "instructions_on": 573,
+   "same": true,
+   "speedup": 1.0
+  },
+  {
+   "name": "mandel_32x16",
+   "instructions_off": 422,
+   "instructions_on": 493,
+   "off_us": 34872,
+   "on_us": 28141,
+   "speedup": 1.2391883728367863,
+   "off": [
+    {
+     "times_us": [
+      34908,
+      34897,
+      34899,
+      34894,
+      34896
+     ],
+     "busy": 0.9709428555052445,
+     "tmu": 0.0025816854855658087,
+     "idle": 0.015683918916337098,
+     "icache_miss": 1.7355029717832008e-05
+    },
+    {
+     "times_us": [
+      34882,
+      34879,
+      34885,
+      34875,
+      34874
+     ],
+     "busy": 0.9714996845787692,
+     "tmu": 0.002581713215193745,
+     "idle": 0.015759056412609204,
+     "icache_miss": 1.7355029717832008e-05
+    },
+    {
+     "times_us": [
+      34885,
+      34884,
+      34875,
+      34872,
+      34877
+     ],
+     "busy": 0.9715554026152787,
+     "tmu": 0.0025827789248298537,
+     "idle": 0.015675651907929952,
+     "icache_miss": 1.7355029717832008e-05
+    }
+   ],
+   "on": [
+    {
+     "times_us": [
+      28153,
+      28142,
+      28142,
+      28145,
+      28141
+     ],
+     "busy": 0.9754002108430168,
+     "tmu": 0.0032068512135318573,
+     "idle": 0.0130857704653945,
+     "icache_miss": 2.404424374004471e-05
+    },
+    {
+     "times_us": [
+      28161,
+      28142,
+      28142,
+      28145,
+      28144
+     ],
+     "busy": 0.9753655508966432,
+     "tmu": 0.00320417880747637,
+     "idle": 0.013137895908843247,
+     "icache_miss": 1.6029624300094387e-05
+    },
+    {
+     "times_us": [
+      28157,
+      28141,
+      28142,
+      28142,
+      28144
+     ],
+     "busy": 0.9754002108430168,
+     "tmu": 0.0032039610058870213,
+     "idle": 0.01311732584722173,
+     "icache_miss": 1.6029624300094387e-05
+    }
+   ]
+  },
+  {
+   "name": "mandel_16x16x2",
+   "instructions_off": 447,
+   "instructions_on": 480,
+   "off_us": 32531,
+   "on_us": 27989,
+   "speedup": 1.1622780378005646,
+   "off": [
+    {
+     "times_us": [
+      32548,
+      32531,
+      32533,
+      32533,
+      32533
+     ],
+     "busy": 0.9815068703698011,
+     "tmu": 0.0027699527630055433,
+     "idle": 0.008014345291158177,
+     "icache_miss": 1.8415290353381904e-05
+    },
+    {
+     "times_us": [
+      32545,
+      32534,
+      32533,
+      32532,
+      32532
+     ],
+     "busy": 0.9814766998647485,
+     "tmu": 0.002770195499815566,
+     "idle": 0.008037337595803107,
+     "icache_miss": 1.8415290353381904e-05
+    },
+    {
+     "times_us": [
+      32547,
+      32534,
+      32535,
+      32533,
+      32531
+     ],
+     "busy": 0.9815068703698011,
+     "tmu": 0.002769296978266884,
+     "idle": 0.008019058743967293,
+     "icache_miss": 1.8415290353381904e-05
+    }
+   ],
+   "on": [
+    {
+     "times_us": [
+      28010,
+      27992,
+      27993,
+      27995,
+      27994
+     ],
+     "busy": 0.9781046013146614,
+     "tmu": 0.0032217776507573593,
+     "idle": 0.00956863865866438,
+     "icache_miss": 2.2936674471466703e-05
+    },
+    {
+     "times_us": [
+      28007,
+      27998,
+      27991,
+      27995,
+      27994
+     ],
+     "busy": 0.978139544853703,
+     "tmu": 0.0032213687732961785,
+     "idle": 0.009633667964702941,
+     "icache_miss": 1.5486022987686276e-05
+    },
+    {
+     "times_us": [
+      28010,
+      27995,
+      27989,
+      27996,
+      27995
+     ],
+     "busy": 0.9782094394226303,
+     "tmu": 0.003221074946109781,
+     "idle": 0.009591053628211083,
+     "icache_miss": 1.5486022987686276e-05
+    }
+   ]
+  },
+  {
+   "name": "compute_peak",
+   "instructions_off": 150,
+   "instructions_on": 150,
+   "same": true,
+   "speedup": 1.0
+  }
+ ]
+}
