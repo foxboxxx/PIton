@@ -168,6 +168,41 @@ def test_missed_pairs_weighted_by_schedules_built(pair):
     assert missed and all(0 < w <= 100 for w, _ in missed)
 
 
+def test_kept_pairs_are_those_of_the_schedule_returned(pair):
+    """`kept` (compiler.py's second port-aware search) gets the pairs the
+    shortest schedule (the earlier one on ties) missed, at their own weight."""
+    ops = [MInst(ops=[MOp("fmul", isa.RA[i], [isa.RA[i], isa.RB[i]])]) for i in range(4)]
+    ops += [MInst(ops=[MOp("fadd", isa.RB[i + 8], [isa.RA[i + 8], isa.RB[i + 4]])]) for i in range(4)]
+    kept = []
+    out = sched.schedule_block(ops, weight=100, kept=kept)
+    nodes = sched.build_dag(ops)
+    best = None
+    for swap, balance in sched.PAIR_MODES:
+        pairs = []
+        body = sched._list_schedule(nodes, pairs, 100, swap, balance)
+        if best is None or len(body) < len(best[0]):
+            best = (body, pairs)
+    assert len(out) == len(best[0])
+    assert kept and kept == best[1]
+
+
+def test_second_port_aware_search_only_with_the_switch(monkeypatch):
+    calls = {}
+    original = compiler._port_aware
+
+    def record(*args, **kwargs):
+        calls[env].append(kwargs.get("kept", False))
+        return original(*args, **kwargs)
+    monkeypatch.setattr(compiler, "_port_aware", record)
+    sig = {"x_ptr": "*fp32", "y_ptr": "*fp32", "output_ptr": "*fp32", "n_elements": "i32"}
+    for env in ("0", "1"):
+        monkeypatch.setenv("PITON_PAIR", env)
+        calls[env] = []
+        compiler.compile(K.add_kernel, sig, {"BLOCK_SIZE": 64}, grid=(4,))
+    assert calls["0"] and not any(calls["0"])
+    assert calls["1"] == [False, True] * (len(calls["1"]) // 2)
+
+
 # ---------------------------------------------------------------------------
 # Dot products: the add before each broadcast may leave its pair
 # ---------------------------------------------------------------------------
@@ -286,6 +321,32 @@ def test_suite_case_bit_identical_and_never_longer(name, monkeypatch):
     assert n_on <= n_off, f"{name}: {n_on} instructions executed with PITON_PAIR=1, {n_off} without"
     if name in TARGETS and name != "compute_peak":
         assert n_on < n_off
+
+
+@pytest.mark.parametrize("name", ["mandel_32x16", "mandel_16x16x2"])
+def test_mandel_pi_build_on_the_emulator_image(name, monkeypatch):
+    """The Pi builds (their program-id bound changes what the port-aware
+    allocation finds) on the emulator-size image: counts bit-identical to
+    the switch off and at least 3% fewer instructions (measured 0.948 and
+    0.932; mandel_32x16 0.983 with only the first port-aware search)."""
+    case = CASES_BY_NAME[name]
+    run = case.make("emu")
+    out = {}
+    for env in ("0", "1"):
+        monkeypatch.setenv("PITON_PAIR", env)
+        ck, _ = compile_case(case, "pi")
+        v3d = V3D()
+        v3d.pc_counts = [0] * len(ck.program.instrs)
+        values = {k: (v.copy() if isinstance(v, np.ndarray) else v) for k, v in run.inputs.values.items()}
+        run_emulator(ck, run.grid, values, v3d=v3d)
+        for key, expected in run.expected.items():
+            error = default_check(run, key, values[key], expected)
+            assert error is None, f"{name}.{key} (PITON_PAIR={env}): {error}"
+        out[env] = values, sum(v3d.pc_counts)
+    for k, v in out["0"][0].items():
+        if isinstance(v, np.ndarray):
+            np.testing.assert_array_equal(out["1"][0][k].view(np.uint32), v.view(np.uint32), err_msg=k)
+    assert out["1"][1] <= 0.97 * out["0"][1], (out["1"][1], out["0"][1])
 
 
 def _bitwise(make, monkeypatch):

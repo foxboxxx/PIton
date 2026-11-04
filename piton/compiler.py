@@ -127,14 +127,16 @@ def _port_better(new: Program, new_mf, old: Program, old_mf) -> bool:
     return cost(new) < cost(old)
 
 
-def _port_aware(original, name: str, missed: list, copy_of: dict, rounds: int = PORT_ROUNDS):
+def _port_aware(original, name: str, missed: list, copy_of: dict, rounds: int = PORT_ROUNDS,
+                kept: bool = False):
     """Port-aware allocations of `original` (regalloc.py, "Port-aware file
     choice"), starting from the pairs the scheduler could not form with the
     plain allocation (`missed`, `copy_of`): each round allocates a fresh
     clone, schedules it, and adds the pairs it still missed for the next.
     Yields (program, mir, allocator, self moves dropped); stops when an
     attempt fails to allocate or schedule (the plain allocation then stays)
-    or the scheduler misses nothing new."""
+    or the scheduler misses nothing new. kept (PITON_PAIR): the pairs come
+    from the schedules kept (sched.schedule_block `kept`), not from all."""
     hints = PortHints()
     hints.add(missed, copy_of)
     for _ in range(rounds):
@@ -143,7 +145,7 @@ def _port_aware(original, name: str, missed: list, copy_of: dict, rounds: int = 
             alloc = allocate(mf, hints=hints)
             dropped = opt.drop_self_moves(mf)
             missed = []
-            prog = schedule_function(mf, name, missed=missed)
+            prog = schedule_function(mf, name, missed=None if kept else missed, kept=missed if kept else None)
         except (RegAllocError, RuntimeError):
             return
         yield prog, mf, alloc, dropped
@@ -177,14 +179,22 @@ def _build(tile, ranges, options: dict, interleave: bool):
     stats["self_moves_dropped"] = opt.drop_self_moves(mf)
     mir_alloc = mf.dump()
     missed = [] if original is not None else None
-    prog = schedule_function(mf, tile.name, missed=missed)
+    kept = [] if original is not None and pair_enabled() else None
+    prog = schedule_function(mf, tile.name, missed=missed, kept=kept)
     if original is not None:
         # The plain allocation stays unless a port-aware one schedules shorter.
+        # (PITON_PAIR) A second search starts from the pairs only the kept
+        # schedules missed: the searches are greedy, and either can end in the
+        # shorter loop (mandel_32x16's Pi build: 246 or 236 instructions).
         stats["port_alloc"] = 0
-        for attempt, (p, f, a, dropped) in enumerate(_port_aware(original, tile.name, missed, alloc.copy_of), 1):
-            if _port_better(p, f, prog, mf):
-                prog, mf, mir_alloc = p, f, f.dump()
-                stats.update(port_alloc=attempt, copies_inserted=a.copies_inserted, self_moves_dropped=dropped)
+        searches = [(missed, False)] + ([(kept, True)] if kept is not None else [])
+        attempt = 0
+        for seed, from_kept in searches:
+            for p, f, a, dropped in _port_aware(original, tile.name, seed, alloc.copy_of, kept=from_kept):
+                attempt += 1
+                if _port_better(p, f, prog, mf):
+                    prog, mf, mir_alloc = p, f, f.dump()
+                    stats.update(port_alloc=attempt, copies_inserted=a.copies_inserted, self_moves_dropped=dropped)
     return prog, mf, lw, stats, mir, mir_alloc
 
 

@@ -43,7 +43,9 @@ the switch:
   * the pairs those schedules missed for the read ports go to the
     port-aware allocation (regalloc.PortHints), each weighted by the share
     of schedules that missed it, so its next attempt does not depend on
-    which schedule happened to be kept;
+    which schedule happened to be kept; a second port-aware search starts
+    from the pairs only the kept schedules missed (compiler._build: either
+    greedy search can end in the shorter loop);
   * a hazard that only the way into a loop has (a value written just
     before the loop and read at its head) is padded at the end of the
     preheader, not at the loop head where every iteration ran the nop
@@ -556,7 +558,7 @@ def _missed_pair(bundle: Bundle, ready: list):
 
 
 def schedule_block(minsts, terminator: Optional[MInst] = None, missed: Optional[list] = None,
-                   weight: float = 1):
+                   weight: float = 1, kept: Optional[list] = None):
     """Returns list[Instr] for one block (terminator branch excluded).
 
     missed: if given, collects (weight, [(unit, MOp)]) for every instruction
@@ -565,24 +567,31 @@ def schedule_block(minsts, terminator: Optional[MInst] = None, missed: Optional[
     With PITON_PAIR the shortest of the PAIR_MODES schedules (module
     docstring; the later ones only while none reaches _lower_bound), and
     `missed` gets the pairs of all those built, each at weight / their
-    number."""
+    number; `kept`, if given, gets the pairs of the schedule returned, at
+    full weight (compiler.py's second port-aware search)."""
     if not pair_enabled():
         return _list_schedule(build_dag(minsts), missed, weight)
-    best, pairs, built = None, [], 0
+    best, best_pairs, pairs, built = None, None, [], 0
+    collect = missed is not None or kept is not None
     for split in (False, True) if any(m.split for m in minsts) else (False,):
         nodes = build_dag(minsts, split)
         bound = _lower_bound(nodes)
         for swap, balance in PAIR_MODES:
-            out = _list_schedule(nodes, pairs if missed is not None else None, weight, swap, balance)
+            mine = [] if collect else None
+            out = _list_schedule(nodes, mine, weight, swap, balance)
             built += 1
+            if collect:
+                pairs += mine
             if best is None or len(out) < len(best):
-                best = out
+                best, best_pairs = out, mine
             if len(best) <= bound:
                 break
         if len(best) <= bound:
             break
     if missed is not None:
         missed.extend((w / built, p) for w, p in pairs)
+    if kept is not None:
+        kept.extend(best_pairs)
     return best
 
 
@@ -852,8 +861,8 @@ def fix_block_boundaries(blocks_instrs: list, preds: dict, order: list) -> None:
                     changed = True
 
 
-def schedule_function(fn, name: str, missed: Optional[list] = None) -> Program:
-    """Schedule an allocated mir.Function into a Program (missed: see
+def schedule_function(fn, name: str, missed: Optional[list] = None, kept: Optional[list] = None) -> Program:
+    """Schedule an allocated mir.Function into a Program (missed, kept: see
     schedule_block; weighted by 100^loop depth, as compiler.py weighs blocks)."""
     fn.compute_cfg()
     preds = fn.preds()
@@ -869,7 +878,7 @@ def schedule_function(fn, name: str, missed: Optional[list] = None) -> Program:
             term = insts.pop()
         ends = insts and insts[-1].sig == "thrend"
         end_inst = insts.pop() if ends else None
-        body = schedule_block(insts, missed=missed, weight=100 ** b.loop_depth)
+        body = schedule_block(insts, missed=missed, weight=100 ** b.loop_depth, kept=kept)
         if term is not None:
             br = Instr(kind="branch", bcond=term.bcond, target=term.target, rel=True,
                        add=AluOp("mov", isa.NOP, isa.NOP), mul=AluOp("mov", isa.NOP, isa.NOP))
