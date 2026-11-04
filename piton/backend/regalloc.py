@@ -390,7 +390,7 @@ def clone_function(fn: Function) -> Function:
         insts = [replace(ins, ops=[replace(op, dst=v(op.dst), srcs=[v(s) for s in op.srcs]) for op in ins.ops])
                  for ins in b.insts]
         blocks.append(replace(b, insts=insts, succs=list(b.succs)))
-    return Function(fn.name, blocks)
+    return Function(fn.name, blocks, set(fn.no_licm))
 
 
 # ---------------------------------------------------------------------------

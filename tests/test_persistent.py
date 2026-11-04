@@ -303,6 +303,26 @@ def test_last_store_overlaps_the_next_id(persistent, monkeypatch, kernel, cons):
         np.testing.assert_array_equal(got["out_ptr"], x)
 
 
+def test_port_aware_clones_keep_the_id_loop_out_of_licm(persistent, monkeypatch):
+    """Port-aware allocation (PITON_PORT_ALLOC) works on clones of the MIR;
+    a clone keeps the loop headers LICM must leave alone (coarsen_hoist=False)."""
+    from piton.backend.regalloc import clone_function
+    persistent(4)
+    _fail_builds(monkeypatch, lambda o: o.get("coarsen", 1) > 1 and o["coarsen_hoist"])
+    real = compiler._build
+    seen = []
+
+    def build(tile, ranges, options, interleave):
+        out = real(tile, ranges, options, interleave)
+        seen.append(out[1])
+        return out
+    monkeypatch.setattr(compiler, "_build", build)
+    ck = compiler.compile(add_kernel, ADD_SIG, {"BLOCK_SIZE": 64}, grid=(16,))
+    assert ck.coarsen == 4 and ck.stats["coarsen_hoist"] == 0
+    mf = next(f for f in seen if f.no_licm)
+    assert clone_function(mf).no_licm == mf.no_licm
+
+
 def test_falls_back_when_no_version_allocates(persistent, monkeypatch):
     persistent(None)
     plain = compiler.compile(add_kernel, ADD_SIG, {"BLOCK_SIZE": 64}, grid=(1024,))
