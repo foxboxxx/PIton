@@ -80,6 +80,12 @@ same bits with fewer (add-ALU) operations:
     register per column block (lane + 16 j, as 2-D tiles already do), which
     LICM hoists, so their addresses and masks (n - lane - 16 j) need no
     per-iteration offset chain; it costs a register per column block.
+  * rsqrt / sqrt: each Newton step r (1.5 - 0.5 (x r) r) on s = c r is
+    s (3 c^2 - (x s) s) = 2 c^3 r', three multiplies instead of four; with
+    c = 1, 2, 16 and a final multiply by 2**-13, the 9 + 1 multiplies give
+    the same bits as the 12 (every product is normal for the normal x the
+    core serves, so scaling by a power of two commutes with the
+    round-toward-zero rounding: 0.5 (3 - t) is rounded as 3 - t is).
   * passes.drop_dead_other: a masked float load whose value only reaches
     stores under the same mask loses its `other` (the math kernels' 1.0),
     so its masked lanes read the zero page without a compare and
@@ -713,6 +719,19 @@ class Lowering:
         self.op("shr", h, x, Imm(1))
         r = self.new("rs", True)
         self.op("sub", r, self.const_reg(0x5F375A86), h)
+        if self.issue:
+            # (module docstring, "Issue") s = c r, c = 1, 2, 16, 8192: s (3 c^2 - (x s) s) = 2 c^3 r'
+            c = 1
+            for _ in range(3):
+                t1, t2, u, s = (self.new("rs", True) for _ in range(4))
+                self.op("fmul", t1, x, r)
+                self.op("fmul", t2, t1, r)
+                self.op("fsub", u, self.fk(3.0 * c * c), t2)
+                self.op("fmul", s, r, u)
+                r, c = s, 2 * c ** 3
+            out = self.new("rs", True)
+            self.op("fmul", out, r, self.fk(1.0 / c))
+            return out
         for _ in range(3):
             # r * (1.5 - 0.5 * (x * r) * r): x * r ~ sqrt(x) and (x * r) * r ~ 1 stay
             # normal for every normal x (r * r or 0.5 * x would underflow at the ends)

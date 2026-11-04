@@ -185,6 +185,38 @@ def test_recip_zero_case_is_the_newton_result():
         assert np.all(r == np.uint32(0x7F800000 | sign))
 
 
+def test_scaled_newton_rsqrt():
+    """lower.py rsqrt_core (PITON_ISSUE): the scaled steps give the same bits as
+    the plain ones for positive normals of every exponent (the emulator's
+    float model: round toward zero), 1.0 ... 2.0 densely."""
+    e = np.repeat(np.arange(1, 255, dtype=np.uint32), 4096)
+    m = rng.integers(0, 1 << 23, e.size, dtype=np.uint32)
+    x = np.concatenate([(e << 23) | m, np.arange(0x3F800000, 0x40000000, 7, dtype=np.uint32),
+                        np.array([0x00800000, 0x7F7FFFFF, 0x00FFFFFF, 0x7F000000], np.uint32)])
+
+    def fmul(a, b):
+        return emulator.alu_mul("fmul", a, b)[0]
+
+    def fsub(a, b):
+        return emulator.alu_add("fsub", a, b)[0]
+
+    def full(v):
+        return np.full(x.shape, np.float32(v).view(np.uint32), np.uint32)
+
+    seed = (np.uint64(0x5F375A86) - (x >> np.uint32(1)).astype(np.uint64)).astype(np.uint32)
+    r = seed
+    for _ in range(3):
+        t2 = fmul(fmul(x, r), r)
+        r = fmul(r, fsub(full(1.5), fmul(t2, full(0.5))))
+    s, c = seed, 1
+    for _ in range(3):
+        t2 = fmul(fmul(x, s), s)
+        s = fmul(s, fsub(full(3.0 * c * c), t2))
+        c = 2 * c ** 3
+    assert c == 8192
+    np.testing.assert_array_equal(fmul(s, full(1.0 / c)), r)
+
+
 def test_v8adds_and_mul24_identities():
     """The byte-wise add and the mul24 shift that exp and log use instead of or / shl."""
     sgn = np.array([0, 0x80000000] * 8, np.uint32)
