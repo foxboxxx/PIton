@@ -19,8 +19,8 @@ Status: `todo`, `wip`, `accepted <commit>`, `rejected (<why>)`.
 ## A. Store path (limit for ~15 of 23 kernels)
 | # | change | status |
 |---|---|---|
-| A1 | shared 16-row VPM slots under semaphores: 1 KiB store DMAs (probe 917-966 vs 641 MB/s) | wip (batch 1, opt/a1-store-slots) |
-| A2 | double-buffer the slots: start the DMA, compute the next chunk, then wait | wip (with A1) |
+| A1 | shared 16-row VPM slots under semaphores: 1 KiB store DMAs (probe 917-966 vs 641 MB/s) | accepted, on by default (`PITON_STORE_SLOTS=0` turns it off): copy 1.48x, sqrt 1.40x, recip 1.39x, exp 1.24x, add 1.13x |
+| A2 | double-buffer the slots: start the DMA, compute the next chunk, then wait | not built: 4 slots for 12 QPUs, the VDW engine stays saturated; halving the DMA or the slot count would cost more than the overlap gains |
 | A3 | store through the L2-bypassing bus alias | rejected: with the MMU off the ARM sees GPU memory only through the L2-cached alias (cpu = bus - 0x40000000), so its NaN fill can sit dirty in L2 and later overwrite or hide uncached VDW writes, and the ARM cannot clean the VC L2; streaming kernels also gain nothing (1 MiB inputs never fit the 128 KB L2) |
 | A4 | larger BLOCK per program (fewer partial/tail DMAs) | done d1da2e0: blocks over ~512 elements now reroll instead of failing allocation; add 1.07x, mul 1.09x, fma 1.08x at BLOCK 1024 (perf/tune.py) |
 
@@ -84,3 +84,4 @@ outputs; H6 matmul register blocking for more A reuse.
 | 2026-11-03 | G1/G2 | dense_relu BLOCK_SIZE_K 8 -> 4: 5040 -> 4400 us (1.145x); GROUP_SIZE_M>1 is slower. matmul_8x64x8 GROUP_SIZE_M (never swept before, the Oct 30 sweep fixed 4): 256^3 group 1 3450 vs 4148 us (1.20x); 512^3 group 2 8.858 GFLOPS vs 8.618 (group 4), group 1 7.95 and noisy; 1024^3 group 2 = group 4 (8.02 GFLOPS). Best grouping depends on size: an autotuner should pick it |
 | 2026-11-03 | G1 (app) | digits MLP dense tiles BK 8 -> 4: full batch 10.859 -> 9.881 ms (1.099x, 13.54x over ARM VFP, 181,864 images/s), batch 256 1.10x, batch 1 unchanged; 1743/1797 correct, all 28,752 logits within bounds |
 | 2026-11-03 | C1/C2 | port-aware allocation: mandel_32x16 42397 -> 34873 us (1.216x), mandel_16x16x2 41139 -> 32529 (1.265x), transpose 889 -> 813 (1.093x), softmax 879 -> 844 (1.041x), exp/exp2/log 1.02x, nothing slower than 0.993x; host tests both ways, test_hw 10/10 (`ab-2026-11-03-port_alloc.json`) |
+| 2026-11-03 | A1 | store slots on top of C1: copy 1652 -> 1118 us (1.478x), scaled_relu 1.482x, sqrt 1.404x, recip 1.393x, rsqrt 1.379x, exp2 1.272x, exp 1.243x, log2 1.187x, log 1.164x, add 1.129x, mul 1.091x, fma 1.059x, matmul_8x64x8 1.033x; softmax 0.981x, transpose 0.996x (within the 2% rule); test_hw 10/10 (`ab-2026-11-03-store_slots.json`) |
