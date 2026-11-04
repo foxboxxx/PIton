@@ -503,7 +503,13 @@ def test_transposed_load_mask_and_other(monkeypatch):
     values = {"x_ptr": x.ravel(), "out_ptr": np.zeros(block * block, np.float32), "n": n}
     sig = {"x_ptr": "*fp32", "out_ptr": "*fp32", "n": "i32"}
     ck, got = on_and_off(monkeypatch, trans_other_kernel, sig, {"BLOCK": block}, (1,), values, icache=64)
-    assert "load_operand" in ck.asm["ttir_opt"]
+    # compile() keeps the shorter of the transposed and unrolled builds; here
+    # they are within a few instructions of each other (~980) and either can
+    # be shorter in a process (Lowering.permute orders rotations by id()), so
+    # the transposed build is checked through transposed_build as well
+    tr = transposed_build(trans_other_kernel, sig, {"BLOCK": block}, (1,))
+    assert "load_operand" in tr.asm["ttir_opt"]
+    np.testing.assert_array_equal(bits(run(tr, (1,), values)["out_ptr"]), bits(got["out_ptr"]))
     i, j = np.meshgrid(np.arange(block), np.arange(block), indexing="ij")
     src = np.where((i < n) & (j < n - 1), x, (i - j).astype(np.float32))
     np.testing.assert_allclose(got["out_ptr"].reshape(block, block), src.T * 2 + 1, rtol=1e-6)
