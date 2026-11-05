@@ -266,6 +266,21 @@ at 250 MHz. Its arithmetic throughput measures a different workload from matrix 
 Matrix benchmarks check sampled final outputs; the separate hardware tests compare complete
 outputs against the strict emulator.
 
+## Showcase examples
+
+Three demo programs written against the final compiler, each run on the Pi Zero W on 2026-11-05
+and checked against numpy and against an ARM implementation of the same algorithm:
+
+| example | what it shows | result on the Pi |
+|---|---|---|
+| [Image filters](docs/examples/image_filters.md) (`examples/image_filters.py`) | 2-D stencils with masked borders; Gaussian blur (direct, separable, rolling rows in registers), Sobel edges, blur fused into Sobel | ~100 Mpixel/s at 640×480; **14-23×** the best ARM version (Sobel 2.92 ms vs 64.6 ms); images read back from the board equal the model pixel for pixel |
+| [Game of Life](docs/examples/life.md) (`examples/life.py`) | integer stencils on a torus, `tl.where` wrap-around, loop-carried rows, bit-sliced uint32 logic | bit-sliced kernel **1.63-1.84 G cell updates/s**, **4.8-5.8×** the same bit-sliced algorithm on the ARM; every generation checked |
+| [Attention](docs/examples/attention.md) (`examples/attention.py`) | one transformer head in flash-attention style: two `tl.dot`s, a transposed load of K, online softmax with `exp2`, causal masking | up to **3.7 GFLOPS**, **40-58×** straightforward C on the ARM (N = 512, d = 32: 10.1 ms vs 526 ms); max error 4·10⁻⁶ |
+
+![input, 5×5 blur, Sobel, blur + Sobel](docs/images/image_filters-montage.png)
+
+![Game of Life, generations 0-256 read back from the Pi](docs/images/life-pi-strip.png)
+
 ## Handwritten-digit neural network
 
 `examples/digits_pi.py` compiles and boots a complete trained MLP: **64 inputs → 128 ReLU →
