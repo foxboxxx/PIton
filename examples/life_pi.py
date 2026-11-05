@@ -487,6 +487,12 @@ def main(argv=None) -> None:
     args = parser().parse_args(argv)
     check_args(args)
     build_dir = args.build_dir.resolve()
+    runner = None
+    if not (args.build_only or args.dry_run):           # fail before the minute of building
+        try:
+            runner = PiRunner(tty=args.tty, timeout=args.timeout, verbose=args.verbose)
+        except PiError as ex:
+            raise SystemExit(f"No Pi found: {ex}. Use --dry-run or --build-only without one.")
     compiled = {}
     binary, manifest = build(args, build_dir, compiled)
     if not args.skip_emulator:
@@ -508,10 +514,6 @@ def main(argv=None) -> None:
               f"ARM code; host timings are meaningless). Log and images in {out_dir}:",
               ", ".join(p.name for p in paths), flush=True)
         return
-    try:
-        runner = PiRunner(tty=args.tty, timeout=args.timeout, verbose=args.verbose)
-    except PiError as ex:
-        raise SystemExit(f"No Pi found: {ex}. Use --dry-run or --build-only without one.")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     log_path = args.output.with_suffix(".log")
     print(f"Booting {binary} (about 2 minutes; most of it is the UART dump of the frames)...", flush=True)
