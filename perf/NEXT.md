@@ -39,6 +39,7 @@ rechecks only for cases whose code changed.
   (128 / 512 / 1024), primitives rerun (58 rows checked, after fixing arm_vfp_ops.S for softfp:
   dd18d2b); README.md, STATUS.md, perf/README.md updated. The README primitives table was regenerated
   from the RESULT lines (it reproduces the 11-03 table from the 11-03 log).
+- Host suite on perf-loop 2557a06: 1276 passed, 33 skipped (1:02:21), 0 failed.
 - Open: C11 on-by-default (compile 6.4x) is the user's call; follow-ups below are unchanged.
 
 ## Commands, in order (from the repo root, `.venv/bin/python` = `PY`)
