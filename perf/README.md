@@ -95,7 +95,11 @@ add/mul pair that could share an instruction did.
    (tmu_loop_cost; now 0.957-0.991). Executed instructions geomean 0.945, both at emulator
    size and for the Pi builds (recip 0.876, add 0.871, transpose 0.926,
    softmax 0.937, mandel_32x16 0.948, mandel_16x16x2 0.932, matmul
-   0.991/0.985, dense_relu 0.984, the digits layers 0.96-0.975), never more;
+   0.991/0.985, dense_relu 0.984, the digits layers 0.96-0.975), never more
+   in the suite (other shapes can run a few more: the loop the TMU-aware
+   choice keeps may be longer, row_sum 8x64 one program 308 against 307, and
+   the greedy port-aware searches may end elsewhere, dot_loop 4x32x64 1100
+   against 1097);
    the paired share rises in every kernel (mandel_32x16 39 -> 49%, recip 30 ->
    48%). Scaled by the busy fractions of `pi-2026-11-04-d1once.json` that is
    ~1.03x on the Pi (mandelbrot 1.05-1.07x, recip 1.12x, rsqrt 1.08x, softmax
