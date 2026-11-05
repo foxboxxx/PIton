@@ -599,9 +599,16 @@ The ARM baselines were rebuilt on the second host between the two dates, and the
 *New demo kernels written against the final compiler, each checked on the Pi against numpy and an ARM
 implementation of the same algorithm.*
 
-**Image filters.** 2-D stencil kernels (for example blur and edge detection) over a full-size image,
-each output tile computed from a neighbourhood of masked loads, checked against numpy and timed against
-the ARM. Results: TBD.
+**Image filters** (`examples/image_filters.py`, `docs/examples/image_filters.md`). Nine 2-D stencil
+kernels over a 640×480 grayscale scene generated on the board: 3×3 and 5×5 Gaussian blur (direct,
+separable, and "rolling", which keeps the last filtered rows in registers through a runtime loop),
+Sobel gradient magnitude and blur fused into Sobel, with clamped or zero borders. Every output row is
+hashed on the board and compared with an exact model (the blurs are bit-exact; Sobel uses PIton's own
+sqrt model, bit-identical to the emulator), and the images read back from the Pi equal the model's
+pixel for pixel. The best QPU kernels run at about 100 Mpixel/s: **14.3×** the ARM for the 3×3 blur,
+**19.3×** for the 5×5 blur, **22.1×** for Sobel and **23.2×** for blur + Sobel against the best ARM
+version of each (`benchmarks/results/image_filters-pi-2026-11-05.{json,log}`). The rolling kernels,
+which reuse rows instead of reloading them, are 1.5-2.7× faster than the direct stencils.
 
 **Game of Life** (`examples/life.py`, `docs/examples/life.md`). Conway's Life on a torus, one launch
 per generation, in three Triton versions: the textbook 9-load stencil, a sliding window that carries
