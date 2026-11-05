@@ -27,6 +27,14 @@ rechecks only for cases whose code changed.
 - Power: tools/pi_power_linux (libgpiod on the cp210x gpiochip), branch infra/linux-power. On this
   head GPIO0 low powers the Pi off but the bridge stays up (no re-enumeration); power.cycle()
   takes 2.1 s and test_hw passes after it, so hung kernels recover again.
+- Step 2 (C11) Pi gate ACCEPT on try/c11-pi (678b041: try/c11 + this branch), NOT landed: compiles
+  6.4x slower with pairing on; on-by-default is the user's call. Its PITON_PAIR=1 host suite was
+  still running at 01:18 (~35%, in .claude/worktrees/try-c11; log perf/pytest_try_c11.log in
+  the main checkout).
+- ARM VFP code (digits' arm_vfp, primitives) needs the cs240lx libpi (-mfpu=vfp, FPU enabled at
+  boot); cs140e's builds soft-float. Build against a copy of ~/projects/cs240lx: its makefile
+  rebuilds TRACKED libpi.a / objs / libm objects in place.
+- Step 3 done: `pi-2026-11-05-final.json`, geomean 1.409x over the 11-03 baseline (BACKLOG log).
 
 ## Commands, in order (from the repo root, `.venv/bin/python` = `PY`)
 
