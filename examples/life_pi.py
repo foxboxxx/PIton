@@ -24,6 +24,11 @@ generation, with the ARM caches off as in every PIton benchmark. The grid
 after the timed runs is checked too. With --big N the bit-sliced kernel and
 the bit-sliced ARM code also run on an N x N torus.
 
+Before booting (and in --build-only / --dry-run), the kernels just built run
+one generation of the Pi's tori in the strict emulator (about a minute;
+--skip-emulator skips it): the compiler's output can differ from one compile
+to the next, so this checks the code that is in the firmware.
+
 Results: benchmarks/results/life-pi-<date>.{json,log}; images from the
 board's frames: docs/images/life-pi-{anim.gif,strip.png,final.png}.
 """
@@ -101,10 +106,11 @@ def check_args(args) -> None:
                          "--big-timed-gens positive")
 
 
-def generate(args, build_dir: Path) -> dict:
+def generate(args, build_dir: Path, compiled: dict | None = None) -> dict:
     """Compile the kernels and write the firmware sources into build_dir:
     life_{tile,rows,bits}.{c,h,qasm} (emit_c), life_config.h and copies of
-    pi/examples/life, the runtime and the ARM cache code."""
+    pi/examples/life, the runtime and the ARM cache code. `compiled` receives
+    {name: CompiledKernel}, the exact code in the firmware."""
     build_dir.mkdir(parents=True, exist_ok=True)
     constants = kernel_constants(args)
     grids = {name: launch_grid(name, args.size, args.size, constants[name]) for name in KERNELS}
@@ -116,6 +122,8 @@ def generate(args, build_dir: Path) -> dict:
             grid = (max(grid[0], big_grid[0]), max(grid[1], big_grid[1]))
         started = time.monotonic()
         ck = compiler.compile(kernel, signature, constants[name], grid=grid if grid[1] > 1 else grid[:1])
+        if compiled is not None:
+            compiled[name] = ck
         header, source = emit_c(ck, f"life_{name}")
         (build_dir / f"life_{name}.h").write_text(header)
         (build_dir / f"life_{name}.c").write_text(source)
@@ -151,9 +159,9 @@ def generate(args, build_dir: Path) -> dict:
                                SOURCES + [ROOT / "examples/life.py", ROOT / "examples/life_pi.py"]})
 
 
-def build(args, build_dir: Path) -> tuple[Path, dict]:
+def build(args, build_dir: Path, compiled: dict | None = None) -> tuple[Path, dict]:
     """generate(), then build main.bin with the course libpi (no boot)."""
-    manifest = generate(args, build_dir)
+    manifest = generate(args, build_dir, compiled)
     course_root = libpi_root()
     if course_root is None:
         raise SystemExit("Set CS240LX_2025_PATH to the course repository containing libpi "
@@ -168,6 +176,35 @@ def build(args, build_dir: Path) -> tuple[Path, dict]:
     (build_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"Built {binary.stat().st_size:,}-byte Pi firmware: {binary}", flush=True)
     return binary, manifest
+
+
+def emulator_check(compiled: dict, args) -> list[dict]:
+    """The firmware's own kernels (the compiler's output can differ from one
+    compile to the next) on the Pi's tori in the strict emulator: one
+    generation each against numpy, before anything is booted."""
+    from piton.runtime.launcher import run_emulator
+    constants = kernel_constants(args)
+    cases = [("tile", args.size, args.seed), ("rows", args.size, args.seed), ("bits", args.size, args.seed)]
+    if args.big:
+        cases.append(("bits", args.big, args.big_seed))
+    rows = []
+    for name, n, seed in cases:
+        ck, per = compiled[name], KERNELS[name][3]
+        gx, gy = launch_grid(name, n, n, constants[name])
+        words = pack_bits(soup(n, n, seed, args.eighths))
+        src = words.copy() if per == 32 else unpack_bits(words)
+        dst = np.zeros_like(src)
+        started = time.monotonic()
+        run_emulator(ck, (gx, gy) if gy > 1 else (gx,), {"src_ptr": src, "dst_ptr": dst, "n_rows": n,
+                     ("n_words" if per == 32 else "n_cols"): n // per, "stride": n // per})
+        got = dst if per == 32 else pack_bits(dst)
+        ok = bool(np.array_equal(got, life_step_bits(words)))
+        rows.append(dict(kernel=name, size=n, match=ok, seconds=round(time.monotonic() - started, 1)))
+        print(f"Emulator: {name} on {n}x{n}, one generation: {'matches' if ok else 'DIFFERS FROM'} numpy "
+              f"({rows[-1]['seconds']} s)", flush=True)
+        if not ok:
+            raise SystemExit(f"the compiled {name} kernel is wrong in the emulator; not booting")
+    return rows
 
 
 def expectations(args) -> dict:
@@ -381,11 +418,13 @@ def write_images(result: dict, args, out_dir: Path, prefix: str) -> list[Path]:
 
 
 def summary(result: dict, args) -> str:
-    lines = [f"{'implementation':10} {'size':>9} {'us/gen':>10} {'Mcell/s':>9}"]
+    """Time per generation (one launch per generation on the QPU), throughput, speedups."""
+    lines = [f"{'implementation':14} {'torus':>9} {'us/generation':>14} {'QPU launch us':>14} {'Mcell/s':>9}"]
     for t in result["timings"]:
-        lines.append(f"{t['implementation']:10} {t['size']:>4}x{t['size']:<4} {t['us_per_generation']:10.1f} "
-                     f"{t['cell_updates_per_second'] / 1e6:9.1f}")
-    lines += [f"{k}: {v:.2f}x" for k, v in result["speedups"].items()]
+        launch = statistics.median(t["launch_us"]) / t["generations"] if t["implementation"].startswith("qpu") else None
+        lines.append(f"{t['implementation']:14} {t['size']:>4}x{t['size']:<4} {t['us_per_generation']:14.1f} "
+                     f"{'' if launch is None else f'{launch:.1f}':>14} {t['cell_updates_per_second'] / 1e6:9.1f}")
+    lines += [f"speedup {k.replace('_vs_', ' vs ')}: {v:.2f}x" for k, v in result["speedups"].items()]
     return "\n".join(lines)
 
 
@@ -431,6 +470,8 @@ def parser() -> argparse.ArgumentParser:
     ap.add_argument("--build-only", action="store_true", help="compile the kernels and firmware, do not boot")
     ap.add_argument("--dry-run", action="store_true",
                     help="build, run the firmware natively (ARM code for the QPU) and check its log; no Pi")
+    ap.add_argument("--skip-emulator", action="store_true",
+                    help="do not run the built kernels in the emulator first (about a minute)")
     ap.add_argument("--build-dir", type=Path, default=ROOT / "build/life")
     ap.add_argument("--tty")
     ap.add_argument("--timeout", type=float, default=600)
@@ -446,7 +487,10 @@ def main(argv=None) -> None:
     args = parser().parse_args(argv)
     check_args(args)
     build_dir = args.build_dir.resolve()
-    binary, manifest = build(args, build_dir)
+    compiled = {}
+    binary, manifest = build(args, build_dir, compiled)
+    if not args.skip_emulator:
+        manifest["emulator_check"] = emulator_check(compiled, args)
     if args.build_only:
         return
     started = time.monotonic()
@@ -480,7 +524,10 @@ def main(argv=None) -> None:
         raise SystemExit(f"Pi run failed (partial log in {log_path}): {ex}")
     seconds = time.monotonic() - started
     log_path.write_text(log)            # keep the raw log even if the checks reject it
-    result = parse_log(log, args, expected)
+    try:
+        result = parse_log(log, args, expected)
+    except ValueError as ex:
+        raise SystemExit(f"Pi run rejected: {ex}\nRaw log: {log_path}")
     paths = write_images(result, args, args.images_dir, "life-pi")
     frames = result.pop("frames")
     result.pop("final")
