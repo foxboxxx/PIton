@@ -1,0 +1,3 @@
+N=  128 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2)  best      447 us  9.383 GFLOPS  max sampled err 4.00e-05  (32 programs)  ok  times_us=[510, 447, 448]
+N=  512 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2)  best    26454 us  10.147 GFLOPS  max sampled err 3.61e-04  (512 programs)  ok  times_us=[26454, 26464, 26463]
+N= 1024 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2)  best   229831 us  9.344 GFLOPS  max sampled err 1.10e-03  (2048 programs)  ok  times_us=[230236, 229831, 229983]

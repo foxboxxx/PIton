@@ -5,11 +5,12 @@
   C7 (`PITON_ISSUE`), E4 (`PITON_COARSEN_RUNTIME`), E5 (`PITON_COARSEN_STORES`), B5
   (`PITON_TMU_NOSWAP`). Suite of 23 kernels: **1.409× geomean** over 2026-11-03, every output
   checked (`perf/results/pi-2026-11-05-final.json`).
-- **Matmul** (8×64×8, `benchmarks/matmul_pi.py --bk 8`): **8.21 GFLOPS at 128³, 10.15 at 512³,
-  9.30 at 1024³** (`benchmarks/results/matmul-pi-2026-11-05.log`).
-- **Digits network**, full batch, median of five: QPU **9.380 ms**, tuned ARM VFP 133.366 ms,
-  **14.218×**, 191,578 images/s; all 28,752 logits checked
-  (`benchmarks/results/digits-pi-2026-11-05-final.json`).
+- **Matmul** (8×64×8, `benchmarks/matmul_pi.py --bk 8`), final configuration on the 11-03 board:
+  **9.38 GFLOPS at 128³, 10.15 at 512³, 9.34 at 1024³** (`benchmarks/results/matmul-pi-2026-11-05-final.log`;
+  the second board before pairing: 8.21 / 10.15 / 9.30).
+- **Digits network**, full batch, median of five, final configuration: QPU **9.320 ms**, tuned ARM
+  VFP 133.675 ms, **14.34×**, 192,811 images/s; batch 1 169 µs vs 719 µs; all 28,752 logits checked
+  (`benchmarks/results/digits-pi-2026-11-05-final-sameboard.json`; the second board: 9.380 ms, 14.218×).
 - **Primitives rerun** (`benchmarks/results/primitives-2026-11-05.log`): all 58 rows checked;
   copy 2.17 → 1.23 ms, exp 2.21 → 1.61 ms, idiv 8.54 → 3.17 ms, softmax 1.10 → 0.56 ms.
 - **Tried and rejected on the Pi:** H6 (`PITON_MM`, matmul A in column blocks: 0.72-0.80×, TMU

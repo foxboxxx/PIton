@@ -38,16 +38,17 @@ Status:
   ALUs (≈22-23 bits, within ~2 ulp) instead of the special function unit.
 * A trained **64→128→64→10 handwritten-digit classifier** now runs on the Pi: **96.995%**
   accuracy on all 1,797 official held-out images, with every QPU prediction matching the
-  independent host reference. Resident inference takes **9.380 ms** for the full test set,
-  **14.218× faster** than the same-board tuned ARM VFP implementation (median of five,
-  2026-11-05).
+  independent host reference. Resident inference takes **9.320 ms** for the full test set,
+  **14.34× faster** than the same-board tuned ARM VFP implementation (median of five,
+  2026-11-05, final configuration).
 
 ## Performance (Pi Zero W, 12 QPUs @ 250 MHz, fp32)
 
 **2026-11-05, after the optimisation loop (`perf/`):** the Triton tutorial matmul (8×64×8,
 `benchmarks/matmul_pi.py 128 512 1024 --bk 8`, best of three, sampled outputs checked) reaches
-**8.21 GFLOPS at 128³, 10.15 at 512³ and 9.30 at 1024³**
-(`benchmarks/results/matmul-pi-2026-11-05.log`). The 23 kernels of the `perf/` suite run
+**9.38 GFLOPS at 128³, 10.15 at 512³ and 9.34 at 1024³** with the final configuration on the board
+of the 11-03 baseline (`benchmarks/results/matmul-pi-2026-11-05-final.log`; 8.21 / 10.15 / 9.30 on
+the second board before scheduler pairing was on, `matmul-pi-2026-11-05.log`). The 23 kernels of the `perf/` suite run
 **1.409× faster** (geometric mean) than on 2026-11-03, every output checked
 (`perf/results/pi-2026-11-05-final.json`). These were measured on a different host and UART
 head, with the cs240lx libpi built by gcc 13.2 (`-mfloat-abi=softfp`). The same compiler timed
@@ -279,8 +280,14 @@ It correctly classifies **1,743/1,797 test images (96.995%)** from different wri
 compressed dataset, frozen weights, reproducible training code, checksums, training history,
 and CC BY 4.0 attribution are in `examples/data/digits/` and `examples/digits_model.py`.
 
-**Measured on the Pi Zero W on 2026-11-05**, after the optimisation loop (`perf/`): the full batch
-takes **9.380 ms on the QPUs** versus **133.366 ms on tuned ARM VFP**, a **14.218× speedup** and
+**Final configuration, 2026-11-05** (every accepted optimisation, scheduler pairing on, the board of
+the 11-03 baseline): the full batch takes **9.320 ms on the QPUs** versus **133.675 ms on tuned
+ARM VFP**, **14.34×**, 192,811 images/s; a single-image batch takes **169 µs** versus **719 µs**
+(4.25×). QPU full-batch repeats 9,322, 9,320, 9,529, 9,146 and 9,020 µs; all 28,752 logits and
+every prediction checked (`benchmarks/results/digits-pi-2026-11-05-final-sameboard.{json,log}`).
+
+**Measured on the second Pi Zero W on 2026-11-05**, after the optimisation loop (`perf/`), before
+scheduler pairing was on: the full batch takes **9.380 ms on the QPUs** versus **133.366 ms on tuned ARM VFP**, a **14.218× speedup** and
 approximately **191,578 classified images/s**; a logical single-image batch takes **172 µs** versus
 **739 µs** (4.297×). Medians of five at the same clocks; QPU full-batch repeats 9,432, 9,191,
 9,137, 9,380 and 9,444 µs, ARM VFP 133,351, 133,366, 133,346, 133,391 and 133,394 µs; all 28,752
