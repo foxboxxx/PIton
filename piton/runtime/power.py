@@ -4,7 +4,9 @@ The board's CP2102N drives the MOSFET on the Pi's 5 V rail from its GPIO0;
 tools/pi_power sends the vendor request.  Low GPIO0 cuts the power.  The bridge
 chip itself browns out within ~0.3 s of that and re-enumerates about a second
 later with GPIO0 back high, so a cycle always ends with the Pi powered and the
-tty briefly gone.
+tty briefly gone.  On Linux, tools/pi_power_linux drives the same GPIO0 through
+the cp210x driver's gpiochip (libgpiod); on a head whose bridge is powered from
+USB the tty stays up and GPIO0 stays low until "on" (cycle() always sends it).
 
 The bootloader announces itself by sending GET_PROG_INFO (0x11112222, little
 endian) every ~0.3 s while it waits, so a Pi that is ready for a program can be
@@ -16,6 +18,7 @@ from __future__ import annotations
 
 import os
 import select
+import shutil
 import subprocess
 import sys
 import termios
@@ -27,10 +30,19 @@ TOOL = os.path.join(TOOLS, "pi_power")
 GET_PROG_INFO = bytes.fromhex("22221111")
 
 
-def tool() -> Optional[str]:
-    """tools/pi_power, built on first use (macOS IOKit)."""
+def tool(tty: Optional[str] = None) -> Optional[str]:
+    """tools/pi_power, built on first use (macOS IOKit); tools/pi_power_linux
+    (libgpiod on the cp210x gpiochip of `tty`'s bridge) on Linux."""
     if os.environ.get("PITON_POWER", "1") == "0":
         return None
+    if sys.platform.startswith("linux"):
+        # Only a usable switch counts: callers read tool() as "the Pi can be
+        # power-cycled" (pi.py retries and checks the bootloader first then).
+        path = os.path.join(TOOLS, "pi_power_linux")
+        if not (os.access(path, os.X_OK) and shutil.which("gpioset") and shutil.which("timeout")):
+            return None
+        ok = subprocess.run([path, "status"], capture_output=True, env=_env(tty)).returncode == 0
+        return path if ok else None
     src = TOOL + ".c"
     if sys.platform == "darwin" and os.path.exists(src) and (
             not os.path.exists(TOOL) or os.path.getmtime(TOOL) < os.path.getmtime(src)):
@@ -39,13 +51,18 @@ def tool() -> Optional[str]:
     return TOOL if os.access(TOOL, os.X_OK) else None
 
 
-def _power(*args) -> bool:
-    path = tool()
-    return bool(path) and subprocess.run([path, *args], capture_output=True).returncode == 0
+def _env(tty: Optional[str]) -> Optional[dict]:
+    """`tty` tells pi_power_linux which bridge's GPIO0 to drive."""
+    return dict(os.environ, PITON_TTY=tty) if tty else None
 
 
-def available() -> bool:
-    return _power("status")
+def _power(*args, tty: Optional[str] = None) -> bool:
+    path = tool(tty)
+    return bool(path) and subprocess.run([path, *args], capture_output=True, env=_env(tty)).returncode == 0
+
+
+def available(tty: Optional[str] = None) -> bool:
+    return _power("status", tty=tty)
 
 
 def handshake(tty: str, seconds: float) -> bool:
@@ -81,11 +98,11 @@ def handshake(tty: str, seconds: float) -> bool:
 
 def cycle(tty: str, timeout: float = 20.0) -> bool:
     """Cut the Pi's power and wait until its bootloader is listening again."""
-    if not _power("off"):
+    if not _power("off", tty=tty):
         return False
     time.sleep(0.5)
     end = time.monotonic() + timeout
-    while not _power("on"):                   # the bridge is re-enumerating
+    while not _power("on", tty=tty):          # the bridge is re-enumerating
         if time.monotonic() > end:
             return False
         time.sleep(0.25)
@@ -103,4 +120,4 @@ def ensure_ready(tty: str) -> bool:
     """
     if handshake(tty, 1.0):
         return True
-    return available() and cycle(tty)
+    return available(tty) and cycle(tty)

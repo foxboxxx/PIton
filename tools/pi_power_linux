@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Linux twin of tools/pi_power.c: switch the Pi's power through the HUGE UART
+# board's CP2102N GPIO0, using the cp210x driver's gpiochip and libgpiod's
+# gpioset (apt install gpiod; v1 command line).  The gpiochip node must be
+# writable by this user, e.g. a udev rule:
+#   SUBSYSTEM=="gpio", KERNEL=="gpiochip*", GROUP="dialout", MODE="0660"
+#
+#   pi_power_linux status    exit 0 if the bridge's gpiochip is present and writable
+#   pi_power_linux on | off  set GPIO0 high / low
+#
+# The chip is the one under the same USB interface as $PITON_TTY (so another
+# CP210x is never switched); without PITON_TTY, the only cp210x chip there is.
+# "on" fails while the bridge is re-enumerating after "off" (power.cycle waits
+# for it).  "off" also counts as done when a chip that was there goes away
+# mid-call: a bridge powered from the Pi's rail browns out with it.
+# PITON_SYSFS / PITON_DEVDIR override /sys and /dev (tests).
+set -u
+SYS=${PITON_SYSFS:-/sys}
+DEV=${PITON_DEVDIR:-/dev}
+
+chip() {
+    local c="" tty dir found
+    if [ -n "${PITON_TTY:-}" ]; then
+        tty=$(basename "$(readlink -f "$PITON_TTY")")
+        dir=$(readlink -f "$SYS/class/tty/$tty/device/..") || return 1   # the USB interface
+        for found in "$dir"/gpiochip*; do
+            [ -e "$found" ] && c=$(basename "$found") && break
+        done
+    else
+        set -- "$SYS"/bus/usb/drivers/cp210x/*/gpiochip*
+        [ $# = 1 ] && [ -e "$1" ] || return 1          # none, or more than one bridge
+        c=$(basename "$1")
+    fi
+    [ -n "$c" ] && [ -r "$DEV/$c" ] && [ -w "$DEV/$c" ] && echo "$c"
+}
+
+case "${1:-}" in
+    status)
+        # v2's gpioset takes other arguments (-c chip line=value)
+        gpioset --version 2>/dev/null | grep -q 'v1\.' && chip >/dev/null
+        ;;
+    on)
+        c=$(chip) || exit 1
+        timeout 3 gpioset "$c" 0=1
+        ;;
+    off)
+        c=$(chip) || exit 1                   # never there, or not permitted
+        timeout 3 gpioset "$c" 0=0 && exit 0
+        for _ in 1 2 3 4 5 6 7 8; do         # the bridge may vanish mid-call
+            chip >/dev/null || exit 0
+            sleep 0.25
+        done
+        exit 1
+        ;;
+    *)
+        echo "usage: $0 status | on | off" >&2
+        exit 2
+        ;;
+esac
