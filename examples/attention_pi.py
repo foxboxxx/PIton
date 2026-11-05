@@ -294,7 +294,7 @@ def parse_log(log, kernels, problems, cases, repeats, arm_repeats, refs):
         times.setdefault(int(c), []).append(int(us))
     for c, pas, checked, failures, nonfinite, bits in re.findall(
             r"^ATTN_CHECK case=(\d+) pass=(\w+) checked=(\d+) failures=(\d+) nonfinite=(\d+) "
-            r"max_abs_err_bits=([0-9a-f]+)\s*$", log, re.MULTILINE):
+            r"max_abs_err_bits=(?:0x)?([0-9a-f]+)\s*$", log, re.MULTILINE):   # (libpi's printk %x prints 0x)
         checks[(int(c), pas)] = dict(checked=int(checked), failures=int(failures), nonfinite=int(nonfinite),
                                      max_abs_err=_bits_to_float(bits))
     for c, stride, count, block in re.findall(
