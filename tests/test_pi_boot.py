@@ -1,5 +1,6 @@
 """Serial host regression tests; no board required."""
 import os
+import shutil
 import subprocess
 import sys
 
@@ -183,6 +184,10 @@ def test_no_power_switch_means_no_retry(tmp_path, monkeypatch):
 
 
 LINUX_POWER = os.path.join(pi_runtime.power.TOOLS, "pi_power_linux")
+# tools/pi_power_linux bounds each gpioset with coreutils `timeout`, which macOS does not ship:
+# the tests that expect the script to switch the (fake) bridge need it
+needs_timeout = pytest.mark.skipif(shutil.which("timeout") is None,
+                                   reason="tools/pi_power_linux needs coreutils timeout (Linux)")
 
 
 def fake_bridge(tmp_path, chips=(True,), writable=True, gpioset_rc=0, vanish=False, version="v1.6.3"):
@@ -225,12 +230,14 @@ def fake_bridge(tmp_path, chips=(True,), writable=True, gpioset_rc=0, vanish=Fal
     return run, log
 
 
+@needs_timeout
 def test_linux_power_switches_the_bridge_gpio0(tmp_path):
     run, log = fake_bridge(tmp_path)
     assert run("status") == 0 and run("off") == 0 and run("on") == 0
     assert log.read_text().splitlines() == ["gpiochip0 0=0", "gpiochip0 0=1"]
 
 
+@needs_timeout
 def test_linux_power_drives_the_chip_of_the_ttys_bridge(tmp_path):
     run, log = fake_bridge(tmp_path, chips=(True, True, False))
     assert run("status") == 1                                   # two chips and no tty: ambiguous
@@ -251,6 +258,7 @@ def test_linux_power_without_a_usable_chip_fails_every_command(tmp_path):
             assert (run("on"), run("off")) == (1, 1) and not log.exists(), name
 
 
+@needs_timeout
 def test_linux_power_off_succeeds_when_the_bridge_browns_out(tmp_path):
     run, _ = fake_bridge(tmp_path, gpioset_rc=1, vanish=True)
     assert run("off") == 0
@@ -298,6 +306,7 @@ def test_linux_power_script_rejects_unknown_commands():
     assert proc.returncode == 2 and "usage" in proc.stderr
 
 
+@needs_timeout
 def test_power_cycles_the_ttys_bridge_among_two(tmp_path, monkeypatch):
     """The real tool() / cycle() on two bridges: only the given tty's chip moves."""
     power = pi_runtime.power
