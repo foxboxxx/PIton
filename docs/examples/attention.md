@@ -113,12 +113,15 @@ masked tails); pre-transposed K at N = 512; and the 64-token V = I picture
 
 | d | N | mask | best tile | QPU | GFLOPS | ARM C | speedup |
 |---|---|---|---|---|---|---|---|
-| 32 | 128 | full | TBD (Pi) | TBD (Pi) | TBD (Pi) | TBD (Pi) | TBD (Pi) |
-| 32 | 512 | full | TBD (Pi) | TBD (Pi) | TBD (Pi) | TBD (Pi) | TBD (Pi) |
-| 32 | 512 | causal | TBD (Pi) | TBD (Pi) | TBD (Pi) | TBD (Pi) | TBD (Pi) |
-| 64 | 512 | full | TBD (Pi) | TBD (Pi) | TBD (Pi) | TBD (Pi) | TBD (Pi) |
-| 64 | 512 | causal | TBD (Pi) | TBD (Pi) | TBD (Pi) | TBD (Pi) | TBD (Pi) |
+| 32 | 128 | full | 2×16 | 0.70 ms | 2.99 | 30.9 ms | 44.0× |
+| 32 | 512 | full | 4×16 | 10.1 ms | 3.31 | 526 ms | 51.9× |
+| 32 | 512 | causal | 2×16 | 5.31 ms | 3.16 | 258 ms | 48.6× |
+| 64 | 512 | full | 2×16 | 24.6 ms | 2.72 | 1318 ms | 53.5× |
+| 64 | 512 | causal | 2×16 | 14.7 ms | 2.29 | 592 ms | 40.4× |
 
-Tile sweep at d = 32, N = 512 (full): 2×32 TBD (Pi), 2×16 TBD (Pi), 4×16 TBD (Pi), 2×64 TBD (Pi).
-K pre-transposed vs gathered (d = 32, N = 512, 2×32 / 2×16): TBD (Pi). Ragged N = 499: TBD (Pi).
-Largest error against float64 on the board's samples: TBD (Pi).
+Tile sweep at d = 32, N = 512 (full): 2×32 11.5 ms (2.91 GFLOPS), 2×16 15.4 ms (2.17), 4×16 10.1 ms (3.31),
+2×64 40.0 ms (0.84).
+K pre-transposed vs gathered (d = 32, N = 512): 2×32 10.9 vs 11.5 ms (1.06×), 2×16 9.1 vs 15.4 ms (1.69×; 3.68 GFLOPS,
+57.7× the ARM, the fastest case). Ragged N = 499 (d = 32, 2×32): 12.4 ms full (40.1×), 7.4 ms causal (33.1×).
+Largest error against float64 on the board's samples: 4.1·10⁻⁶; every output of every case also matched the ARM
+reference on the board, before and after timing. Measured 2026-11-05 (`benchmarks/results/attention-pi-2026-11-05.{json,log}`).
