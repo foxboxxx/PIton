@@ -123,14 +123,14 @@ import zlib  # noqa: E402
 
 import numpy as np  # noqa: E402
 
-LOG2E = 1.44269504
 PARAMS = list(inspect.signature(attn_fwd_kernel.fn).parameters)
-TILE_ARGS = ("HEAD_DIM", "BLOCK_M", "BLOCK_N", "CAUSAL", "EVEN_N")
 
-# Largest tiles (BLOCK_M x BLOCK_N) that fit the 64 registers without spilling, for the
-# contiguous build (`contiguous_strides`), measured with this compiler:
+# Largest tiles (BLOCK_M x BLOCK_N) that fit the registers (4 accumulators, 2 x 31
+# register-file entries; PIton does not spill) in the contiguous build
+# (`contiguous_strides`), measured with this compiler:
 #   HEAD_DIM 32: 4x16, 2x64, 1x64 (causal 2x32, 1x64); 8x16, 4x32 and 1x128 do not fit
 #   HEAD_DIM 64: 2x32, 1x64 (causal 2x16, 1x64);       4x16 and 2x64 do not fit
+# The tiles examples/attention_pi.py times on the Pi, per (HEAD_DIM, CAUSAL):
 PI_TILES = {
     (32, False): [(2, 32), (2, 16), (4, 16), (2, 64)],
     (32, True): [(2, 32), (2, 16)],

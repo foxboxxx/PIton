@@ -44,6 +44,7 @@ sys.path.insert(0, str(ROOT / "examples"))
 
 from attention import (PI_TILES, attention_flops, attention_reference, compile_attention,  # noqa: E402
                        pattern_qk, weights_image, write_png)
+from piton.runtime.launcher import slot_semaphores  # noqa: E402
 from piton.runtime.pi import PiError, PiRunner, lcg_floats, libpi_root  # noqa: E402
 from piton.tools.compile import emit_c  # noqa: E402
 
@@ -145,12 +146,17 @@ def sha256(path: Path) -> str:
 def build_firmware(build_dir: Path, repeats: int, arm_repeats: int, sizes=SIZES, make=True):
     kernels, problems, cases = plan(sizes)
     build_dir.mkdir(parents=True, exist_ok=True)
-    kernel_src, launchers, table = [], [], []
+    kernel_src, launchers, table, semaphores = [], [], [], set()
     for i, k in enumerate(kernels):
         started = time.monotonic()
         ck = compile_attention(k["head_dim"], k["block_m"], k["block_n"], k["causal"], k["even_n"],
                                k["k_layout"], n_ctx=MAX_N, max_n_ctx=MAX_N)
         sym = f"attn_k{i}"
+        if slot_semaphores(ck.words):
+            semaphores.add(slot_semaphores(ck.words))
+        if len(semaphores) > 1:
+            # piton_launch_slots_once sets the store-slot semaphores up once per boot
+            raise RuntimeError(f"kernels use different store-slot semaphores {semaphores}")
         header, source = emit_c(ck, sym)
         (build_dir / f"{sym}.h").write_text(header)
         (build_dir / f"{sym}.c").write_text(source)
@@ -309,7 +315,8 @@ def parse_log(log, kernels, problems, cases, repeats, arm_repeats, refs):
                          inputs="pattern" if p["inputs"] == PATTERN else "lcg",
                          times_us=t, median_us=med, min_us=min(t),
                          gflops=flops / med / 1e3, gflops_best=flops / min(t) / 1e3,
-                         arm_times_us=arm[pi], arm_median_us=arm_med, speedup_vs_arm=arm_med / med,
+                         arm_times_us=arm[pi], arm_median_us=arm_med, arm_gflops=flops / arm_med / 1e3,
+                         speedup_vs_arm=arm_med / med,
                          board_max_abs_err_vs_arm=checks[(c, "timed")]["max_abs_err"],
                          host_samples=int(got.size), host_max_abs_err_vs_float64=float(err.max())))
     return dict(clocks_mhz=clocks, cases=rows, samples=samples)
@@ -406,6 +413,7 @@ def main(argv=None):
         log = synthetic_log(kernels, problems, cases, args.repeats, args.arm_repeats, refs)
         parsed = parse_log(log, kernels, problems, cases, args.repeats, args.arm_repeats, refs)
         result = dict(cases=parsed["cases"], best=best_rows(parsed["cases"]))
+        print("synthetic log (made-up timings; outputs are the float64 references):")
         report(result)
         write_png(args.build_dir / "attention-pi-weights-synthetic.png",
                   weights_image(pattern_panels(parsed, kernels, problems, cases)))
