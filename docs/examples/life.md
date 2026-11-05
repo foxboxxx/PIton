@@ -64,16 +64,19 @@ The instruction counts and the per-cell counts are for the Pi configurations at 
 
 | implementation | torus | time per generation | cell updates / s | vs same algorithm on the ARM | vs fastest ARM |
 |---|---|---|---|---|---|
-| `qpu_tile` | 512 x 512 | TBD (Pi) | TBD (Pi) | TBD (Pi) (`arm_naive`) | TBD (Pi) |
-| `qpu_rows` | 512 x 512 | TBD (Pi) | TBD (Pi) | TBD (Pi) (`arm_rows`) | TBD (Pi) |
-| `qpu_bits` | 512 x 512 | TBD (Pi) | TBD (Pi) | TBD (Pi) (`arm_bits`) | TBD (Pi) |
-| `arm_naive` | 512 x 512 | TBD (Pi) | TBD (Pi) | | |
-| `arm_rows` | 512 x 512 | TBD (Pi) | TBD (Pi) | | |
-| `arm_bits` | 512 x 512 | TBD (Pi) | TBD (Pi) | | |
-| `qpu_bits` | 2048 x 2048 | TBD (Pi) | TBD (Pi) | TBD (Pi) (`arm_bits`) | |
-| `arm_bits` | 2048 x 2048 | TBD (Pi) | TBD (Pi) | | |
+| `qpu_tile` | 512 x 512 | 4,992 us | 52.5 M | 4.17x (`arm_naive`) | 0.16x |
+| `qpu_rows` | 512 x 512 | 1,791 us | 146 M | 8.42x (`arm_rows`) | 0.43x |
+| `qpu_bits` | 512 x 512 | 161 us | 1,626 M | 4.81x (`arm_bits`) | **4.81x** |
+| `arm_naive` | 512 x 512 | 20,804 us | 12.6 M | | |
+| `arm_rows` | 512 x 512 | 15,088 us | 17.4 M | | |
+| `arm_bits` | 512 x 512 | 776 us | 338 M | | |
+| `qpu_bits` | 2048 x 2048 | 2,279 us | 1,841 M | **5.77x** (`arm_bits`) | |
+| `arm_bits` | 2048 x 2048 | 13,145 us | 319 M | | |
 
-Medians of three repeats; raw log and every number in `benchmarks/results/life-pi-<date>.{json,log}`.
+Measured 2026-11-05 on the Pi Zero W; every generation of every implementation matched numpy. Medians of three
+repeats; raw log and every number in `benchmarks/results/life-pi-2026-11-05.{json,log}`. The QPU's best, the
+bit-sliced kernel, updates 1.6-1.8 G cells/s, 4.8-5.8x the same bit-sliced algorithm on the ARM; the
+straightforward stencils are 4-8x their ARM twins but slower than the ARM's bit-sliced code.
 The emulator's timing model puts one 512 x 512 generation at about 900 us (`qpu_tile`), 300 us
 (`qpu_rows`) and 22 us (`qpu_bits`, plus launch overhead); it does not model the TMU or the DMA
 engine exactly, so these are estimates only.
