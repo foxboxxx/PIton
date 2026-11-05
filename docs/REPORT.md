@@ -45,9 +45,9 @@ add_kernel[(triton.cdiv(n, 256),)](x, y, out, n, BLOCK=256, device="pi")  # the 
 | what | result | source |
 |---|---|---|
 | 23-kernel performance suite, geometric-mean speedup over the 2026-11-03 baseline, same board | **1.424×** in the default configuration, with every accepted optimisation including scheduler pairing (1.406× without pairing) | `perf/results/pi-2026-11-03-baseline.json`, `pi-2026-11-05-final-sameboard.json`, `ab-2026-11-05-pair.json` |
-| Triton tutorial matmul (8×64×8 tiles), square N³ | **8.21 / 10.15 / 9.30 GFLOPS** at 128³ / 512³ / 1024³ | `benchmarks/results/matmul-pi-2026-11-05.log` |
+| Triton tutorial matmul (8×64×8 tiles), square N³ | **9.38 / 10.15 / 9.34 GFLOPS** at 128³ / 512³ / 1024³ (final configuration, same board) | `benchmarks/results/matmul-pi-2026-11-05-final.log` |
 | peak fp32 rate (12 QPUs × 16 lanes × one add + one multiply per instruction) | 24 GFLOPS; **23.794 GFLOPS (99.14%)** reached by register-only arithmetic | `benchmarks/results/final-summary-2026-10-30.json` |
-| trained 64→128→64→10 digit classifier, 1,797 held-out images | **96.995%** accuracy; full batch **9.380 ms** vs 133.366 ms tuned ARM VFP (**14.2×**) | `benchmarks/results/digits-pi-2026-11-05-final.json` |
+| trained 64→128→64→10 digit classifier, 1,797 held-out images | **96.995%** accuracy; full batch **9.320 ms** vs 133.675 ms tuned ARM VFP (**14.3×**) | `benchmarks/results/digits-pi-2026-11-05-final-sameboard.json` |
 | 16 Triton primitives against 42 ARM baselines, 58 rows, all checked | exp **35.6×**, softmax **32.5×**, matmul 256³ **12.1×**, copy **6.0×** over the best CPU version | `benchmarks/results/primitives-2026-11-05.log` |
 | hardware tests (`PITON_HW=1 pytest tests/test_hw.py`) | **12/12**, outputs bit-identical to the emulator | STATUS.md |
 
@@ -523,11 +523,14 @@ accounting.
 `benchmarks/matmul_pi.py --bk 8`: the Triton tutorial kernel with runtime dimensions and strides, inputs
 generated on the board, sampled outputs checked against float64.
 
-| N | 2026-10-30 | 2026-11-05 | change |
+| N | 2026-10-30 | 2026-11-05, final configuration | change |
 |---|---|---|---|
-| 128 | — | 0.511 ms, **8.21 GFLOPS** | |
-| 512 | 30.569 ms, 8.781 GFLOPS | 26.442 ms, **10.15 GFLOPS** | 1.156× |
-| 1024 | 273.409 ms, 7.854 GFLOPS | 230.807 ms, **9.30 GFLOPS** | 1.185× |
+| 128 | — | 0.447 ms, **9.38 GFLOPS** | |
+| 512 | 30.569 ms, 8.781 GFLOPS | 26.454 ms, **10.15 GFLOPS** | 1.156× |
+| 1024 | 273.409 ms, 7.854 GFLOPS | 229.831 ms, **9.34 GFLOPS** | 1.190× |
+
+(`benchmarks/results/matmul-pi-2026-11-05-final.log`, the original board with every accepted change;
+the second board before pairing was on gave 8.21 / 10.15 / 9.30, `matmul-pi-2026-11-05.log`.)
 
 These figures set the scale. The peak is 24 GFLOPS, and a register-resident recurrence reaches 23.794.
 At the 10-30 checkpoint the BK=8 loop executed 256 vector multiply-adds in 386 instructions, an
@@ -542,17 +545,19 @@ A NumPy-trained MLP, 64 → 128 ReLU → 64 ReLU → 10, on the UCI handwritten-
 images from writers not seen in training). The layers use 4×64×4, 4×64×4 and 8×16×4 tiles with bias
 and ReLU fused. Accuracy is **96.995%** (1,743/1,797). Every QPU prediction matches the host reference,
 and the maximum logit error is 0.000102. Times are medians of five, including all launch, uniform and
-cache-clear overhead (`benchmarks/results/digits-pi-2026-11-05-final.json`):
+cache-clear overhead; final configuration on the original board
+(`benchmarks/results/digits-pi-2026-11-05-final-sameboard.json`):
 
 | batch | QPU | ARM VFP (tuned) | speedup | QPU on 2026-10-30 |
 |---|---|---|---|---|
-| 1 | 172 µs | 739 µs | 4.30× | 199 µs |
-| 16 | 228 µs | 1,461 µs | 6.41× | |
-| 64 | 487 µs | 4,496 µs | 9.23× | |
-| 256 | 1,491 µs | 18,453 µs | 12.38× | |
-| 1,797 | **9.380 ms** | 133.366 ms | **14.22×** | 11.161 ms |
+| 1 | 169 µs | 719 µs | 4.25× | 199 µs |
+| 16 | 230 µs | 1,452 µs | 6.31× | |
+| 64 | 489 µs | 4,524 µs | 9.25× | |
+| 256 | 1,478 µs | 18,556 µs | 12.55× | |
+| 1,797 | **9.320 ms** | 133.675 ms | **14.34×** | 11.161 ms |
 
-The full batch classifies about 191,578 images/s. Pairing (C11) measured another 1.04× at batch 1 and
+The full batch classifies about 192,811 images/s. The second board, before pairing was on, measured
+9.380 ms (14.22×, `digits-pi-2026-11-05-final.json`); pairing (C11) alone measured 1.04× at batch 1 and
 about 1.01× at the full batch (`benchmarks/results/digits-pi-2026-11-05-pair-*.log`).
 
 ### 7.4 Primitives against the CPU
@@ -591,19 +596,31 @@ The ARM baselines were rebuilt on the second host between the two dates, and the
 
 ## 8. Showcase examples
 
-*New demo kernels written against the current compiler. This section is a placeholder until their
-results are in.*
+*New demo kernels written against the final compiler, each checked on the Pi against numpy and an ARM
+implementation of the same algorithm.*
 
 **Image filters.** 2-D stencil kernels (for example blur and edge detection) over a full-size image,
 each output tile computed from a neighbourhood of masked loads, checked against numpy and timed against
 the ARM. Results: TBD.
 
-**Game of Life.** One generation of Conway's Game of Life per launch on a large grid, with neighbour
-counts from shifted loads and the update rule as `tl.where`, run for many generations and compared
-against a host reference. Results: TBD.
+**Game of Life** (`examples/life.py`, `docs/examples/life.md`). Conway's Life on a torus, one launch
+per generation, in three Triton versions: the textbook 9-load stencil, a sliding window that carries
+row sums through a runtime loop, and a bit-sliced kernel that packs 32 cells per uint32 and counts
+neighbours with and/or/xor and shifts. On the Pi each runs 256 generations of a 512×512 soup, with
+every generation of every implementation checked against numpy and against C versions of the same
+algorithms on the ARM. The bit-sliced kernel updates **1.63 G cells/s** at 512² (161 µs per
+generation, **4.81×** the ARM's bit-sliced C) and **1.84 G cells/s** at 2048² (**5.77×**); the plain
+stencils are 4.2× and 8.4× their ARM twins but slower than the ARM's bit-sliced code, which shows how
+much the algorithm matters next to the hardware (`benchmarks/results/life-pi-2026-11-05.{json,log}`).
 
-**Attention.** Scaled dot-product attention, softmax(QKᵀ/√d)·V, built from two `tl.dot`s and the
-row-softmax reduction, as in Triton's fused-attention tutorial, checked against numpy. Results: TBD.
+**Attention** (`examples/attention.py`, `docs/examples/attention.md`). One scaled dot-product attention
+head, softmax(QKᵀ/√d)·V, written like the forward pass of Triton's fused-attention tutorial: a program
+per block of query rows, a loop over key/value blocks with two `tl.dot`s, a transposed load of K and an
+online (running max and sum) softmax with `exp2`, optionally causal. On the Pi, for N = 128-512 tokens
+and d = 32 or 64, every output matches the ARM reference and float64 numpy (max error 4·10⁻⁶); the best
+tile reaches **3.3-3.7 GFLOPS**, **40-58×** a straightforward C implementation on the ARM (d = 32,
+N = 512: 10.1 ms vs 526 ms; with K stored pre-transposed 9.1 ms, 57.7×). Register pressure (no
+spilling) limits the tiles to 2-4 query rows (`benchmarks/results/attention-pi-2026-11-05.{json,log}`).
 
 ---
 
