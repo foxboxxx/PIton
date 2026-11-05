@@ -515,7 +515,8 @@ class Bundle:
         for unit, op, aop in placement:
             key = (aop.dst.waddr, aop.dst.wfile if aop.dst.waddr is not None and aop.dst.waddr < 32 else "")
             if aop.dst != isa.NOP and key in dsts:
-                self.add, self.mul = saved[:2]
+                # (an earlier op of the same node may already have set the flags)
+                self.add, self.mul, self.sig, self.setf, self.setf_unit = saved
                 return False
             if aop.dst != isa.NOP:
                 dsts.add(key)
