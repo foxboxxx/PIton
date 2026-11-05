@@ -209,9 +209,8 @@ def _build(tile, ranges, options: dict, interleave: bool, alphas=None, flags=Non
         # of the same allocation (sched.schedule_block), but the greedy searches
         # can end in different allocations, longer ones too: keep the switch-off
         # search's allocation, scheduled with the pairing schedules, when it is
-        # shorter (exp2 and mandel_32x16 at emulator size: 326 and 467
-        # instructions, 331 and 471 from the pairing searches, 328 and 470
-        # without the switch).
+        # shorter (exp2 at emulator size: 326 instructions, 336 from the pairing
+        # searches alone, 328 without the switch).
         p = schedule_function(off[1], tile.name, prefer_mul=issue)
         if _port_better(p, off[1], prog, chosen):
             prog, chosen, mir_alloc, found = p, off[1], off[2], dict(off[3], pair_alloc_off=1)

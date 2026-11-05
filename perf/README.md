@@ -95,27 +95,49 @@ add/mul pair that could share an instruction did.
    schedule that waits least (tmu_loop_cost; the same runs now 0.957-0.991 of
    the switch-off cycles, dense_relu 0.945-0.970, matmul_8x64x8 0.987-1.002;
    cycles at latency 24 geomean 0.968 for the Pi builds over 48 programs,
-   0.962 at emulator size). Executed instructions geomean 0.945, both at emulator
-   size and for the Pi builds (recip 0.876, add 0.871, transpose 0.926,
-   softmax 0.937, mandel_32x16 0.948, mandel_16x16x2 0.932, matmul
-   0.991/0.985, dense_relu 0.984, the digits layers 0.96-0.975), never more
-   in the suite (other shapes can run a few more: the loop the TMU-aware
-   choice keeps may be longer, row_sum 8x64 one program 308 against 307, and
-   the greedy port-aware searches may end elsewhere, dot_loop 4x32x64 1100
-   against 1097);
-   the paired share rises in every kernel (mandel_32x16 39 -> 49%, recip 30 ->
-   48%). Scaled by the busy fractions of `pi-2026-11-04-d1once.json` that is
-   ~1.03x on the Pi (mandelbrot 1.05-1.07x, recip 1.12x, rsqrt 1.08x, softmax
-   1.06x; memory-bound kernels less than that); compiling takes 3.3-3.6x the
-   CPU time (per case 2.6-4.9x, dense_relu the most). With the switch, the
+   0.962 at emulator size). On 77c5c75 (before C7): executed instructions
+   geomean 0.945, both at emulator size and for the Pi builds (recip 0.876,
+   add 0.871, transpose 0.926, softmax 0.937, mandel_32x16 0.948,
+   mandel_16x16x2 0.932, matmul 0.991/0.985, dense_relu 0.984, the digits
+   layers 0.96-0.975), the paired share up in every kernel (mandel_32x16
+   39 -> 49%, recip 30 -> 48%), ~1.03x on the Pi by the busy fractions of
+   `pi-2026-11-04-d1once.json`.
+   On C7 + E4/E5 + B5 (try/c11). C7's prefer_mul (an op for either ALU
+   starts an instruction on the mul ALU while an add-only op is ready) and
+   C11's move (a register move steps over only when an add-only op joins)
+   leave different instructions, so every pairing schedule is built both
+   without and with prefer_mul, the two schedules C7 compares first: no
+   block is longer than C7 makes it (a TMU loop's choice aside); the
+   port-aware searches schedule with prefer_mul too, and the allocation the
+   switch-off search keeps, scheduled with the pairing schedules, stays a
+   candidate (the pairing searches alone left exp2 at 336 instructions,
+   591 executed, against 328 and 583 without the switch; with it 326 and
+   581).
+   Executed instructions per program id geomean 0.961 for the Pi builds
+   and 0.970 at emulator size (mul 0.861, add 0.874, copy 0.911, transpose
+   0.918, mandel_16x16x2 0.930, recip 0.940, mandel_32x16 0.945, softmax
+   0.969, exp 0.971, log 0.977, matmul 0.990/0.995, dense_relu 0.992, exp2
+   0.997), the digits layers 0.977/0.967/0.989, matmul_pi 1.000; emulator
+   cycles at TMU latency 24 0.976 for the Pi builds; static 0.972. With
+   `PITON_ISSUE=0` the same builds give 0.945, as on 77c5c75: C7 took about a
+   third of the gain (exp 0.969 -> 0.971, recip 0.876 -> 0.940, idiv 0.947
+   -> 0.994, softmax 0.937 -> 0.969). More instructions only where the
+   TMU-aware choice keeps a loop one instruction longer that waits less
+   (row_sum/row_max's Pi builds 452 per id against 448/449, in 2648 emulator
+   cycles against 2700; row_sum at emulator size 188 against 187), and the
+   greedy port-aware searches can still end elsewhere in other shapes.
+   Outputs are bit-identical to the switch off; coarsening and store slots
+   do not change. Compiling takes 3.8-7.3x the CPU time (softmax, dense_relu
+   and exp the most). With the switch (77c5c75), the
    unpaired neighbours left at emulator size are mostly dependencies and
    read-port conflicts, but not only: register-file latencies (Mandelbrot
    24-37%), one peripheral access per instruction (matmul 8x64x8 55%, plus
    9% two signals) and write-file conflicts (mul 40%); 0-7% are free
    (softmax 7%). One instruction shape is new on the Pi: the VPM mutex
    released by the mul ALU next to an add-only op (`v8subs mutex, s, s`,
-   write address 51 in B space; 14 instructions in the Pi builds of
-   compute_peak, both Mandelbrot cases, both matmuls and transpose), where
+   write address 51 in B space; 11 instructions in the Pi builds of
+   transpose, both matmuls and both Mandelbrot cases on try/c11, 14 with
+   compute_peak on 77c5c75), where
    switch-off builds release it with `ldi mutex, 0` (A space). The guide's
    Table 14 maps write address 51 to MUTEX_RELEASE in both spaces; run one
    of those kernels first on hardware, since a release that does not

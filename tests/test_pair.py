@@ -397,23 +397,28 @@ def _run(case, monkeypatch, env):
     v3d = V3D()
     v3d.pc_counts = [0] * len(ck.program.instrs)
     values = {k: (v.copy() if isinstance(v, np.ndarray) else v) for k, v in run.inputs.values.items()}
-    run_emulator(ck, run.grid, values, v3d=v3d)
+    stats = run_emulator(ck, run.grid, values, v3d=v3d)
     for name, expected in run.expected.items():
         error = default_check(run, name, values[name], expected)
         assert error is None, f"{case.name}.{name} (PITON_PAIR={env}): {error}"
-    return ck, values, sum(v3d.pc_counts)
+    return ck, values, sum(v3d.pc_counts), stats["cycles"]
 
 
 @pytest.mark.parametrize("name", [c.name for c in CASES])
 def test_suite_case_bit_identical_and_never_longer(name, monkeypatch):
+    """No more instructions executed, or (a loop streaming through the TMU
+    keeps the schedule that waits least) fewer emulator cycles: with
+    PITON_ISSUE row_sum runs one instruction more, 188 against 187, in 676
+    cycles against 700."""
     case = CASES_BY_NAME[name]
-    off, v_off, n_off = _run(case, monkeypatch, "0")
-    on, v_on, n_on = _run(case, monkeypatch, "1")
+    off, v_off, n_off, c_off = _run(case, monkeypatch, "0")
+    on, v_on, n_on, c_on = _run(case, monkeypatch, "1")
     assert on.uniforms == off.uniforms and on.coarsen == off.coarsen
     for k, v in v_off.items():
         if isinstance(v, np.ndarray):
             np.testing.assert_array_equal(v_on[k].view(np.uint32), v.view(np.uint32), err_msg=k)
-    assert n_on <= n_off, f"{name}: {n_on} instructions executed with PITON_PAIR=1, {n_off} without"
+    assert n_on <= n_off or c_on < c_off, \
+        f"{name}: {n_on} instructions in {c_on} cycles with PITON_PAIR=1, {n_off} in {c_off} without"
     if name in TARGETS and name != "compute_peak":
         assert n_on < n_off
 
@@ -422,8 +427,9 @@ def test_suite_case_bit_identical_and_never_longer(name, monkeypatch):
 def test_mandel_pi_build_on_the_emulator_image(name, monkeypatch):
     """The Pi builds (their program-id bound changes what the port-aware
     allocation finds) on the emulator-size image: counts bit-identical to
-    the switch off and at least 3% fewer instructions (measured 0.948 and
-    0.932; mandel_32x16 0.983 with only the first port-aware search)."""
+    the switch off and at least 3% fewer instructions (measured 0.945 and
+    0.930 with PITON_ISSUE, 0.948 and 0.932 without; mandel_32x16 0.983
+    with only the first port-aware search)."""
     case = CASES_BY_NAME[name]
     run = case.make("emu")
     out = {}
