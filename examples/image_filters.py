@@ -487,6 +487,7 @@ def sobel_squared(img: np.ndarray, border: int = CLAMP, fused: bool = False) -> 
 
 
 _SQRT = {}
+_SQRT_KERNEL = {}
 
 
 def qpu_sqrt(x: np.ndarray) -> np.ndarray:
@@ -499,8 +500,10 @@ def qpu_sqrt(x: np.ndarray) -> np.ndarray:
     if todo.size:
         block = 1024
         grid = (triton.cdiv(todo.size, block),)
-        ck = compiler.compile(sqrt_kernel, {"x_ptr": "*fp32", "out_ptr": "*fp32", "n": "i32"},
-                              dict(BLOCK=block), grid=grid)
+        if "kernel" not in _SQRT_KERNEL:       # compiled once, for any grid
+            _SQRT_KERNEL["kernel"] = compiler.compile(
+                sqrt_kernel, {"x_ptr": "*fp32", "out_ptr": "*fp32", "n": "i32"}, dict(BLOCK=block))
+        ck = _SQRT_KERNEL["kernel"]
         out = np.zeros_like(todo)
         run_emulator(ck, grid, dict(x_ptr=todo, out_ptr=out, n=int(todo.size)))
         _SQRT.update(zip(todo.view(np.uint32).tolist(), out.view(np.uint32).tolist()))

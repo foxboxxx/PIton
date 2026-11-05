@@ -28,15 +28,19 @@ small and a VGA image needs 200-400 programs instead of thousands. Each stencil 
 
 | filter | kernel | loads / pixel | QPU instructions | executed / pixel (emulator) |
 |---|---|---|---|---|
-| `blur3` | `blur_kernel`, RADIUS=1, 4×16 tiles | 9 | 372 | 3.7 |
-| `blur3_zero` | the same with BORDER=ZERO (masked loads), 2×16 | 9 | 460 | 10.1 |
-| `blur5` | `blur_kernel`, RADIUS=2, 2×16 | 25 | 435 | 9.0 |
-| `blur5_separable` | `blur_pass_kernel` along rows, then along columns | 10 | 285 + 358 | 5.8 |
-| `blur5_rolling` | `blur_rolling_kernel`: one row per iteration, 1×32 | 5 | 363 | 2.5 |
-| `sobel` | `sobel_kernel`, 4×16 | 8 | 505 | 5.7 |
-| `sobel_rolling` | `sobel_rolling_kernel`, FUSED=False, 1×32 | 3 | 273 | 2.9 |
-| `blur_sobel` | `blur_sobel_kernel`: 3×3 blur fused into Sobel, 5×5 taps, 2×16 | 24 | 576 | 13.0 |
-| `blur_sobel_rolling` | `sobel_rolling_kernel`, FUSED=True, 1×16 | 5 | 315 | 5.2 |
+| `blur3` | `blur_kernel`, RADIUS=1, 4×16 tiles | 9 | 366 | 3.7 |
+| `blur3_zero` | the same with BORDER=ZERO (masked loads), 2×16 | 9 | 422 | 9.1 |
+| `blur5` | `blur_kernel`, RADIUS=2, 2×16 | 25 | 418 | 8.7 |
+| `blur5_separable` | `blur_pass_kernel` along rows, then along columns | 10 | 279 + 348 | 5.8 |
+| `blur5_rolling` | `blur_rolling_kernel`: one row per iteration, 1×32 | 5 | 359 | 2.5 |
+| `sobel` | `sobel_kernel`, 4×16 | 8 | 489 | 5.5 |
+| `sobel_rolling` | `sobel_rolling_kernel`, FUSED=False, 1×32 | 3 | 270 | 2.9 |
+| `blur_sobel` | `blur_sobel_kernel`: 3×3 blur fused into Sobel, 5×5 taps, 2×16 | 24 | 557 | 12.6 |
+| `blur_sobel_rolling` | `sobel_rolling_kernel`, FUSED=True, 1×16 | 5 | 302 | 5.1 |
+
+Instructions are compiled for 640×480 with the default compiler switches (C11 pairing on). The
+executed instructions per pixel are summed over all programs on the strict emulator, for a
+256×96 image.
 
 Borders are **clamped** by default (OpenCV's `BORDER_REPLICATE`, scipy's `mode="nearest"`).
 `BORDER=ZERO` reads 0 outside the image through masked loads with `other=0.0` (blur and Sobel
@@ -47,12 +51,12 @@ kernels only).
 * **The textbook Triton stencil compiles, but loop-carried tensors are what make it fast.** The
   rolling kernels keep the last four horizontally filtered rows in registers
   (`h0, h1, h2, h3 = h1, h2, h3, h4` in a runtime `for`), so each row is loaded and filtered once.
-  On the emulator that is 2.5 executed instructions per pixel for the 5×5 blur instead of 9.0
-  (direct) or 5.8 (two separable passes through memory), and 5.2 for blur + Sobel instead of 13.0.
+  On the emulator that is 2.5 executed instructions per pixel for the 5×5 blur instead of 8.7
+  (direct) or 5.8 (two separable passes through memory), and 5.1 for blur + Sobel instead of 12.6.
 * **Clamping is cheaper than masking on the QPU.** Clamping the *row offset*
   (`clamp(rows * stride, 0, (H - 1) * stride)`) keeps the address affine in the program id. Only
   a min/max per register is left, and the column clamps are loop-invariant and hoisted. The 2-D
-  masks of `BORDER=ZERO` cost 2.7× the executed instructions (10.1 vs 3.7 per pixel), and the
+  masks of `BORDER=ZERO` cost 2.4× the executed instructions (9.1 vs 3.7 per pixel), and the
   fused 5×5 stencil with masks does not fit the registers at all.
 * **Exact arithmetic despite round-toward-zero.** The weights are small integers and the image
   holds integers 0..255. Every partial sum is therefore an exact float32 integer, and the
@@ -75,8 +79,8 @@ kernels only).
 ```bash
 .venv/bin/python examples/image_filters.py                 # 160x120 emulator previews in build/
 .venv/bin/python -m pytest tests/test_image_filters.py -q   # emulator, models, firmware on the host
-.venv/bin/python examples/image_filters_pi.py --dry-run     # everything except the boot (~30 s)
-.venv/bin/python examples/image_filters_pi.py               # build, boot, verify, save (~1 min)
+.venv/bin/python examples/image_filters_pi.py --dry-run     # everything except the boot (~1.5 min)
+.venv/bin/python examples/image_filters_pi.py               # build, boot, verify, save (~2 min)
 .venv/bin/python examples/image_filters_pi.py --dump-images # + read two images back (~2 more min)
 ```
 

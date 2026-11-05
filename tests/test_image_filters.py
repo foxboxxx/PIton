@@ -1,6 +1,8 @@
 """Image filters (examples/image_filters.py) on the strict emulator, and the
 host side of their Pi benchmark (examples/image_filters_pi.py)."""
 
+import contextlib
+import os
 from pathlib import Path
 import re
 import shutil
@@ -37,10 +39,27 @@ def scene():
 _SMALL = {}
 
 
+@contextlib.contextmanager
+def quick_compile():
+    """PITON_PAIR=0 for the small-tile kernels: the scheduler's pairing search
+    (on by default) only changes the schedule, never the bits, and takes 3-6x
+    the compile time. The Pi-size kernels (pi_compiled) use the defaults."""
+    old = os.environ.get("PITON_PAIR")
+    os.environ["PITON_PAIR"] = "0"
+    try:
+        yield
+    finally:
+        if old is None:
+            del os.environ["PITON_PAIR"]
+        else:
+            os.environ["PITON_PAIR"] = old
+
+
 def small(name):
     """Filter `name` with SMALL_TILES, compiled once for images up to 21 x 37."""
     if name not in _SMALL:
-        _SMALL[name] = F.compile_filter(name, 21, 37, SMALL_TILES)
+        with quick_compile():
+            _SMALL[name] = F.compile_filter(name, 21, 37, SMALL_TILES)
     return _SMALL[name]
 
 
@@ -141,7 +160,8 @@ def test_zero_border_kernels():
          F.qpu_sqrt(F.sobel_squared(img, F.ZERO))),
     ]:
         grid = F.grid_for(13, 21, constants)
-        ck = compiler.compile(kernel, F.SIGNATURE, constants, grid=grid)
+        with quick_compile():
+            ck = compiler.compile(kernel, F.SIGNATURE, constants, grid=grid)
         out = np.full(img.size, np.nan, np.float32)
         run_emulator(ck, grid, dict(src_ptr=img.ravel().copy(), dst_ptr=out, H=13, W=21,
                                     src_stride=21, dst_stride=21))
