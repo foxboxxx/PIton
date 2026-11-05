@@ -20,10 +20,14 @@ block holds 3 live cells, or 4 and the cell is alive.
   bit-sliced, as three bit planes, with and/or/xor and shifts: one 16-lane
   instruction works on 512 cells.
 
-    .venv/bin/python examples/life.py      # a small soup in the emulator, all three kernels
+    .venv/bin/python examples/life.py            # a small soup in the emulator, all three kernels
+    .venv/bin/python examples/life.py --images   # docs/images/life-*.{gif,png} from numpy
 """
+import argparse
 import os
+import struct
 import sys
+import zlib
 
 import numpy as np
 
@@ -169,7 +173,7 @@ def launch_grid(name: str, n_rows: int, n_cols: int, constants: dict) -> tuple:
 # ---------------------------------------------------------------------------
 
 LCG_A, LCG_C = 1664525, 1013904223
-FNV_OFFSET, FNV_PRIME = 2166136261, 16777619
+HASH_SALT = 0x9E3779B9
 
 
 def lcg_u32(n: int, seed: int) -> np.ndarray:
@@ -232,11 +236,16 @@ def life_step_bits(words: np.ndarray) -> np.ndarray:
 
 
 def grid_hash(words: np.ndarray) -> int:
-    """FNV-1a over the packed words, row-major (the firmware's hash)."""
-    h = FNV_OFFSET
-    for v in np.asarray(words, dtype=np.uint32).ravel().tolist():
-        h = ((h ^ v) * FNV_PRIME) & 0xFFFFFFFF
-    return h
+    """The firmware's trace hash (pi/examples/life/life_arm.c): the sum, mod
+    2^32, of murmur3's fmix32 over the packed words w_i salted with i * 0x9e3779b9."""
+    x = np.asarray(words, dtype=np.uint32).ravel() ^ (np.arange(np.size(words), dtype=np.uint32)
+                                                      * np.uint32(HASH_SALT))
+    x ^= x >> np.uint32(16)
+    x *= np.uint32(0x85EBCA6B)
+    x ^= x >> np.uint32(13)
+    x *= np.uint32(0xC2B2AE35)
+    x ^= x >> np.uint32(16)
+    return int(x.sum(dtype=np.uint64) & np.uint64(0xFFFFFFFF))
 
 
 def population(words: np.ndarray) -> int:
@@ -273,7 +282,143 @@ def run(name: str, grid: np.ndarray, gens: int = 1, constants=None, device: str 
     return src
 
 
+# ---------------------------------------------------------------------------
+# images: indexed PNG and animated GIF, standard library only (no PIL here)
+# ---------------------------------------------------------------------------
+
+PALETTE = ((13, 17, 23), (126, 231, 135), (72, 79, 88))        # dead, alive, frame border
+
+
+def upscale(image: np.ndarray, factor: int) -> np.ndarray:
+    return np.repeat(np.repeat(np.asarray(image), factor, axis=0), factor, axis=1)
+
+
+def _png_chunk(kind: bytes, data: bytes) -> bytes:
+    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+
+
+def png_bytes(image: np.ndarray, palette=PALETTE) -> bytes:
+    """An 8-bit indexed-colour PNG of a 2-D array of palette indices."""
+    img = np.ascontiguousarray(image, dtype=np.uint8)
+    height, width = img.shape
+    raw = b"".join(b"\x00" + img[r].tobytes() for r in range(height))
+    return (b"\x89PNG\r\n\x1a\n"
+            + _png_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 3, 0, 0, 0))
+            + _png_chunk(b"PLTE", bytes(c for rgb in palette for c in rgb))
+            + _png_chunk(b"IDAT", zlib.compress(raw, 9)) + _png_chunk(b"IEND", b""))
+
+
+def _lzw(indices: bytes, min_size: int) -> bytes:
+    """GIF LZW (variable code size up to 12 bits, clear when the table is full)."""
+    clear, end = 1 << min_size, (1 << min_size) + 1
+    out, acc, nbits = bytearray(), 0, 0
+
+    def emit(code, size):
+        nonlocal acc, nbits
+        acc |= code << nbits
+        nbits += size
+        while nbits >= 8:
+            out.append(acc & 0xFF)
+            acc >>= 8
+            nbits -= 8
+
+    size, next_code, table = min_size + 1, end + 1, {}
+    emit(clear, size)
+    prefix = indices[0]
+    for k in indices[1:]:
+        key = (prefix << 8) | k
+        code = table.get(key)
+        if code is not None:
+            prefix = code
+            continue
+        emit(prefix, size)
+        if next_code < 4096:
+            table[key] = next_code
+            next_code += 1
+            if next_code > (1 << size) and size < 12:
+                size += 1
+        else:
+            emit(clear, size)
+            size, next_code, table = min_size + 1, end + 1, {}
+        prefix = k
+    emit(prefix, size)
+    emit(end, size)
+    if nbits:
+        out.append(acc & 0xFF)
+    return bytes(out)
+
+
+def gif_bytes(frames, palette=PALETTE, delay_cs: int = 8) -> bytes:
+    """A looping animated GIF of 2-D palette-index frames (same shape)."""
+    frames = [np.ascontiguousarray(f, dtype=np.uint8) for f in frames]
+    height, width = frames[0].shape
+    bits = max(1, (len(palette) - 1).bit_length())
+    table = list(palette) + [(0, 0, 0)] * ((1 << bits) - len(palette))
+    out = bytearray(b"GIF89a" + struct.pack("<HHBBB", width, height, 0x80 | (bits - 1) << 4 | (bits - 1), 0, 0))
+    out += bytes(c for rgb in table for c in rgb)
+    out += b"\x21\xff\x0bNETSCAPE2.0\x03\x01\x00\x00\x00"          # loop forever
+    min_size = max(2, bits)
+    for frame in frames:
+        if frame.shape != (height, width):
+            raise ValueError("every GIF frame needs the same shape")
+        out += b"\x21\xf9\x04\x04" + struct.pack("<H", delay_cs) + b"\x00\x00"
+        out += b"\x2c" + struct.pack("<HHHHB", 0, 0, width, height, 0) + bytes([min_size])
+        data = _lzw(frame.tobytes(), min_size)
+        for i in range(0, len(data), 255):
+            out += bytes([len(data[i:i + 255])]) + data[i:i + 255]
+        out += b"\x00"
+    return bytes(out + b"\x3b")
+
+
+def strip(frames, gap: int = 6) -> np.ndarray:
+    """Frames side by side, `gap` border-coloured columns between them."""
+    height = frames[0].shape[0]
+    parts = []
+    for i, frame in enumerate(frames):
+        if i:
+            parts.append(np.full((height, gap), 2, np.uint8))
+        parts.append(np.asarray(frame, dtype=np.uint8))
+    return np.concatenate(parts, axis=1)
+
+
+def write_docs_images(out_dir: str, n_rows: int = 512, n_cols: int = 512, seed: int = 2026, gens: int = 256,
+                      crop: int = 128, every: int = 2, strip_gens=(0, 1, 16, 64, 128, 256), check: int = 4) -> list:
+    """The Pi's soup evolved in numpy: an animation of the top-left crop, a strip
+    of crops at `strip_gens` and the whole grid at the last generation. The first
+    `check` generations of the whole grid are also run in the emulator (bits)."""
+    os.makedirs(out_dir, exist_ok=True)
+    grid = soup(n_rows, n_cols, seed)
+    words = pack_bits(grid)
+    emulated = unpack_bits(run("bits", words, check)) if check else None
+    frames, kept = [], {}
+    for g in range(gens + 1):
+        if g:
+            grid = life_step(grid)
+        if g == check and emulated is not None and not np.array_equal(grid, emulated):
+            raise AssertionError(f"emulated life_bits_kernel differs from numpy after {check} generations")
+        if g % every == 0:
+            frames.append(upscale(grid[:crop, :crop], 2))
+        if g in strip_gens:
+            kept[g] = upscale(grid[:crop, :crop], 2)
+    paths = [os.path.join(out_dir, name) for name in ("life-soup.gif", "life-strip.png", "life-final.png")]
+    with open(paths[0], "wb") as f:
+        f.write(gif_bytes(frames, delay_cs=6))
+    with open(paths[1], "wb") as f:
+        f.write(png_bytes(strip([kept[g] for g in strip_gens])))
+    with open(paths[2], "wb") as f:
+        f.write(png_bytes(grid))
+    return paths
+
+
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--images", action="store_true", help="write the docs images from numpy")
+    parser.add_argument("--out", default=os.path.join(os.path.dirname(__file__), "..", "docs", "images"))
+    cli = parser.parse_args()
+    if cli.images:
+        for path in write_docs_images(cli.out):
+            print("wrote", os.path.relpath(path))
+        sys.exit(0)
     n_rows, n_cols, gens = 32, 64, 8
     start = soup(n_rows, n_cols, seed=2026)
     expected = start
