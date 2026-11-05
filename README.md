@@ -6,6 +6,8 @@ The same Python source you would write for an NVIDIA GPU, e.g. the Triton tutori
 lowered through a Triton-style tile IR to scheduled QPU instructions, emitted as `vc4asm`
 assembly (`.qasm`) and as a C array + launcher for bare-metal programs.
 
+**Project report:** [docs/REPORT.md](docs/REPORT.md) explains how PIton was built, verified and optimised.
+
 ```python
 import piton as triton            # or: write the kernel against real `triton`
 import piton.language as tl
