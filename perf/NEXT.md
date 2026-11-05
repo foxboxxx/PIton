@@ -35,6 +35,11 @@ rechecks only for cases whose code changed.
   boot); cs140e's builds soft-float. Build against a copy of ~/projects/cs240lx: its makefile
   rebuilds TRACKED libpi.a / objs / libm objects in place.
 - Step 3 done: `pi-2026-11-05-final.json`, geomean 1.409x over the 11-03 baseline (BACKLOG log).
+- Step 4 done: digits 9.380 ms (14.218x over ARM VFP), matmul 8.21 / 10.15 / 9.30 GFLOPS
+  (128 / 512 / 1024), primitives rerun (58 rows checked, after fixing arm_vfp_ops.S for softfp:
+  dd18d2b); README.md, STATUS.md, perf/README.md updated. The README primitives table was regenerated
+  from the RESULT lines (it reproduces the 11-03 table from the 11-03 log).
+- Open: C11 on-by-default (compile 6.4x) is the user's call; follow-ups below are unchanged.
 
 ## Commands, in order (from the repo root, `.venv/bin/python` = `PY`)
 
