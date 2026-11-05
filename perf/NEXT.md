@@ -46,6 +46,7 @@ rechecks only for cases whose code changed.
 - E4: a constant-k program for full-grid launches would recover dense_relu's ~1%.
 - B5: it is not known whether TMU_NOSWAP outlasts a program on the Pi (every loading program writes it,
   so it does not matter for PIton's own code).
-- isa.format_instr prints condition 7 as `.ifnc`, which vc4asm reads as condition 5 (no build emits
-  carry conditions today).
+- (done on `fix/ifcc-cond`) isa.format_instr printed condition 7 as `.ifnc`, which vc4asm reads as
+  condition 5; it now prints `.ifcc` (vc4asm Parser.tables.cpp). `tests/test_vc4asm.py::test_condition_spellings`
+  is unverified here (no vc4asm installed).
 - Compiler output for transpose still depends on object addresses (lower.py permute, regalloc sets).

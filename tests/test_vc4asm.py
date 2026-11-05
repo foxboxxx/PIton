@@ -74,3 +74,12 @@ def test_discarded_mul_result_next_to_add_setf():
     words, _ = vc4asm_assemble(isa.format_instr(ins) + "\n", verify=False)
     assert words == [isa.encode(ins)]
     assert (isa.encode(ins) >> 46) & 7 == isa.CONDS["never"]
+
+
+def test_condition_spellings():
+    """Every ALU condition assembles to its own code (carry clear is `.ifcc`)."""
+    from piton.qpu import isa
+    for cond in ("ifz", "ifnz", "ifn", "ifnn", "ifc", "ifnc"):
+        ins = isa.Instr(kind="alu", add=isa.AluOp("mov", isa.ACC[0], isa.ACC[1], isa.ACC[1], cond=cond))
+        words, _ = vc4asm_assemble(isa.format_instr(ins) + "\n", verify=False)
+        assert words == [isa.encode(ins)], cond

@@ -50,6 +50,9 @@ FLOAT_ADD_OPS = {"fadd", "fsub", "fmin", "fmax", "fminabs", "fmaxabs", "ftoi"}
 CONDS = {"never": 0, "always": 1, "ifz": 2, "ifnz": 3, "ifn": 4, "ifnn": 5,
          "ifc": 6, "ifnc": 7}
 COND_NAME = {v: k for k, v in CONDS.items()}
+# vc4asm spelling of a condition where it differs from ours: vc4asm reads
+# `ifnc` as "N clear" (condition 5, our `ifnn`); carry clear is `ifcc`.
+VC4ASM_COND = {"ifnc": "ifcc"}
 # Condition that is true exactly when `c` is false.
 COND_INVERT = {"ifz": "ifnz", "ifnz": "ifz", "ifn": "ifnn", "ifnn": "ifn",
                "ifc": "ifnc", "ifnc": "ifc", "always": "never", "never": "always"}
@@ -598,7 +601,7 @@ def _fmt_op(op: AluOp, setf: bool) -> str:
         name = "mov"
     suffix = ""
     if op.cond not in ("always",):
-        suffix += "." + op.cond
+        suffix += "." + VC4ASM_COND.get(op.cond, op.cond)
     if setf:
         suffix += ".setf"
     if name in UNARY_OPS:
@@ -625,7 +628,7 @@ def format_instr(ins: Instr) -> str:
         for op in (ins.add, ins.mul):
             if op is None:
                 continue
-            cond = "" if op.cond == "always" else "." + op.cond
+            cond = "" if op.cond == "always" else "." + VC4ASM_COND.get(op.cond, op.cond)
             parts.append(f"ldi{cond}{'.setf' if ins.setf and not parts else ''} {op.dst.name}, "
                          f"0x{ins.imm & 0xFFFFFFFF:08x}")
         return "; ".join(parts) if parts else f"ldi -, 0x{ins.imm & 0xFFFFFFFF:08x}"
