@@ -242,7 +242,7 @@ void notmain(void) {
 
     // The instruction cache and branch prediction need no MMU and leave data
     // accesses uncached, so the mailbox and the GPU buffers are unaffected;
-    // they make the hashing and checking between the QPU runs ~10x faster.
+    // they speed up the scene, the hashing and the checks between QPU runs.
     caches_enable();
     check_size();
 

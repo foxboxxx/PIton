@@ -48,6 +48,12 @@ void arm_blur5(const float *src, float *dst, int h, int w) { blur_direct(src, ds
 
 static inline void sobel_direct(const float *src, float *dst, int h, int w, const int R) {
     const float *s = R == 1 ? binomial3 : binomial5, *d = R == 1 ? deriv3 : deriv5;
+    float wx[5][5], wy[5][5];           // gx and gy weights of every tap (zero ones included)
+    for (int i = 0; i <= 2 * R; i++)
+        for (int j = 0; j <= 2 * R; j++) {
+            wx[i][j] = s[i] * d[j];
+            wy[i][j] = d[i] * s[j];
+        }
     for (int y = 0; y < h; y++) {
         const float *row[5];
         for (int i = 0; i <= 2 * R; i++)
@@ -61,10 +67,8 @@ static inline void sobel_direct(const float *src, float *dst, int h, int w, cons
             for (int i = 0; i <= 2 * R; i++)
                 for (int j = 0; j <= 2 * R; j++) {
                     float v = row[i][col[j]];
-                    if (s[i] * d[j] != 0)
-                        gx += (s[i] * d[j]) * v;
-                    if (d[i] * s[j] != 0)
-                        gy += (d[i] * s[j]) * v;
+                    gx += wx[i][j] * v;
+                    gy += wy[i][j] * v;
                 }
             if (R == 2) {           // the 3x3 blur's normalisation
                 gx *= 1.0f / 16;

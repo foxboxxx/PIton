@@ -1,7 +1,6 @@
 """Image filters (examples/image_filters.py) on the strict emulator, and the
 host side of their Pi benchmark (examples/image_filters_pi.py)."""
 
-import os
 from pathlib import Path
 import re
 import shutil
@@ -33,6 +32,16 @@ def bits(a):
 @pytest.fixture(scope="module")
 def scene():
     return F.make_scene(21, 37)
+
+
+_SMALL = {}
+
+
+def small(name):
+    """Filter `name` with SMALL_TILES, compiled once for images up to 21 x 37."""
+    if name not in _SMALL:
+        _SMALL[name] = F.compile_filter(name, 21, 37, SMALL_TILES)
+    return _SMALL[name]
 
 
 @pytest.fixture(scope="module")
@@ -78,7 +87,7 @@ def test_filter_matches_model_bit_for_bit(scene, name):
     """Ragged in both directions, several programs each way: the QPU result is
     the model's exactly (numpy for the sums, PIton's own sqrt), and a Sobel
     magnitude is within 4 ulp of the correctly rounded one."""
-    got = F.run_filter(name, scene, tiles=SMALL_TILES)
+    got = F.run_filter(name, scene, compiled=small(name))
     output = F.OUTPUTS[name]
     np.testing.assert_array_equal(bits(got), bits(F.model(output, scene)))
     if "sobel" in output:
@@ -99,9 +108,9 @@ def test_pi_tiles_at_the_check_size(pi_compiled):
 
 
 def test_fused_blur_sobel_is_blur_then_sobel_away_from_the_border(scene):
-    blurred = F.run_filter("blur3", scene, tiles=SMALL_TILES)
-    two_pass = F.run_filter("sobel", blurred, tiles=SMALL_TILES)
-    fused = F.run_filter("blur_sobel_rolling", scene, tiles=SMALL_TILES)
+    blurred = F.run_filter("blur3", scene, compiled=small("blur3"))
+    two_pass = F.run_filter("sobel", blurred, compiled=small("sobel"))
+    fused = F.run_filter("blur_sobel_rolling", scene, compiled=small("blur_sobel_rolling"))
     np.testing.assert_array_equal(bits(fused[2:-2, 2:-2]), bits(two_pass[2:-2, 2:-2]))
     assert not np.array_equal(fused, two_pass)        # the borders do differ (clamping)
 
@@ -111,16 +120,16 @@ def test_tiny_images_clamp_every_tap(H, W):
     """Images smaller than the stencil: every out-of-image tap is the edge pixel."""
     img = F.make_scene(H, W)
     for name in ("blur5", "blur5_rolling", "sobel_rolling", "blur_sobel"):
-        got = F.run_filter(name, img, tiles=SMALL_TILES)
+        got = F.run_filter(name, img, compiled=small(name))
         np.testing.assert_array_equal(bits(got), bits(F.model(F.OUTPUTS[name], img)), err_msg=name)
     if H == 1 and W == 1:
-        assert F.run_filter("sobel", img, tiles=SMALL_TILES)[0, 0] == 0     # flat: sqrt(0) = +0
+        assert F.run_filter("sobel", img, compiled=small("sobel"))[0, 0] == 0     # flat: sqrt(0) = +0
 
 
 def test_zero_border_kernels():
     """BORDER=ZERO: masked loads with other=0 (blur, separable pass, Sobel)."""
     img = F.make_scene(13, 21)
-    got = F.run_filter("blur3_zero", img, tiles=SMALL_TILES)
+    got = F.run_filter("blur3_zero", img, compiled=small("blur3_zero"))
     np.testing.assert_array_equal(got, F.blur_reference(img, 1, F.ZERO))
     assert got[0, 0] < img[0, 0] * 0.75              # the zeros outside darken the corner
     from piton import compiler
@@ -143,10 +152,10 @@ def test_row_strides_and_untouched_padding(scene):
     """Strides wider than the image: same pixels, and the padding is never written."""
     H, W = scene.shape
     for name in ("blur3", "blur5_rolling", "sobel_rolling"):
-        got = F.run_filter(name, scene, tiles=SMALL_TILES, src_stride=W + 11, dst_stride=W + 5)
+        got = F.run_filter(name, scene, compiled=small(name), src_stride=W + 11, dst_stride=W + 5)
         np.testing.assert_array_equal(bits(got), bits(F.model(F.OUTPUTS[name], scene)), err_msg=name)
     from piton.runtime.launcher import run_emulator
-    (ck, constants), = F.compile_filter("blur5_rolling", H, W, SMALL_TILES)
+    (ck, constants), = small("blur5_rolling")
     dst = np.full(H * (W + 5), np.nan, np.float32)
     run_emulator(ck, F.grid_for(H, W, constants), dict(src_ptr=scene.ravel().copy(), dst_ptr=dst, H=H, W=W,
                                                          src_stride=W, dst_stride=W + 5))
@@ -162,7 +171,7 @@ def test_non_integer_images_within_rounding_tolerance():
     exact = F.blur_reference(img, 2).astype(np.float64)
     w = F.binomial(2)
     ref = sum(w[i] * w[j] * F.shifted(img, i - 2, j - 2) for i in range(5) for j in range(5)) / 256
-    outs = {name: F.run_filter(name, img, tiles=SMALL_TILES).astype(np.float64)
+    outs = {name: F.run_filter(name, img, compiled=small(name)).astype(np.float64)
             for name in ("blur5", "blur5_separable", "blur5_rolling")}
     for name, got in outs.items():
         rel = np.abs(got - ref) / ref
@@ -204,8 +213,12 @@ def test_row_hash_h_matches_row_hashes(tmp_path):
     np.testing.assert_array_equal(np.array([int(v) for v in out], np.uint32), P.row_hashes(img))
 
 
-def test_png_round_trip(tmp_path):
-    gray = (np.arange(35 * 23) % 256).astype(np.uint8).reshape(23, 35)
+@pytest.mark.parametrize("pattern", ["noise", "rows", "columns"])
+def test_png_round_trip(tmp_path, pattern):
+    """write_png picks a different PNG filter for each of these; read_png undoes it."""
+    y, x = np.mgrid[0:23, 0:35]
+    gray = {"noise": np.random.default_rng(1).integers(0, 256, (23, 35)),
+            "rows": (x * 7) % 256, "columns": (y * 11 + x // 9) % 256}[pattern].astype(np.uint8)
     F.write_png(str(tmp_path / "a.png"), gray)
     np.testing.assert_array_equal(F.read_png(str(tmp_path / "a.png")), gray)
     assert (tmp_path / "a.png").read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"

@@ -488,7 +488,10 @@ def main(argv=None) -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     log_path = args.output.with_suffix(".log")
     log_path.write_text(log)            # kept even when the run is rejected below
-    result = parse_log(log, names, model, args.repeats, dump=args.dump_images)
+    try:
+        result = parse_log(log, names, model, args.repeats, dump=args.dump_images)
+    except ValueError as ex:
+        raise SystemExit(f"{ex}\nRaw log: {log_path}")
     table, speedups = summarize(result, names)
     images = result.pop("images")
     for name, pixels in images.items():
@@ -499,7 +502,8 @@ def main(argv=None) -> None:
                 pixels.astype(int) - reference.astype(int)).max()))
         path = args.images_dir / f"image_filters-pi-{name}.png"
         filters.write_png(str(path), pixels)
-        print(f"Wrote {path} (from the Pi; {differ} pixels differ from the model's PNG by one level)", flush=True)
+        print(f"Wrote {path} (from the Pi; {differ} pixels differ from the model's PNG, by at most "
+              f"{result['dumped_images'][name]['max_level_difference']} level)", flush=True)
     result.update(manifest=manifest, speedups=speedups, timestamp_utc=datetime.now(timezone.utc).isoformat(),
                   boot_and_run_seconds=boot_seconds,
                   raw_log=str(log_path.relative_to(ROOT)) if log_path.is_relative_to(ROOT) else str(log_path),

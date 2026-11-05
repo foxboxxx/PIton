@@ -1,39 +1,44 @@
 """Image filters as tiled 2-D Triton stencils: Gaussian blur and Sobel edges.
 
-Every kernel takes a float32 grayscale image (row stride `src_stride`) and
-writes one float32 output image. Program (i, j) of the 2-D grid
-(cdiv(W, BLOCK_W), cdiv(H, ROWS)) covers a BLOCK_W-wide strip of ROWS rows,
-in BLOCK_H x BLOCK_W tiles (a runtime loop, so the code stays small and a
-VGA image needs a few hundred programs instead of thousands). Each tap of the
-stencil is one tl.load of the whole tile, shifted by (dy, dx).
+Every kernel reads a float32 grayscale image (H x W, row stride `src_stride`,
+non-negative) and writes one float32 image. Program (i, j) of the 2-D grid
+(cdiv(W, BLOCK_W), cdiv(H, ROWS)) covers a BLOCK_W-wide strip of ROWS rows: a
+runtime loop walks it in BLOCK_H x BLOCK_W tiles, so the code stays small and
+a VGA image needs a few hundred programs instead of thousands. Each tap of a
+stencil is one tl.load of the whole tile shifted by (dy, dx); stores are
+masked to the image.
 
-Borders: BORDER=CLAMP (the default) reads the nearest edge pixel (OpenCV's
-BORDER_REPLICATE, scipy's mode="nearest"): the row and column indices are
-clamped, so the loads need no mask. BORDER=ZERO reads 0 outside the image
-with masked loads (`other=0.0`). Stores are masked to the image in both.
+Borders: BORDER=CLAMP (0, the default) reads the nearest edge pixel (OpenCV's
+BORDER_REPLICATE, scipy's mode="nearest"): the row offsets and columns are
+clamped, so the loads need no mask. BORDER=ZERO (1) reads 0 outside the image
+through masked loads with other=0.0 (blur_kernel, blur_pass_kernel,
+sobel_kernel).
 
-    blur_kernel        binomial Gaussian, 3x3 ([1 2 1]/4 per axis) or 5x5
-                       ([1 4 6 4 1]/16), every tap a 2-D load: (2R+1)^2 loads
-    blur_pass_kernel   one axis of the same blur; two launches (rows, then
-                       columns) make the separable blur: 2(2R+1) loads
-    blur_rolling_kernel  the 5x5 blur in one pass with the column filter
-                       rolling down the strip: each row is loaded (5 taps) and
-                       filtered horizontally once, and the last four filtered
-                       rows are carried in registers by the loop
-    sobel_kernel       Sobel gradient magnitude sqrt(gx^2 + gy^2), 8 loads
-    blur_sobel_kernel  3x3 blur fused into Sobel: one 5x5 stencil (24 loads)
-                       whose weights are the two filters convolved
+    blur_kernel          binomial Gaussian, 3x3 ([1 2 1]/4 per axis) or 5x5
+                         ([1 4 6 4 1]/16): (2R+1)^2 loads per pixel
+    blur_pass_kernel     the blur along one axis; rows then columns (two
+                         launches) is the separable blur: 2(2R+1) loads
+    blur_rolling_kernel  the 5x5 blur in one pass, one image row per loop
+                         iteration: each row is loaded (5 taps) and filtered
+                         across once, and the last four filtered rows are
+                         carried in registers by the loop
+    sobel_kernel         Sobel gradient magnitude sqrt(gx^2 + gy^2): 8 loads
+    blur_sobel_kernel    the 3x3 blur fused into Sobel: one 5x5 stencil whose
+                         weights are the two filters convolved, 24 loads
+    sobel_rolling_kernel either Sobel rolling down the strip like
+                         blur_rolling_kernel: 3 or 5 loads per pixel
 
-The weights are small integers and the image holds integers 0..255, so every
-blur sum is an exact float32 integer and the power-of-two normalisation is
-exact too: the blurs give the same bits in any summation order, on the QPU
-(which rounds toward zero) and in numpy. So do the separable and rolling
-versions, and the fused blur+Sobel matches blur then Sobel bit for bit away
-from the 2-pixel border (at the border, clamping the 5x5 stencil is not the
-same as clamping each 3x3 pass). Only the Sobel square root differs from
-numpy (PIton's sqrt is ~1 ulp, on the ALUs).
+The weights are small integers and the test image holds integers 0..255, so
+every blur sum is an exact float32 integer and the power-of-two normalisations
+are exact: the blurs give the same bits in any summation order, on the QPU
+(which rounds toward zero) and in numpy, and so do their separable and rolling
+versions. The fused blur + Sobel equals blur then Sobel bit for bit away from
+the 2-pixel border (where clamping the 5x5 stencil is not clamping each 3x3
+pass). Only the square root differs from numpy: PIton's tl.sqrt runs on the
+ALUs, within 4 ulp. model() reproduces every filter bit for bit.
 
-    .venv/bin/python examples/image_filters.py     # emulator previews in build/
+    .venv/bin/python examples/image_filters.py     # 160x120 previews from the emulator in build/
+    .venv/bin/python examples/image_filters_pi.py  # the Pi benchmark (see its docstring)
 """
 import os
 import struct
@@ -534,23 +539,28 @@ def to_u8(img: np.ndarray, scale: float = 1.0) -> np.ndarray:
 
 
 def write_png(path: str, gray: np.ndarray) -> None:
-    """An 8-bit grayscale PNG, with zlib and struct only (no PIL)."""
+    """An 8-bit grayscale PNG with zlib and struct only (no PIL). Every row uses
+    the same PNG filter: none, Sub or Up, whichever compresses best."""
     gray = np.ascontiguousarray(gray, dtype=np.uint8)
     h, w = gray.shape
 
     def chunk(kind: bytes, data: bytes) -> bytes:
         return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
 
-    raw = b"".join(b"\x00" + gray[row].tobytes() for row in range(h))
+    g = gray.astype(np.int16)
+    candidates = []
+    for kind, rows in ((0, g), (1, np.diff(g, axis=1, prepend=0)), (2, np.diff(g, axis=0, prepend=0))):
+        filtered = np.concatenate([np.full((h, 1), kind, np.int16), rows % 256], axis=1).astype(np.uint8)
+        candidates.append(zlib.compress(filtered.tobytes(), 9))
     png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 0, 0, 0, 0))
-           + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
+           + chunk(b"IDAT", min(candidates, key=len)) + chunk(b"IEND", b""))
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     with open(path, "wb") as f:
         f.write(png)
 
 
 def read_png(path: str) -> np.ndarray:
-    """The inverse of write_png (8-bit grayscale, filter 0 rows only)."""
+    """The inverse of write_png (8-bit grayscale; filters none, Sub and Up)."""
     with open(path, "rb") as f:
         data = f.read()
     pos, idat, size = 8, b"", None
@@ -564,9 +574,15 @@ def read_png(path: str) -> np.ndarray:
         pos += 12 + length
     w, h = size
     rows = np.frombuffer(zlib.decompress(idat), np.uint8).reshape(h, w + 1)
-    if rows[:, 0].any():
-        raise ValueError("read_png handles unfiltered rows only")
-    return rows[:, 1:].copy()
+    out = rows[:, 1:].astype(np.uint64)
+    for y, kind in enumerate(rows[:, 0]):
+        if kind == 1:
+            out[y] = np.cumsum(out[y]) % 256
+        elif kind == 2 and y:
+            out[y] = (out[y] + out[y - 1]) % 256
+        elif kind not in (0, 2):
+            raise ValueError(f"read_png: PNG filter {kind} not supported")
+    return out.astype(np.uint8)
 
 
 def display(output: str, img: np.ndarray) -> np.ndarray:
