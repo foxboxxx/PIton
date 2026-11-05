@@ -9,7 +9,7 @@ from typing import Optional
 
 from . import frontend, ir, passes, reroll
 from .backend import opt, presched
-from .backend.lower import Lowering, fast_idiv_enabled
+from .backend.lower import Lowering, MMUnsupported, fast_idiv_enabled
 from .backend.regalloc import PortHints, RegAllocError, allocate, clone_function
 from .backend.sched import schedule_function
 from .qpu.asm import Program
@@ -159,9 +159,57 @@ def _port_aware(original, name: str, missed: list, copy_of: dict, rounds: int = 
             return
 
 
+MM_PARTS = ("order", "at", "rp")
+
+
+def _mm_options() -> dict:
+    """PITON_MM (off unless set): the k loop of a tl.dot whose operands are
+    loads pipelined by its scf.for (backend/lower.py dot_mm). "1" turns on
+    every part, or a comma-separated subset of them (for A/B runs):
+
+    order -- the loop's TMU requests in the order the dot uses them, each
+             k step receiving the next step's registers spread over its
+             rows (not all of A and a B row at the top of the iteration),
+             A straight into accumulators
+    at    -- with order: A loaded as its 16 / M-column blocks (a register
+             holds every row of 16 / M consecutive k), so two accumulators
+             hold A, the next register arriving while the current one is
+             broadcast, instead of every row-major register being cached
+             or reloaded in each k step (an M-row TMU gather per request)
+    rp    -- with order: B row addresses from an accumulator, so the TMU
+             requests can share the broadcasts' instructions (a rotation
+             takes regfile B's read port)
+    """
+    value = os.environ.get("PITON_MM", "0")
+    parts = set(MM_PARTS) if value == "1" else set() if value in ("", "0") else set(value.split(","))
+    if not parts <= set(MM_PARTS) or parts and "order" not in parts:
+        raise ValueError(f"PITON_MM={value!r}: expected 0, 1 or a comma-separated subset of "
+                         f"{', '.join(MM_PARTS)} with order")
+    return {"mm": frozenset(parts)} if parts else {}
+
+
 def _build(tile, ranges, options: dict, interleave: bool, alphas=None, flags=None):
     """Lower, allocate and schedule; returns (program, mir, lowering, stats, mir dumps).
     flags: presched.py flag groups (default: with PITON_ISSUE)."""
+    if options.get("mm") and not options.get("mm_tried"):
+        # PITON_MM: a dot loop whose registers do not fit, or whose operands
+        # take a form the MM dot does not handle, gets the plain dot (in the
+        # same pre-scheduling variant)
+        try:
+            built = _build(tile, ranges, dict(options, mm_tried=True), interleave, alphas, flags)
+        except (RegAllocError, MMUnsupported):
+            built = _build(tile, ranges, dict(options, mm=None), interleave, alphas, flags)
+            built[3]["mm_fallback"] = 1
+            return built
+        if options.get("coarsen", 1) > 1 and built[3].get("mm_dots"):
+            # coarsened only where the plain dot fits too (raises RegAllocError
+            # as without PITON_MM): the switch changes the k loop, not the ids
+            # per hardware program.  matmul 8x64x8 at 512^3 and 1024^3 would
+            # be coarsened only with it by E1's moved-bytes rule (on the Pi
+            # coarsened 8x64x8 launches ran 0.79-0.93x below 128 ids, try/e1k;
+            # TMU_NOSWAP is written only in programs that are not coarsened)
+            _build(tile, ranges, dict(options, mm=None), interleave, alphas, flags)
+        return built
     port_alloc = os.environ.get("PITON_PORT_ALLOC", "1") != "0"     # PITON_PORT_ALLOC=0: plain allocation only
     issue = options.get("issue", False)
     for cache_dot_a in (True, False):
@@ -459,7 +507,8 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
                "issue": os.environ.get("PITON_ISSUE", "1") not in ("", "0"),
                # TMU_NOSWAP=1 in requested balanced programs, 0 in the others that load
                # (lower.py); PITON_TMU_NOSWAP=0: off
-               "tmu_noswap": tmu_noswap_enabled(), "tmu_noswap_request": bool(tmu_noswap)}
+               "tmu_noswap": tmu_noswap_enabled(), "tmu_noswap_request": bool(tmu_noswap),
+               **_mm_options()}
     if os.environ.get("PITON_MANDEL_FAST", "1") not in ("", "0"):
         # `if tl.max(x) > c` branches on the lanes of x, and a loop guarded by
         # such an if exits when it fails (examples/mandelbrot.py)

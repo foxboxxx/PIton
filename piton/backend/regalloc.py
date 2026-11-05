@@ -436,6 +436,11 @@ class Allocator:
         differ = defaultdict(set)
         not_file = defaultdict(set)    # vreg -> {'A','B'} files it must avoid
         must_acc = set(v for v in vregs if v.cls == "acc")
+        for v in vregs:
+            if v.hint == "A":
+                # read next to a rotation (PITON_MM: lowering's _mm_row_emitter),
+                # which takes regfile B's read port
+                not_file[v].add("B")
         copy_pairs = []
         uses = defaultdict(int)
         for b in fn.blocks:

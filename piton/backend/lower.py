@@ -381,6 +381,9 @@ class Lowering:
         self.loop_lanes = self.issue and bool(options.get("loop_lanes"))
         self.in_pipelined_body = False
         self.exit_ifs = {}           # scf.if -> exit label of the loop it guards (fast_branches)
+        # PITON_MM (compiler._mm_options): parts on, tt.dot -> its MMPlan
+        self.mm = options.get("mm") or frozenset()
+        self.mm_plans = {}
         self.use_counts = {}
         for o in fn.walk():
             for v in o.operands:
@@ -1662,11 +1665,13 @@ class Lowering:
         self.op("shl", isa.NOP, self.const_reg(k), isa.ELEM_NUM, setf=True, unit="add")
         return "ifn"
 
-    def permute(self, srcs, shape, dtype) -> Dense:
+    def permute(self, srcs, shape, dtype, stable=False) -> Dense:
         """Gather a tile: element f of the result is lane srcs[f][1] of register
         srcs[f][0] (None: don't care).  Each output register is built from
         rotated source registers with masked moves, so only the source and
-        result registers are live (to_scal would hold one register per element)."""
+        result registers are live (to_scal would hold one register per element).
+        stable: order the moves by the source registers' creation, not their
+        addresses, so the build is the same in every run (PITON_MM)."""
         is_float = dtype is not None and dtype.is_float
         n = numel(shape)
         regs = []
@@ -1691,7 +1696,11 @@ class Lowering:
                 regs.append(self.lane_broadcast(r, l))
                 continue
             # group by source register so its accumulator copy is short-lived
-            order = sorted(groups.items(), key=lambda kv: (kv[0][0], -len(kv[1][1])))
+            if stable:
+                order = sorted(groups.items(), key=lambda kv: (
+                    kv[1][0].id if isinstance(kv[1][0], VReg) else kv[0][0], -len(kv[1][1])))
+            else:
+                order = sorted(groups.items(), key=lambda kv: (kv[0][0], -len(kv[1][1])))
             first = max(range(len(order)), key=lambda i: len(order[i][1][1]))
             order = [order[first]] + order[:first] + order[first + 1:]
             dst = self.new("pm", is_float)
@@ -1713,7 +1722,7 @@ class Lowering:
             regs.append(dst)
         return Dense(shape, dtype, regs)
 
-    def permute_dense(self, d: Dense, shape, src_of) -> Dense:
+    def permute_dense(self, d: Dense, shape, src_of, stable=False) -> Dense:
         """permute() with sources given as flat element indices of d."""
         srcs = []
         for g in src_of:
@@ -1722,7 +1731,7 @@ class Lowering:
                 continue
             j, l = divmod(g, LANES)
             srcs.append((self.reg_of(d, j), l))
-        return self.permute(srcs, shape, d.dtype)
+        return self.permute(srcs, shape, d.dtype, stable)
 
     def row_reg(self, d: Dense, r: int, n: int) -> VReg:
         """Register holding row r of a [*, n] tile (n < 16) in lanes 0..n-1."""
@@ -3796,6 +3805,9 @@ class Lowering:
                         self.op("mov", v, r)
                         acc2.append(v)
                     acc = acc2
+        plan = self.mm_plans.get(op)
+        if plan is not None:
+            return self.dot_mm(plan, da, db, acc, op.result)
         n_a = nregs((M, K))
         a_acc_all = n_a <= 2
         a_regs = {}
@@ -3873,6 +3885,110 @@ class Lowering:
         if pending is not None:
             self.op("fadd", pending[0], pending[0], pending[1])
         return Dense(op.result.shape, ir.float32, acc)
+
+    def dot_mm(self, plan: "MMPlan", da: Dense, db: Dense, acc: list, res):
+        """PITON_MM: the dot of a pipelined k loop, receiving its operands in
+        the order of plan (the loop's TMU entries were requested in that
+        order).  The same multiply-accumulates as op_tt_dot, in the same
+        order (k outer, then rows, then 16-column blocks), so the results
+        are bit-identical; with plan.w, `da` holds A's w-column blocks
+        (element (m, k) is lane m * w + k % w of register k // w)."""
+        M, K, NV = plan.M, plan.K, plan.NV
+        a_acc = {}
+
+        def receive(ev):
+            kind, j = ev
+            if kind == "b":
+                self.reg_of(db, j)
+                return
+            r = da.regs[j]
+            v = self.tmu.receive(r, acc=True) if isinstance(r, Token) else r
+            da.regs[j] = v
+            if v.cls != "acc":          # (received early: PITON_TMU1=deep)
+                t = self.new("aa", True, cls="acc")
+                self.op("mov", t, v)
+                v = t
+            a_acc[j] = v
+
+        for ev in plan.top:
+            receive(ev)
+        pending = None          # (acc reg, product reg) waiting for its fadd
+        for k in range(K):
+            after = {}
+            for m, ev in plan.steps[k]:
+                after.setdefault(m, []).append(ev)
+            for m in range(M):
+                vi, lane = (k // plan.w, m * plan.w + k % plan.w) if plan.w else divmod(m * K + k, LANES)
+                r5 = VReg("r5", cls="r5", is_float=True)
+                self.emit(MInst(ops=[MOp("mov", r5, [a_acc[vi]], rot=(LANES - lane) % LANES or None,
+                                         unit="mul")], tag="bcast"))
+                for cb in range(NV):
+                    p = self.new("prod", True, cls="acc")
+                    mul = MOp("fmul", p, [r5, self.reg_of(db, k * NV + cb)])
+                    ops = [mul]
+                    if pending is not None:
+                        ops.insert(0, MOp("fadd", pending[0], [pending[0], pending[1]]))
+                    self.emit(MInst(ops=ops, atomic=len(ops) == 2, tag="mac"))
+                    pending = (acc[m * NV + cb], p)
+                for ev in after.get(m, ()):
+                    receive(ev)
+        if pending is not None:
+            self.op("fadd", pending[0], pending[0], pending[1])
+        self.stats["mm_dots"] = self.stats.get("mm_dots", 0) + 1
+        if plan.w:
+            self.stats["mm_a_blocks"] = self.stats.get("mm_a_blocks", 0) + 1
+        return Dense(res.shape, ir.float32, acc)
+
+    def mm_plan(self, body: ir.Block, loads: list) -> Optional["MMPlan"]:
+        """The MMPlan of the tl.dot in a pipelined loop body (PITON_MM), or None:
+        one dot, whose operands are the body's only pipelined loads and are
+        used by nothing else, with N a multiple of 16."""
+        dots = [o for o in body.ops if o.name == "tt.dot"]
+        if len(dots) != 1:
+            return None
+        dot = dots[0]
+        a_v, b_v = dot.operands[:2]
+        la, lb = a_v.op, b_v.op
+        if la is None or lb is None or la is lb or set(loads) != {la, lb} \
+                or any(self.use_counts.get(v.id, 0) != 1 for v in (a_v, b_v)):
+            return None
+        (M, K), (_, N) = a_v.shape, b_v.shape
+        if N % LANES:
+            return None
+        w = LANES // M if "at" in self.mm and LANES % M == 0 and K % (LANES // M) == 0 else 0
+        if w and (nregs((M, K)) < 2 or _other_fixup(la)):
+            w = 0
+        if not w and nregs((M, K)) > 2:
+            return None             # (op_tt_dot caches two A registers and reloads the rest)
+        return MMPlan(dot, la, lb, M, K, N // LANES, w)
+
+    def mm_view_a(self, x, shape, w, tdense):
+        """A dot's A operand (M, K) pointer or mask as the (K / w, M, w) tile
+        of its w-column blocks (MMPlan.w): register r holds A[:, w r : w r + w]
+        row-major.  Emits nothing (LoopStream._emitter checked _mm_view_ok,
+        and _mm_prepare permuted the pointer's dense part into `tdense`, the
+        loop's own: its preheader dominates no other loop)."""
+        if isinstance(x, Affine) and x.dense is not None \
+                and _dense_key(x.dense) not in tdense:
+            # e.g. a dense part that depends on the loop variable: its view
+            # would cost a permutation in every iteration
+            raise MMUnsupported("PITON_MM: A pointer's dense part differs from the prologue's")
+        m, k = shape
+        vshape = (k // w, m, w)
+        if isinstance(x, Pred):
+            if x.kind == "const":
+                return Pred("const", vshape, x.value)
+            if x.kind == "cmp":
+                pred, a, b, f = x.value
+                return Pred("cmp", vshape, (pred, self.mm_view_a(a, shape, w, tdense),
+                                            self.mm_view_a(b, shape, w, tdense), f),
+                            wide=x.wide)
+            return Pred(x.kind, vshape, None, [self.mm_view_a(a, shape, w, tdense) for a in x.args])
+        if isinstance(x, Affine):
+            dense = None if x.dense is None else tdense[_dense_key(x.dense)]
+            c0, c1 = x.coeffs
+            return Affine(vshape, x.dtype, x.base, [C(_wrap(c1.const * w)) if w > 1 else c1, c0, c1], dense)
+        return Splat(vshape, getattr(x, "dtype", None), x if isinstance(x, S) else x.s)
 
     def dot_small(self, a, b, c, M, N, K, res):
         """tl.dot with N < 16: one register per output row (lanes 0..N-1),
@@ -4565,6 +4681,52 @@ class _EnvScope:
         self.lw.env = self.saved
 
 
+class MMPlan:
+    """When a PITON_MM dot (Lowering.dot_mm) receives its operand registers.
+
+    The k loop of a dot broadcasts A[m, k] (k outer, rows inner) against the
+    16-column blocks of B row k.  `top` is received before step 0: A's
+    first register(s) and B row 0; steps[k] lists (row m, event) for the
+    registers that step k + 1 starts with, received after row m of step k,
+    evenly over the step's rows.  An event is ("a" | "b", register).  A
+    LoopStream requests a FIFO slot's next entry when it receives one, so
+    receiving at an even rate keeps the requests evenly spaced as well: all
+    of A and a B row at the top of the iteration (op_tt_dot) request their
+    successors together, which then arrive together, too late for the
+    receives that wait on them.
+
+    Row-major A (at most two registers) is received at the top and kept in
+    accumulators.  With w (= 16 / M, PITON_MM=at), A is loaded as its
+    w-column blocks, register r = A[:, w r : w r + w] row-major: the rows
+    of w consecutive k steps share a register, received during the step
+    before its first one, so at most two are live (the TMU gathers M rows
+    per request, 4 / w rows per 4-lane quad; k-major lanes would put 4
+    rows in every quad)."""
+
+    def __init__(self, dot, a_load, b_load, M, K, NV, w):
+        self.dot, self.a_load, self.b_load = dot, a_load, b_load
+        self.M, self.K, self.NV, self.w = M, K, NV, w
+        n_a = nregs((M, K))
+        if w:
+            first = [r * w for r in range(n_a)]         # step that starts using register r
+            self.top = [("a", r) for r in range(n_a) if first[r] == 0]
+        else:
+            first = [0] * n_a
+            self.top = [("a", r) for r in range(n_a)]
+        self.top += [("b", cb) for cb in range(NV)]
+        self.steps = []
+        for k in range(K):
+            evs = [("a", r) for r in range(n_a) if first[r] == k + 1] if k + 1 < K else []
+            if k + 1 < K:
+                evs += [("b", (k + 1) * NV + cb) for cb in range(NV)]
+            self.steps.append([(i * M // len(evs), ev) for i, ev in enumerate(evs)])
+        self.order = self.top + [ev for step in self.steps for _, ev in step]
+
+    def entries(self):
+        """The LoopStream entries (load, register) in receive order."""
+        return [(self.a_load if kind == "a" else self.b_load, j) for kind, j in self.order]
+
+
 class LoopStream:
     """Keeps the TMU FIFOs full across loop iterations.
 
@@ -4587,6 +4749,14 @@ class LoopStream:
         for ld in loads:
             for j in range(nregs(ld.result.shape)):
                 self.entries.append((ld, j))
+        # PITON_MM: a dot's operands in the order it receives them (final in prologue)
+        self.plan = lw.mm_plan(self.body, loads) if lw.mm else None
+        if self.plan is not None:
+            self.entries = self.plan.entries()
+        self.rows = {}              # PITON_MM=rp: (B base, row stride) -> (row, its row pointer)
+        # PITON_MM=at: column-block views of A's pointer dense part (by its registers),
+        # permuted in this loop's preheader
+        self.tdense = {}
         self.E = len(self.entries)
         self.n0 = min(self.E, 2 * TMU_DEPTH)
         self.dense = {}
@@ -4621,7 +4791,93 @@ class LoopStream:
         mask = lw.as_pred(lw.get(ld.operands[1])) if ld.attrs.get("has_mask") else None
         if mask is not None and mask.kind == "const" and mask.value:
             mask = None
+        if self.plan is not None and self.plan.w and ld is self.plan.a_load:
+            if not _mm_a_view_ok(ptr, mask, self.plan.w):
+                # _mm_prepare checked the prologue's pointer and mask; the body's
+                # (or the next iteration's) can take another form, e.g. a
+                # loop-carried mask, dense here, is a compare there
+                raise MMUnsupported("PITON_MM: A pointer or mask has no column-block view here")
+            ptr = lw.mm_view_a(ptr, ld.result.shape, self.plan.w, self.tdense)
+            mask = None if mask is None else lw.mm_view_a(mask, ld.result.shape, self.plan.w, self.tdense)
+        if self.plan is not None and "rp" in lw.mm and ld is self.plan.b_load and mask is None:
+            emit = self._mm_row_emitter(ptr, j)
+            if emit is not None:
+                return emit
         return lw.addr_emitter(ptr, mask, j)
+
+    def _mm_row_emitter(self, ptr, j):
+        """PITON_MM=rp: register j = (k, cb) of the dot's B tile addressed as
+        lane register (column block cb) + row pointer, the row pointer of
+        rows k >= 1 in an accumulator, one add per row (row k - 1's plus the
+        row stride).  A request then reads one regfile register, so it fits
+        an instruction whose mul ALU rotates a broadcast (the rotation takes
+        regfile B's read port).  None where the lanes are not the same in
+        every row."""
+        lw, NV = self.lw, self.plan.NV
+        k, cb = divmod(j, NV)
+        if not isinstance(ptr, Affine) or ptr.base.reg is None or \
+                ptr.dense is not None and any(ptr.dense.regs[r * NV + cb] is not ptr.dense.regs[cb]
+                                              for r in range(self.plan.K)):
+            return None
+        lr, off = lw.affine_reg(ptr, cb)
+        if lr is None or off.reg is not ptr.base.reg:
+            return None
+        # (regalloc: in regfile A, next to a rotation's B port)
+        lr.hint = "A"
+        if not ptr.coeffs[0].is_const:
+            ptr.coeffs[0].reg.hint = "A"
+        # A row pointer is base + k * row stride: keyed by both, as the prologue,
+        # the body and the next iteration's prefetch can share the base register
+        # but not the stride (e.g. a stride computed from the loop variable)
+        c0 = ptr.coeffs[0]
+        key = (ptr.base.reg.id, ("c", _wrap(c0.const)) if c0.is_const else ("r", c0.reg.id))
+        if k:
+            last, rp = self.rows.get(key, (0, None))
+            if last != k:
+                if last != k - 1:
+                    return None
+                nxt = lw.new("rp", cls="acc")
+                lw.op("add", nxt, rp if rp is not None else off.reg, lw.operand(ptr.coeffs[0]))
+                self.rows[key] = (k, nxt)
+                rp = nxt
+        else:
+            rp = off.reg
+
+        def emit(tmu_reg):
+            lw.stats["tmu_requests"] += 1
+            lw.op("add", tmu_reg, lr, rp)
+        return emit
+
+    def _mm_prepare(self):
+        """PITON_MM, in the prologue's environment: A in column blocks needs an
+        affine pointer and a mask of index compares, whose views cost nothing
+        (the pointer's dense part, e.g. rows `% M`, is permuted once here,
+        before the loop); otherwise A stays row-major if two registers hold
+        it, or the dot is lowered as without PITON_MM."""
+        plan, lw = self.plan, self.lw
+        if plan.w:
+            ld = plan.a_load
+            ptr = lw.get(ld.operands[0])
+            mask = lw.as_pred(lw.get(ld.operands[1])) if ld.attrs.get("has_mask") else None
+            if _mm_a_view_ok(ptr, mask, plan.w):
+                if ptr.dense is not None:
+                    key = _dense_key(ptr.dense)
+                    if key not in self.tdense:
+                        m, k, w = plan.M, plan.K, plan.w
+                        self.tdense[key] = lw.permute_dense(ptr.dense, (k // w, m, w),
+                                                            [i * k + t * w + j for t in range(k // w)
+                                                             for i in range(m) for j in range(w)],
+                                                            stable=True)
+            elif nregs(ld.result.shape) <= 2:
+                plan = MMPlan(plan.dot, plan.a_load, plan.b_load, plan.M, plan.K, plan.NV, 0)
+            else:
+                plan = None
+        self.plan = plan
+        if plan is None:
+            self.entries = [(ld, j) for ld in self.loads for j in range(nregs(ld.result.shape))]
+            return
+        self.entries = plan.entries()
+        lw.mm_plans[plan.dot] = plan
 
     def _push(self, e, tok):
         q = self.lw.tmu.q[tok.unit]
@@ -4639,6 +4895,8 @@ class LoopStream:
                                **{a.id: v for a, v in zip(self.body.args[1:], inits)}})
         self.pre_tokens = []
         with _EnvScope(lw, env):
+            if self.plan is not None:
+                self._mm_prepare()
             for e in range(self.n0):
                 tok = Token(self.unit_of(e))
                 self._push(e, tok)
@@ -4787,6 +5045,63 @@ class LoopStream:
         if self.next_issued != self.n0 or lw.tmu.outstanding() != self.n0:
             raise CompilationError("internal: pipeline invariant broken")
         self.pre_tokens = self.next_tokens
+
+
+def _ir_const(v):
+    """The value of an IR constant (through splats), else None."""
+    while v is not None and v.op is not None and v.op.name == "tt.splat":
+        v = v.op.operands[0]
+    if v is None or v.op is None or v.op.name != "arith.constant":
+        return None
+    return v.op.attrs.get("value")
+
+
+def _other_fixup(ld) -> bool:
+    """The load may give masked lanes a non-zero `other` (a fix-up after the
+    receive; a zero `other` reads the zero page instead)."""
+    if not (ld.attrs.get("has_mask") and ld.attrs.get("has_other")):
+        return False
+    if _ir_const(ld.operands[1]) is True:
+        return False
+    other = _ir_const(ld.operands[2])
+    if other is None or isinstance(other, bool):
+        return True
+    if isinstance(other, float):
+        return other != 0.0 or math.copysign(1.0, other) < 0
+    return int(other) != 0
+
+
+def _dense_key(d: Dense) -> tuple:
+    """A Dense by its registers (a received TMU token by the register it
+    was received into: reg_of swaps one for the other)."""
+    return tuple(id(r.vreg if isinstance(r, Token) and r.vreg is not None else r) for r in d.regs)
+
+
+class MMUnsupported(CompilationError):
+    """PITON_MM: the dot's loop takes a form the MM lowering does not handle
+    (compiler._build then builds the kernel with the plain dot)."""
+
+
+def _mm_a_view_ok(ptr, mask, w) -> bool:
+    """The A load's pointer and mask (None: unmasked) have free w-column-block
+    views (Lowering.mm_view_a)."""
+    return isinstance(ptr, Affine) and _mm_view_ok(ptr, w, True) and (mask is None or _mm_view_ok(mask, w))
+
+
+def _mm_view_ok(x, w, dense=False) -> bool:
+    """Lowering.mm_view_a(x, ..., w) emits nothing: compares of affine index
+    math and scalars, combined by and / or / not; affine values with a
+    constant k coefficient (or w = 1) and, for the pointer (`dense`), a
+    dense part permuted in the prologue."""
+    if isinstance(x, Pred):
+        if x.kind == "const":
+            return True
+        if x.kind == "cmp":
+            return all(_mm_view_ok(v, w) for v in x.value[1:3])
+        return x.kind in ("and", "or", "not") and all(_mm_view_ok(v, w) for v in x.args)
+    if isinstance(x, Affine):
+        return (dense or x.dense is None) and len(x.coeffs) == 2 and (w == 1 or x.coeffs[1].is_const)
+    return isinstance(x, (S, Splat))
 
 
 def _walk_ops(block):
