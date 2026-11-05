@@ -1,0 +1,733 @@
+{
+  "timings": [
+    {
+      "impl": "qpu",
+      "name": "blur3",
+      "output": "blur3",
+      "times_us": [
+        3128,
+        3131,
+        3137,
+        3128,
+        3129
+      ],
+      "min_us": 3128,
+      "median_us": 3129,
+      "mpixels_per_s": 98.17833173537872
+    },
+    {
+      "impl": "qpu",
+      "name": "blur3_zero",
+      "output": "blur3_zero",
+      "times_us": [
+        6310,
+        6287,
+        6301,
+        6365,
+        6303
+      ],
+      "min_us": 6287,
+      "median_us": 6303,
+      "mpixels_per_s": 48.738695859114706
+    },
+    {
+      "impl": "qpu",
+      "name": "blur5",
+      "output": "blur5",
+      "times_us": [
+        8301,
+        8360,
+        8332,
+        8341,
+        8323
+      ],
+      "min_us": 8301,
+      "median_us": 8332,
+      "mpixels_per_s": 36.86989918386942
+    },
+    {
+      "impl": "qpu",
+      "name": "blur5_separable",
+      "output": "blur5",
+      "times_us": [
+        5151,
+        5112,
+        5163,
+        5130,
+        5148
+      ],
+      "min_us": 5112,
+      "median_us": 5148,
+      "mpixels_per_s": 59.67365967365967
+    },
+    {
+      "impl": "qpu",
+      "name": "blur5_rolling",
+      "output": "blur5",
+      "times_us": [
+        3081,
+        3085,
+        3078,
+        3079,
+        3076
+      ],
+      "min_us": 3076,
+      "median_us": 3079,
+      "mpixels_per_s": 99.77265345891523
+    },
+    {
+      "impl": "qpu",
+      "name": "sobel",
+      "output": "sobel",
+      "times_us": [
+        4268,
+        4273,
+        4280,
+        4255,
+        4248
+      ],
+      "min_us": 4248,
+      "median_us": 4268,
+      "mpixels_per_s": 71.97750702905343
+    },
+    {
+      "impl": "qpu",
+      "name": "sobel_rolling",
+      "output": "sobel",
+      "times_us": [
+        2924,
+        2919,
+        2925,
+        2917,
+        2918
+      ],
+      "min_us": 2917,
+      "median_us": 2919,
+      "mpixels_per_s": 105.2415210688592
+    },
+    {
+      "impl": "qpu",
+      "name": "blur_sobel",
+      "output": "blur_sobel",
+      "times_us": [
+        13074,
+        13120,
+        13025,
+        12919,
+        13163
+      ],
+      "min_us": 12919,
+      "median_us": 13074,
+      "mpixels_per_s": 23.497016980266178
+    },
+    {
+      "impl": "qpu",
+      "name": "blur_sobel_rolling",
+      "output": "blur_sobel",
+      "times_us": [
+        4781,
+        4749,
+        4767,
+        4782,
+        4760
+      ],
+      "min_us": 4749,
+      "median_us": 4767,
+      "mpixels_per_s": 64.44304594084329
+    },
+    {
+      "impl": "qpu_icache",
+      "name": "blur3",
+      "output": "blur3",
+      "times_us": [
+        3116,
+        3111,
+        3109,
+        3105,
+        3114
+      ],
+      "min_us": 3105,
+      "median_us": 3111,
+      "mpixels_per_s": 98.74638379942141
+    },
+    {
+      "impl": "qpu_icache",
+      "name": "blur3_zero",
+      "output": "blur3_zero",
+      "times_us": [
+        6326,
+        6346,
+        6251,
+        6299,
+        6290
+      ],
+      "min_us": 6251,
+      "median_us": 6299,
+      "mpixels_per_s": 48.769645975551676
+    },
+    {
+      "impl": "qpu_icache",
+      "name": "blur5",
+      "output": "blur5",
+      "times_us": [
+        8377,
+        8332,
+        8300,
+        8321,
+        8378
+      ],
+      "min_us": 8300,
+      "median_us": 8332,
+      "mpixels_per_s": 36.86989918386942
+    },
+    {
+      "impl": "qpu_icache",
+      "name": "blur5_separable",
+      "output": "blur5",
+      "times_us": [
+        5096,
+        5081,
+        5104,
+        5112,
+        5109
+      ],
+      "min_us": 5081,
+      "median_us": 5104,
+      "mpixels_per_s": 60.18808777429467
+    },
+    {
+      "impl": "qpu_icache",
+      "name": "blur5_rolling",
+      "output": "blur5",
+      "times_us": [
+        3064,
+        3059,
+        3050,
+        3044,
+        3059
+      ],
+      "min_us": 3044,
+      "median_us": 3059,
+      "mpixels_per_s": 100.42497548218373
+    },
+    {
+      "impl": "qpu_icache",
+      "name": "sobel",
+      "output": "sobel",
+      "times_us": [
+        4227,
+        4293,
+        4233,
+        4254,
+        4240
+      ],
+      "min_us": 4227,
+      "median_us": 4240,
+      "mpixels_per_s": 72.45283018867924
+    },
+    {
+      "impl": "qpu_icache",
+      "name": "sobel_rolling",
+      "output": "sobel",
+      "times_us": [
+        2906,
+        2906,
+        2908,
+        2903,
+        2901
+      ],
+      "min_us": 2901,
+      "median_us": 2906,
+      "mpixels_per_s": 105.712319339298
+    },
+    {
+      "impl": "qpu_icache",
+      "name": "blur_sobel",
+      "output": "blur_sobel",
+      "times_us": [
+        12902,
+        13438,
+        13060,
+        12990,
+        13057
+      ],
+      "min_us": 12902,
+      "median_us": 13057,
+      "mpixels_per_s": 23.52760971126599
+    },
+    {
+      "impl": "qpu_icache",
+      "name": "blur_sobel_rolling",
+      "output": "blur_sobel",
+      "times_us": [
+        4747,
+        4731,
+        4745,
+        4735,
+        4762
+      ],
+      "min_us": 4731,
+      "median_us": 4745,
+      "mpixels_per_s": 64.7418335089568
+    },
+    {
+      "impl": "arm",
+      "name": "arm_blur3",
+      "output": "blur3",
+      "times_us": [
+        44787,
+        44786,
+        44785,
+        44788,
+        44787
+      ],
+      "min_us": 44785,
+      "median_us": 44787,
+      "mpixels_per_s": 6.859133230624958
+    },
+    {
+      "impl": "arm",
+      "name": "arm_blur5",
+      "output": "blur5",
+      "times_us": [
+        75714,
+        75704,
+        75698,
+        75711,
+        75715
+      ],
+      "min_us": 75698,
+      "median_us": 75711,
+      "mpixels_per_s": 4.0575345722550225
+    },
+    {
+      "impl": "arm",
+      "name": "arm_blur5_separable",
+      "output": "blur5",
+      "times_us": [
+        59321,
+        59345,
+        59333,
+        59323,
+        59324
+      ],
+      "min_us": 59321,
+      "median_us": 59324,
+      "mpixels_per_s": 5.178342660643247
+    },
+    {
+      "impl": "arm",
+      "name": "arm_sobel",
+      "output": "sobel",
+      "times_us": [
+        64558,
+        64575,
+        64553,
+        64556,
+        64562
+      ],
+      "min_us": 64553,
+      "median_us": 64558,
+      "mpixels_per_s": 4.758511725889897
+    },
+    {
+      "impl": "arm",
+      "name": "arm_blur_sobel",
+      "output": "blur_sobel",
+      "times_us": [
+        137656,
+        137656,
+        137653,
+        137637,
+        137653
+      ],
+      "min_us": 137637,
+      "median_us": 137653,
+      "mpixels_per_s": 2.2316985463447945
+    },
+    {
+      "impl": "arm",
+      "name": "arm_blur_sobel_two_pass",
+      "output": "blur_sobel",
+      "times_us": [
+        110616,
+        110614,
+        110615,
+        110600,
+        110606
+      ],
+      "min_us": 110600,
+      "median_us": 110614,
+      "mpixels_per_s": 2.7772253060191296
+    }
+  ],
+  "clocks_mhz": {
+    "arm": 700,
+    "core": 250,
+    "v3d": 250,
+    "sdram": 400
+  },
+  "rows_checked": 4869,
+  "arm_checks": [
+    {
+      "arm": "arm_blur3",
+      "output": "blur3",
+      "border": "0",
+      "checked": "307200",
+      "exact": "307200",
+      "max_ulp": "0",
+      "failures": "0"
+    },
+    {
+      "arm": "arm_blur5",
+      "output": "blur5",
+      "border": "0",
+      "checked": "307200",
+      "exact": "307200",
+      "max_ulp": "0",
+      "failures": "0"
+    },
+    {
+      "arm": "arm_blur5_separable",
+      "output": "blur5",
+      "border": "0",
+      "checked": "307200",
+      "exact": "307200",
+      "max_ulp": "0",
+      "failures": "0"
+    },
+    {
+      "arm": "arm_sobel",
+      "output": "sobel",
+      "border": "0",
+      "checked": "307200",
+      "exact": "53597",
+      "max_ulp": "4",
+      "failures": "0"
+    },
+    {
+      "arm": "arm_blur_sobel",
+      "output": "blur_sobel",
+      "border": "0",
+      "checked": "307200",
+      "exact": "58379",
+      "max_ulp": "4",
+      "failures": "0"
+    },
+    {
+      "arm": "arm_blur_sobel_two_pass",
+      "output": "blur_sobel",
+      "border": "2",
+      "checked": "302736",
+      "exact": "57541",
+      "max_ulp": "4",
+      "failures": "0"
+    }
+  ],
+  "same_on_board": [
+    {
+      "filter": "blur5_separable",
+      "output": "blur5",
+      "mismatches": "0"
+    },
+    {
+      "filter": "blur5_rolling",
+      "output": "blur5",
+      "mismatches": "0"
+    },
+    {
+      "filter": "sobel_rolling",
+      "output": "sobel",
+      "mismatches": "0"
+    },
+    {
+      "filter": "blur_sobel_rolling",
+      "output": "blur_sobel",
+      "mismatches": "0"
+    }
+  ],
+  "dumped_images": {
+    "blur5": {
+      "pixels_differing_from_model": 0,
+      "max_level_difference": 0
+    },
+    "blur_sobel": {
+      "pixels_differing_from_model": 0,
+      "max_level_difference": 0
+    }
+  },
+  "manifest": {
+    "width": 640,
+    "height": 480,
+    "check_size": [
+      83,
+      61
+    ],
+    "repeats": 5,
+    "filters": [
+      "blur3",
+      "blur3_zero",
+      "blur5",
+      "blur5_separable",
+      "blur5_rolling",
+      "sobel",
+      "sobel_rolling",
+      "blur_sobel",
+      "blur_sobel_rolling"
+    ],
+    "kernels": [
+      {
+        "filter": "blur3",
+        "launch": 0,
+        "kernel": "blur_kernel",
+        "instructions": 366,
+        "programs": 400,
+        "constants": {
+          "BLOCK_H": 4,
+          "BLOCK_W": 16,
+          "ROWS": 48,
+          "RADIUS": 1,
+          "BORDER": 0
+        },
+        "code_sha256": "afe82d8325c1d16bae1bc8b1eacf3bf3576afb4d2237e658b5e250f6c05554cc"
+      },
+      {
+        "filter": "blur3_zero",
+        "launch": 0,
+        "kernel": "blur_kernel",
+        "instructions": 422,
+        "programs": 400,
+        "constants": {
+          "BLOCK_H": 2,
+          "BLOCK_W": 16,
+          "ROWS": 48,
+          "RADIUS": 1,
+          "BORDER": 1
+        },
+        "code_sha256": "ec3b3e7e785dc0494157bbf484783f06f2fc8d1c15f0219d95985402c7d0b638"
+      },
+      {
+        "filter": "blur5",
+        "launch": 0,
+        "kernel": "blur_kernel",
+        "instructions": 418,
+        "programs": 400,
+        "constants": {
+          "BLOCK_H": 2,
+          "BLOCK_W": 16,
+          "ROWS": 48,
+          "RADIUS": 2,
+          "BORDER": 0
+        },
+        "code_sha256": "694326cff63a6e96459e9735408f6e50e7196d689f979188ea072b930ddfc2ba"
+      },
+      {
+        "filter": "blur5_separable",
+        "launch": 0,
+        "kernel": "blur_pass_kernel",
+        "instructions": 279,
+        "programs": 400,
+        "constants": {
+          "BLOCK_H": 4,
+          "BLOCK_W": 16,
+          "ROWS": 48,
+          "RADIUS": 2,
+          "BORDER": 0,
+          "AXIS": 1
+        },
+        "code_sha256": "8418d6a5d773b808d5e61deb298e83b532b98f96612ea8542eaeb72fdefbd2f1"
+      },
+      {
+        "filter": "blur5_separable",
+        "launch": 1,
+        "kernel": "blur_pass_kernel",
+        "instructions": 348,
+        "programs": 400,
+        "constants": {
+          "BLOCK_H": 4,
+          "BLOCK_W": 16,
+          "ROWS": 48,
+          "RADIUS": 2,
+          "BORDER": 0,
+          "AXIS": 0
+        },
+        "code_sha256": "8b6eaddf5405cbb87fc2e0cc61eb64572bbc041dc327123f534eff1ee4a9b5fa"
+      },
+      {
+        "filter": "blur5_rolling",
+        "launch": 0,
+        "kernel": "blur_rolling_kernel",
+        "instructions": 359,
+        "programs": 200,
+        "constants": {
+          "BLOCK_W": 32,
+          "ROWS": 48
+        },
+        "code_sha256": "925c956d27b052c4ce2f3f05feee5c732b8745403c51efdcab73568d7198904d"
+      },
+      {
+        "filter": "sobel",
+        "launch": 0,
+        "kernel": "sobel_kernel",
+        "instructions": 489,
+        "programs": 400,
+        "constants": {
+          "BLOCK_H": 4,
+          "BLOCK_W": 16,
+          "ROWS": 48,
+          "BORDER": 0
+        },
+        "code_sha256": "6eb0e4a337ca123c1a2458e16be3acdaa48ddb22b1ed95315a33f7028f285859"
+      },
+      {
+        "filter": "sobel_rolling",
+        "launch": 0,
+        "kernel": "sobel_rolling_kernel",
+        "instructions": 270,
+        "programs": 200,
+        "constants": {
+          "BLOCK_W": 32,
+          "ROWS": 48,
+          "FUSED": false
+        },
+        "code_sha256": "970ba3b3b9840153186dcc39842a3958b16597935e345a996d45d360f064a1d7"
+      },
+      {
+        "filter": "blur_sobel",
+        "launch": 0,
+        "kernel": "blur_sobel_kernel",
+        "instructions": 557,
+        "programs": 400,
+        "constants": {
+          "BLOCK_H": 2,
+          "BLOCK_W": 16,
+          "ROWS": 48
+        },
+        "code_sha256": "cdf2fca923483b4d825472a54eb11f27f5c860667ea05613478b248010371932"
+      },
+      {
+        "filter": "blur_sobel_rolling",
+        "launch": 0,
+        "kernel": "sobel_rolling_kernel",
+        "instructions": 302,
+        "programs": 400,
+        "constants": {
+          "BLOCK_W": 16,
+          "ROWS": 48,
+          "FUSED": true
+        },
+        "code_sha256": "7c81669f6a86eacd4b363f554a63cbba7aed283040af8f8adc5b22a16d464626"
+      }
+    ],
+    "tiles": {
+      "blur3": [
+        4,
+        16,
+        48
+      ],
+      "blur3_zero": [
+        2,
+        16,
+        48
+      ],
+      "blur5": [
+        2,
+        16,
+        48
+      ],
+      "blur5_separable": [
+        4,
+        16,
+        48
+      ],
+      "blur5_rolling": [
+        1,
+        32,
+        48
+      ],
+      "sobel": [
+        4,
+        16,
+        48
+      ],
+      "sobel_rolling": [
+        1,
+        32,
+        48
+      ],
+      "blur_sobel": [
+        2,
+        16,
+        48
+      ],
+      "blur_sobel_rolling": [
+        1,
+        16,
+        48
+      ]
+    },
+    "loads_per_pixel": {
+      "blur3": 9,
+      "blur3_zero": 9,
+      "blur5": 25,
+      "blur5_separable": 10,
+      "blur5_rolling": 5,
+      "sobel": 8,
+      "sobel_rolling": 3,
+      "blur_sobel": 24,
+      "blur_sobel_rolling": 5
+    },
+    "firmware_bytes": 55408,
+    "firmware_sha256": "68fbb5d25c98fcc44a7fb9ca420b0a77ad32cd2e96db5e69428561d2c993f82b",
+    "source_sha256": {
+      "pi/examples/image_filters/main.c": "909dd4a4933b5000171b0e99266699ceb0983590e2b6b2dcb7d702913c422ea3",
+      "pi/examples/image_filters/Makefile": "75eeadfe5e1c225a08f1f65ac11af876b0b9c4c224af9027f22d2068b5cc0875",
+      "pi/examples/image_filters/scene.h": "33878f03429eb7c69f5e215795bdcf07fcc286bf1459e49fedb3f19623c40ef5",
+      "pi/examples/image_filters/row_hash.h": "64a59afc03fde69ae9acf7a4f31d3325cce14798cd6371fbd813b099cb2b203a",
+      "pi/examples/image_filters/arm_filters.c": "71ae71193cb91dee86110dc2869cb5c322f7b718636e88ee3da1c4c99ca3424a",
+      "pi/examples/image_filters/arm_filters.h": "a24ddd69042ae7d84918c34210e6831c2fc8b61325b6c2dbd60241fba65834f7",
+      "pi/runtime/piton_rt.c": "3eb3ac87f3eb1565bb61bc029dab0da17e0d0f6b4daa10a5f165110950de988a",
+      "pi/runtime/piton_rt.h": "93b2a7d736355c6531833a7e2205e074c317557f17fb1f86ff9af1ba4b1eff4d",
+      "pi/examples/matmul/arm_sgemm.c": "1766c71b0ed2e2caaed38f9adcf15f9be7ae1f4b38557cf427d5f4885b130dfa",
+      "pi/examples/matmul/arm_sgemm.h": "aa559f8ac1fad62eb8fd808a1ec1c8a58a3cdbc3e5e0cec7c81f03f2c32105d9",
+      "pi/examples/matmul/arm_kernel_vfp.S": "73a27c30f06e47254d4f8a89ebdfc28ff83f80e593196912ede3a224807970cf",
+      "examples/image_filters.py": "1fec03152161b8f70a53f7954e0c294beaf55639cc24a5a5c7ba0dcd15e1f20e",
+      "examples/image_filters_pi.py": "2d4dce6a8b528e1e4bb7b19d1da3e956379e8248dcfa64df647c2d25b4c952ae"
+    },
+    "environment": {}
+  },
+  "speedups": {
+    "blur3": {
+      "best_qpu": "blur3",
+      "best_qpu_us": 3129,
+      "best_arm": "arm_blur3",
+      "best_arm_us": 44787,
+      "speedup": 14.313518696069032
+    },
+    "blur5": {
+      "best_qpu": "blur5_rolling",
+      "best_qpu_us": 3079,
+      "best_arm": "arm_blur5_separable",
+      "best_arm_us": 59324,
+      "speedup": 19.267294576161092
+    },
+    "sobel": {
+      "best_qpu": "sobel_rolling",
+      "best_qpu_us": 2919,
+      "best_arm": "arm_sobel",
+      "best_arm_us": 64558,
+      "speedup": 22.116478245974648
+    },
+    "blur_sobel": {
+      "best_qpu": "blur_sobel_rolling",
+      "best_qpu_us": 4767,
+      "best_arm": "arm_blur_sobel_two_pass",
+      "best_arm_us": 110614,
+      "speedup": 23.20411160058737
+    }
+  },
+  "timestamp_utc": "2026-11-05T20:18:49.293093+00:00",
+  "boot_and_run_seconds": 125.04331608399661,
+  "raw_log": "benchmarks/results/image_filters-pi-2026-11-05.log",
+  "timing_scope": "QPU: the whole generated launch call(s) (uniforms, cache clears, queueing, waiting), median of repeats; the separable blur is two launches. ARM: the whole C function with the L1 caches on, -O3, median of repeats."
+}

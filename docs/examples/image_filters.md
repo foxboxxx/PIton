@@ -68,8 +68,8 @@ kernels only).
   model is bit-exact for every filter.
 * **`x * 1` and `0 + x` are not no-ops on the QPU** (a −0 or denormal result becomes +0), so
   the compiler keeps them. The kernels leave out weight-1 multiplies and zero-initialised sums.
-* **Where the stores may cap it** (an expectation from `perf/README.md`'s store-engine model,
-  TBD (Pi)). One VDW DMA engine serves all 12 QPUs, at about 0.18 µs per DMA plus 0.85 ns per
+* **Where the stores may cap it** (an expectation from `perf/README.md`'s store-engine model; on
+  the Pi the rolling kernels run at about 100 Mpixel/s, i.e. one 128-byte row DMA every ~0.3 µs). One VDW DMA engine serves all 12 QPUs, at about 0.18 µs per DMA plus 0.85 ns per
   byte. A rolling kernel stores one image row per iteration: a 128-byte DMA at `BLOCK_W=32`, 64
   bytes at 16. The 4×16 tiles store 256 bytes per DMA. Wider rolling strips do not fit the
   registers, because the five clamped column offsets are loop-invariant and stay live.
@@ -103,16 +103,21 @@ pass and a column pass, clamping only at the edges) and blur then Sobel as two p
 
 ## Results on the Pi Zero W
 
-TBD (Pi): 640×480, median of 5, QPU time is the whole launch call; ARM 700 MHz, V3D 250 MHz.
+Measured 2026-11-05 on the Pi Zero W: 640×480, median of 5, QPU time is the whole launch call; ARM 700 MHz,
+V3D 250 MHz. All 4,869 row hashes (9 filters at 640×480 and 83×61) equal the model; every ARM comparison
+passed; the two images read back from the board (`docs/images/image_filters-pi-{blur5,blur_sobel}.png`)
+differ from the model's in 0 pixels (`benchmarks/results/image_filters-pi-2026-11-05.{json,log}`).
 
 | output | best QPU filter | QPU ms | Mpixel/s | ARM direct ms | best ARM ms | speedup vs best ARM |
 |---|---|---|---|---|---|---|
-| 3×3 blur | TBD (Pi) | TBD (Pi) | TBD (Pi) | TBD (Pi) | TBD (Pi) | TBD (Pi) |
-| 5×5 blur | TBD (Pi) | TBD (Pi) | TBD (Pi) | TBD (Pi) | TBD (Pi) | TBD (Pi) |
-| Sobel | TBD (Pi) | TBD (Pi) | TBD (Pi) | TBD (Pi) | TBD (Pi) | TBD (Pi) |
-| blur + Sobel | TBD (Pi) | TBD (Pi) | TBD (Pi) | TBD (Pi) | TBD (Pi) | TBD (Pi) |
+| 3×3 blur | `blur3` | 3.13 | 98.2 | 44.8 | 44.8 | **14.3×** |
+| 5×5 blur | `blur5_rolling` | 3.08 | 99.8 | 75.7 | 59.3 (separable) | **19.3×** |
+| Sobel | `sobel_rolling` | 2.92 | 105.2 | 64.6 | 64.6 | **22.1×** |
+| blur + Sobel | `blur_sobel_rolling` | 4.77 | 64.4 | 137.7 | 110.6 (two-pass) | **23.2×** |
 
-Per filter (direct vs separable vs rolling, clamp vs zero border): TBD (Pi).
+Per filter, QPU ms (direct / separable / rolling): 5×5 blur 8.33 / 5.15 / 3.08, Sobel 4.27 / – / 2.92,
+blur + Sobel 13.07 / – / 4.77; the 3×3 blur with zero borders (masked loads, `other=0`) 6.30 ms against
+3.13 ms clamped. The ARM I-cache on during the launch changes QPU times by under 1%.
 
 ## Files
 
