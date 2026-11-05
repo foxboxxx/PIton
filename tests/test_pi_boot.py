@@ -141,7 +141,7 @@ def recovering_runner(tmp_path, monkeypatch, failures, ready=True):
         return ready
 
     monkeypatch.setattr(runner, "_boot", boot)
-    monkeypatch.setattr(pi_runtime.power, "tool", lambda: "pi_power")
+    monkeypatch.setattr(pi_runtime.power, "tool", lambda tty=None: "pi_power")
     monkeypatch.setattr(pi_runtime.power, "ensure_ready", ensure_ready)
     return runner, calls
 
@@ -175,7 +175,143 @@ def test_unrecoverable_pi_is_reported_without_booting(tmp_path, monkeypatch):
 
 def test_no_power_switch_means_no_retry(tmp_path, monkeypatch):
     runner, calls = recovering_runner(tmp_path, monkeypatch, [PiError("no answer", "")])
-    monkeypatch.setattr(pi_runtime.power, "tool", lambda: None)
+    monkeypatch.setattr(pi_runtime.power, "tool", lambda tty=None: None)
     with pytest.raises(PiError, match="no answer"):
         runner._boot_recovering("unused")
     assert calls == {"boots": 1, "ready": 0}
+
+
+
+LINUX_POWER = os.path.join(pi_runtime.power.TOOLS, "pi_power_linux")
+
+
+def fake_bridge(tmp_path, chips=(True,), writable=True, gpioset_rc=0, vanish=False, version="v1.6.3"):
+    """A sysfs / dev tree with one CP2102N per entry of `chips` (bridge n: ttyUSBn
+    and, if chips[n], gpiochipN under interface 1-n:1.0) and a gpioset stub that
+    logs its arguments; with vanish=True the stub removes every chip, as a bridge
+    browning out would."""
+    sys_root, dev, bin_dir = tmp_path / "sys", tmp_path / "dev", tmp_path / "bin"
+    (sys_root / "bus" / "usb" / "drivers" / "cp210x").mkdir(parents=True)
+    dev.mkdir()
+    ifaces = []
+    for n, chip in enumerate(chips):
+        iface = sys_root / "devices" / "usb1" / f"1-{n}" / f"1-{n}:1.0"
+        (iface / f"ttyUSB{n}").mkdir(parents=True)
+        (sys_root / "class" / "tty" / f"ttyUSB{n}").mkdir(parents=True)
+        os.symlink(iface / f"ttyUSB{n}", sys_root / "class" / "tty" / f"ttyUSB{n}" / "device")
+        os.symlink(iface, sys_root / "bus" / "usb" / "drivers" / "cp210x" / f"1-{n}:1.0")
+        (dev / f"ttyUSB{n}").write_text("")
+        if chip:
+            (iface / f"gpiochip{n}").mkdir()
+            (dev / f"gpiochip{n}").write_text("")
+            if not writable:
+                os.chmod(dev / f"gpiochip{n}", 0o444)
+        ifaces.append(iface)
+    bin_dir.mkdir()
+    log = tmp_path / "gpioset.log"
+    gone = "".join(f"rm -rf {i}/gpiochip*; " for i in ifaces) if vanish else ""
+    (bin_dir / "gpioset").write_text(
+        f"#!/bin/sh\n[ \"$1\" = --version ] && echo 'gpioset (libgpiod) {version}' && exit 0\n"
+        f"echo \"$@\" >> {log}\n{gone}exit {gpioset_rc}\n")
+    os.chmod(bin_dir / "gpioset", 0o755)
+    env = dict(os.environ, PITON_SYSFS=str(sys_root), PITON_DEVDIR=str(dev),
+               PATH=f"{bin_dir}:{os.environ['PATH']}")
+    env.pop("PITON_TTY", None)
+
+    def run(cmd, tty=None):
+        e = dict(env, PITON_TTY=str(dev / tty)) if tty else env
+        return subprocess.run(["bash", LINUX_POWER, cmd], env=e, capture_output=True, text=True).returncode
+
+    return run, log
+
+
+def test_linux_power_switches_the_bridge_gpio0(tmp_path):
+    run, log = fake_bridge(tmp_path)
+    assert run("status") == 0 and run("off") == 0 and run("on") == 0
+    assert log.read_text().splitlines() == ["gpiochip0 0=0", "gpiochip0 0=1"]
+
+
+def test_linux_power_drives_the_chip_of_the_ttys_bridge(tmp_path):
+    run, log = fake_bridge(tmp_path, chips=(True, True, False))
+    assert run("status") == 1                                   # two chips and no tty: ambiguous
+    assert run("off", tty="ttyUSB1") == 0 and run("on", tty="ttyUSB0") == 0
+    assert log.read_text().splitlines() == ["gpiochip1 0=0", "gpiochip0 0=1"]
+    assert run("status", tty="ttyUSB2") == 1                    # its bridge has no gpiochip
+    assert run("status", tty="ttyUSB9") == 1                    # no such tty
+
+
+def test_linux_power_without_a_usable_chip_fails_every_command(tmp_path):
+    for name, kwargs in (("absent", {"chips": (False,)}), ("read-only", {"writable": False}),
+                         ("gpiod-v2", {"version": "v2.1"})):
+        if name == "read-only" and os.geteuid() == 0:
+            continue                                            # root writes anyway
+        run, log = fake_bridge(tmp_path / name, **kwargs)
+        assert run("status") == 1, name
+        if name != "gpiod-v2":
+            assert (run("on"), run("off")) == (1, 1) and not log.exists(), name
+
+
+def test_linux_power_off_succeeds_when_the_bridge_browns_out(tmp_path):
+    run, _ = fake_bridge(tmp_path, gpioset_rc=1, vanish=True)
+    assert run("off") == 0
+    run, _ = fake_bridge(tmp_path / "tty", gpioset_rc=1, vanish=True)
+    assert run("off", tty="ttyUSB0") == 0
+    run, _ = fake_bridge(tmp_path / "stays", gpioset_rc=1)
+    assert run("off") == 1                                      # failed, and the chip is still there
+
+
+def test_power_passes_the_tty_to_the_switch(tmp_path, monkeypatch):
+    power = pi_runtime.power
+    tty = tmp_path / "ttyUSB3"
+    tty.write_text("")
+    seen = []
+    monkeypatch.setattr(power, "tool", lambda tty=None: "pi_power")
+    monkeypatch.setattr(power.subprocess, "run", lambda cmd, env=None, **kw: (
+        seen.append((cmd[1], (env or {}).get("PITON_TTY"))), subprocess.CompletedProcess(cmd, 0))[1])
+    monkeypatch.setattr(power, "handshake", lambda tty, seconds: bool(seen))
+    monkeypatch.setattr(power.time, "sleep", lambda s: None)
+    assert power.cycle(str(tty)) and power.available(str(tty))
+    assert seen == [("off", str(tty)), ("on", str(tty)), ("status", str(tty))]
+
+
+def test_linux_power_tool_needs_a_usable_switch(monkeypatch):
+    power = pi_runtime.power
+    monkeypatch.delenv("PITON_POWER", raising=False)
+    monkeypatch.setattr(power.sys, "platform", "linux")
+    monkeypatch.setattr(power.shutil, "which", lambda name: "/usr/bin/" + name)
+    status = {"rc": 0}
+    monkeypatch.setattr(power.subprocess, "run",
+                        lambda cmd, **kw: subprocess.CompletedProcess(cmd, status["rc"]))
+    assert power.tool() == LINUX_POWER and os.access(LINUX_POWER, os.X_OK)
+    status["rc"] = 1                                            # no cp210x chip on this machine
+    assert power.tool() is None
+    status["rc"] = 0
+    monkeypatch.setattr(power.shutil, "which", lambda name: None)  # no libgpiod tools
+    assert power.tool() is None
+    monkeypatch.setattr(power.shutil, "which", lambda name: "/usr/bin/" + name)
+    monkeypatch.setenv("PITON_POWER", "0")
+    assert power.tool() is None
+
+
+def test_linux_power_script_rejects_unknown_commands():
+    proc = subprocess.run(["bash", LINUX_POWER, "bogus"], capture_output=True, text=True)
+    assert proc.returncode == 2 and "usage" in proc.stderr
+
+
+def test_power_cycles_the_ttys_bridge_among_two(tmp_path, monkeypatch):
+    """The real tool() / cycle() on two bridges: only the given tty's chip moves."""
+    power = pi_runtime.power
+    _, log = fake_bridge(tmp_path, chips=(True, True))
+    monkeypatch.setattr(power.sys, "platform", "linux")
+    monkeypatch.delenv("PITON_POWER", raising=False)
+    monkeypatch.delenv("PITON_TTY", raising=False)
+    monkeypatch.setenv("PITON_SYSFS", str(tmp_path / "sys"))
+    monkeypatch.setenv("PITON_DEVDIR", str(tmp_path / "dev"))
+    monkeypatch.setenv("PATH", f"{tmp_path / 'bin'}:{os.environ['PATH']}")
+    monkeypatch.setattr(power, "handshake", lambda tty, seconds: True)
+    monkeypatch.setattr(power.time, "sleep", lambda s: None)
+    tty = str(tmp_path / "dev" / "ttyUSB1")
+    assert power.tool() is None                                 # ambiguous without a tty
+    assert power.tool(tty) == LINUX_POWER and power.available(tty)
+    assert power.cycle(tty)
+    assert log.read_text().splitlines() == ["gpiochip1 0=0", "gpiochip1 0=1"]
