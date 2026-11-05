@@ -1,4 +1,4 @@
-# Next steps for the optimisation loop (2026-11-04, stopped)
+# Next steps for the optimisation loop (2026-11-05: steps 1-4 done)
 
 ## State
 `perf-loop` (this branch) has every change that passed its Pi gate, all on by default: C1, A1 (+ the
@@ -40,6 +40,16 @@ rechecks only for cases whose code changed.
   from the RESULT lines (it reproduces the 11-03 table from the 11-03 log).
 - Host suite on perf-loop 2557a06: 1276 passed, 33 skipped (1:02:21), 0 failed.
 - Open: C11 on-by-default (compile 6.4x) is the user's call; follow-ups below are unchanged.
+
+## Progress 2026-11-05 (macOS, the 11-03 board)
+- perf-loop 386a609 (the WSL2 machine's work) runs here unchanged: test_hw 12/12 (the tty is now
+  /dev/cu.usbserial-110; find_tty() finds it).
+- C11 gate repeated on this board (try/c11 7f22f86 = c784e58 + 386a609): no hang from the mul-ALU
+  mutex release; mandel 1.074x / 1.057x, row_sum 1.044x, softmax 1.026x, idiv 1.019x, suite geomean
+  1.010x, digits batch 1 1.04x. Landed in perf-loop as an option, off by default (`PITON_PAIR=1`).
+- Final profile on this board: 1.406x geomean over the 11-03 baseline (1.424x with `PITON_PAIR=1`).
+- Open: turn `PITON_PAIR` on by default (one line in sched.pair_enabled) if 3-6x compile time is
+  acceptable; the follow-ups below.
 
 ## Commands, in order (from the repo root, `.venv/bin/python` = `PY`)
 

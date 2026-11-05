@@ -1,0 +1,169 @@
+opened tty port </dev/cu.usbserial-110>.
+DEBUPi verified: 1743/1797 correct (96.99%); all 28,752 logits and all predictions passed
+Batch    1 (padded    4): QPU 0.167 ms, ARM VFP 0.720 ms, 4.31x speedup, 5,988 images/s
+Batch   16 (padded   16): QPU 0.228 ms, ARM VFP 1.450 ms, 6.36x speedup, 70,175 images/s
+Batch   64 (padded   64): QPU 0.486 ms, ARM VFP 4.515 ms, 9.29x speedup, 131,687 images/s
+Batch  256 (padded  256): QPU 1.468 ms, ARM VFP 18.560 ms, 12.64x speedup, 174,387 images/s
+Batch 1797 (padded 1800): QPU 9.149 ms, ARM VFP 133.680 ms, 14.61x speedup, 196,415 images/s
+Saved /Users/adamalhusaiki/Desktop/CS340LX/PIton/.claude/loop/digits-pair-1-2.json
+1012
+NN_VALIDATE impl=gpu checked=28752 failures=0 pred_mismatch=0 correct=1743 max_abs_error=0.000102
+NN_TIME impl=gpu batch=1 padded=4 us=182
+NN_TIME impl=gpu batch=1 padded=4 us=167
+NN_TIME impl=gpu batch=1 padded=4 us=167
+NN_TIME impl=gpu batch=1 padded=4 us=167
+NN_TIME impl=gpu batch=1 padded=4 us=167
+NN_BATCH_CHECK impl=gpu batch=1 checked=16 failures=0 pred_mismatch=0 correct=1 max_abs_error=0.000066
+NN_TIME impl=gpu batch=16 padded=16 us=236
+NN_TIME impl=gpu batch=16 padded=16 us=231
+NN_TIME impl=gpu batch=16 padded=16 us=227
+NN_TIME impl=gpu batch=16 padded=16 us=227
+NN_TIME impl=gpu batch=16 padded=16 us=228
+NN_BATCH_CHECK impl=gpu batch=16 checked=256 failures=0 pred_mismatch=0 correct=15 max_abs_error=0.000085
+NN_TIME impl=gpu batch=64 padded=64 us=486
+NN_TIME impl=gpu batch=64 padded=64 us=475
+NN_TIME impl=gpu batch=64 padded=64 us=506
+NN_TIME impl=gpu batch=64 padded=64 us=500
+NN_TIME impl=gpu batch=64 padded=64 us=478
+NN_BATCH_CHECK impl=gpu batch=64 checked=1024 failures=0 pred_mismatch=0 correct=61 max_abs_error=0.000102
+NN_TIME impl=gpu batch=256 padded=256 us=1510
+NN_TIME impl=gpu batch=256 padded=256 us=1437
+NN_TIME impl=gpu batch=256 padded=256 us=1468
+NN_TIME impl=gpu batch=256 padded=256 us=1475
+NN_TIME impl=gpu batch=256 padded=256 us=1458
+NN_BATCH_CHECK impl=gpu batch=256 checked=4096 failures=0 pred_mismatch=0 correct=250 max_abs_error=0.000102
+NN_TIME impl=gpu batch=1797 padded=1800 us=9428
+NN_TIME impl=gpu batch=1797 padded=1800 us=9477
+NN_TIME impl=gpu batch=1797 padded=1800 us=9088
+NN_TIME impl=gpu batch=1797 padded=1800 us=9149
+NN_TIME impl=gpu batch=1797 padded=1800 us=9119
+NN_BATCH_CHECK impl=gpu batch=1797 checked=28752 failures=0 pred_mismatch=0 correct=1743 max_abs_error=0.000102
+NN_VALIDATE impl=gpu_timed checked=28752 failures=0 pred_mismatch=0 correct=1743 max_abs_error=0.000102
+NN_VALIDATE impl=arm_c checked=28752 failures=0 pred_mismatch=0 correct=1743 max_abs_error=0.000007
+NN_TIME impl=arm_c batch=1 padded=4 us=1043
+NN_TIME impl=arm_c batch=1 padded=4 us=811
+NN_TIME impl=arm_c batch=1 padded=4 us=816
+NN_TIME impl=arm_c batch=1 padded=4 us=813
+NN_TIME impl=arm_c batch=1 padded=4 us=802
+NN_BATCH_CHECK impl=arm_c batch=1 checked=16 failures=0 pred_mismatch=0 correct=1 max_abs_error=0.000001
+NN_TIME impl=arm_c batch=16 padded=16 us=1844
+NN_TIME impl=arm_c batch=16 padded=16 us=1796
+NN_TIME impl=arm_c batch=16 padded=16 us=1805
+NN_TIME impl=arm_c batch=16 padded=16 us=1794
+NN_TIME impl=arm_c batch=16 padded=16 us=1802
+NN_BATCH_CHECK impl=arm_c batch=16 checked=256 failures=0 pred_mismatch=0 correct=15 max_abs_error=0.000004
+NN_TIME impl=arm_c batch=64 padded=64 us=6004
+NN_TIME impl=arm_c batch=64 padded=64 us=5956
+NN_TIME impl=arm_c batch=64 padded=64 us=5954
+NN_TIME impl=arm_c batch=64 padded=64 us=5933
+NN_TIME impl=arm_c batch=64 padded=64 us=5938
+NN_BATCH_CHECK impl=arm_c batch=64 checked=1024 failures=0 pred_mismatch=0 correct=61 max_abs_error=0.000004
+NN_TIME impl=arm_c batch=256 padded=256 us=23970
+NN_TIME impl=arm_c batch=256 padded=256 us=24082
+NN_TIME impl=arm_c batch=256 padded=256 us=24072
+NN_TIME impl=arm_c batch=256 padded=256 us=24069
+NN_TIME impl=arm_c batch=256 padded=256 us=24061
+NN_BATCH_CHECK impl=arm_c batch=256 checked=4096 failures=0 pred_mismatch=0 correct=250 max_abs_error=0.000005
+NN_TIME impl=arm_c batch=1797 padded=1800 us=171463
+NN_TIME impl=arm_c batch=1797 padded=1800 us=171458
+NN_TIME impl=arm_c batch=1797 padded=1800 us=171538
+NN_TIME impl=arm_c batch=1797 padded=1800 us=171497
+NN_TIME impl=arm_c batch=1797 padded=1800 us=171432
+NN_BATCH_CHECK impl=arm_c batch=1797 checked=28752 failures=0 pred_mismatch=0 correct=1743 max_abs_error=0.000007
+NN_VALIDATE impl=arm_c_timed checked=28752 failures=0 pred_mismatch=0 correct=1743 max_abs_error=0.000007
+NN_VALIDATE impl=arm_vfp checked=28752 failures=0 pred_mismatch=0 correct=1743 max_abs_error=0.000009
+NN_TIME impl=arm_vfp batch=1 padded=4 us=958
+NN_TIME impl=arm_vfp batch=1 padded=4 us=741
+NN_TIME impl=arm_vfp batch=1 padded=4 us=718
+NN_TIME impl=arm_vfp batch=1 padded=4 us=711
+NN_TIME impl=arm_vfp batch=1 padded=4 us=720
+NN_BATCH_CHECK impl=arm_vfp batch=1 checked=16 failures=0 pred_mismatch=0 correct=1 max_abs_error=0.000002
+NN_TIME impl=arm_vfp batch=16 padded=16 us=1490
+NN_TIME impl=arm_vfp batch=16 padded=16 us=1465
+NN_TIME impl=arm_vfp batch=16 padded=16 us=1450
+NN_TIME impl=arm_vfp batch=16 padded=16 us=1447
+NN_TIME impl=arm_vfp batch=16 padded=16 us=1443
+NN_BATCH_CHECK impl=arm_vfp batch=16 checked=256 failures=0 pred_mismatch=0 correct=15 max_abs_error=0.000003
+NN_TIME impl=arm_vfp batch=64 padded=64 us=4584
+NN_TIME impl=arm_vfp batch=64 padded=64 us=4513
+NN_TIME impl=arm_vfp batch=64 padded=64 us=4512
+NN_TIME impl=arm_vfp batch=64 padded=64 us=4518
+NN_TIME impl=arm_vfp batch=64 padded=64 us=4515
+NN_BATCH_CHECK impl=arm_vfp batch=64 checked=1024 failures=0 pred_mismatch=0 correct=61 max_abs_error=0.000004
+NN_TIME impl=arm_vfp batch=256 padded=256 us=18469
+NN_TIME impl=arm_vfp batch=256 padded=256 us=18598
+NN_TIME impl=arm_vfp batch=256 padded=256 us=18560
+NN_TIME impl=arm_vfp batch=256 padded=256 us=18610
+NN_TIME impl=arm_vfp batch=256 padded=256 us=18557
+NN_BATCH_CHECK impl=arm_vfp batch=256 checked=4096 failures=0 pred_mismatch=0 correct=250 max_abs_error=0.000005
+NN_TIME impl=arm_vfp batch=1797 padded=1800 us=133588
+NN_TIME impl=arm_vfp batch=1797 padded=1800 us=133656
+NN_TIME impl=arm_vfp batch=1797 padded=1800 us=133700
+NN_TIME impl=arm_vfp batch=1797 padded=1800 us=133680
+NN_TIME impl=arm_vfp batch=1797 padded=1800 us=133730
+NN_BATCH_CHECK impl=arm_vfp batch=1797 checked=28752 failures=0 pred_mismatch=0 correct=1743 max_abs_error=0.000009
+NN_VALIDATE impl=arm_vfp_timed checked=28752 failures=0 pred_mismatch=0 correct=1743 max_abs_error=0.000009
+NN_PRED 1797
+01234967890123456789012345678909
+55650589841773510022786012633733
+46664915095281001763217163139176
+84314053696175447282257954884908
+91012345678901234567890123456789
+09556509898417735100227820126337
+33466649150952820017632173139176
+84314053696175447282255488490898
+01234567890123456789012345678909
+55650989841773510022782012633733
+46664915095282001763217463139176
+84314053696175447282257954884908
+93012345698901234569890120456589
+09556509898419735100229820126335
+33466649150952820015632174631391
+96843140536981554452822599548849
+08980122456789012345678901234567
+89095565098984177351002278201263
+37234666491509528200176221746813
+91768431405369617544728225795488
+49089801234567890123456789012345
+67890955650989841773510022782012
+63373346664915095282001763217463
+13917684314053646175447282257954
+88490898012345678901234547190123
+45678909556509899417735100227820
+12633733466049150952820017632174
+63139176843140536961754472922579
+54884908911234567890123456889012
+34567890955650989841773512782012
+63373346664915095282001762214631
+39176843140536961754472822579544
+90898012345678301234567890123456
+78909556509898417735100782012633
+73346664915095282001763217463199
+17684314053696175447282257954184
+90898012345678901234567890123456
+78909556509895417735100227520126
+33733466649155952820017632174631
+39176843140536961754472822579548
+84908980123456789012345678901234
+56789095565098984177351002278201
+26337334666491509528200176321746
+31391768431405369617544728225795
+48849080123456789012345678901234
+56789095565098984177351002279201
+26337334666491509529200176321746
+31391769431405369619544728225795
+48849089801234569190123456901234
+56759095565098984177351002248201
+26337734666491509528017632174631
+99176843140536961754472257854450
+89801234567890123456789012545678
+90955650989841773510022782012632
+73346664915095282001763217463139
+17684514053696175447282257954814
+90898
+NN_PRED_END
+NN_CHECK_OK
+PITON_DONE
+DONE!!!
+
+bootloader: pi exited.  cleaning up

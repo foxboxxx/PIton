@@ -31,7 +31,9 @@ matmul 1.13× / 1.18×, row_sum 0.965× (138 -> 143 µs: no accepted change was 
 on it, and these ~140 µs cases move 3-5% between boots), and row_max and compute_peak are
 unchanged. Rejected on the
 Pi: H6 (`PITON_MM`, 0.72-0.80× on matmul: TMU stalls 0.22 -> 0.47 of QPU time, which the emulator
-does not model). C11 (`PITON_PAIR`) passed but compiles 6.4× slower, so it is not on by default.
+does not model). C11 (`PITON_PAIR=1`) passed (mandel 1.06-1.07×, suite 1.010×) but compiles 3-6×
+slower, so it is an option, off by default. On the board of the 11-03 baseline the final profile is
+1.406× (`pi-2026-11-05-final-sameboard.json`), 1.424× with `PITON_PAIR=1`.
 
 On Linux, `tools/pi_power_linux` (libgpiod, the cp210x gpiochip of `PITON_TTY`'s bridge)
 power-cycles a hung Pi, as `tools/pi_power` does on macOS. Point `PITON_TTY` at the

@@ -13,9 +13,11 @@
 - **Primitives rerun** (`benchmarks/results/primitives-2026-11-05.log`): all 58 rows checked;
   copy 2.17 → 1.23 ms, exp 2.21 → 1.61 ms, idiv 8.54 → 3.17 ms, softmax 1.10 → 0.56 ms.
 - **Tried and rejected on the Pi:** H6 (`PITON_MM`, matmul A in column blocks: 0.72-0.80×, TMU
-  stalls double). **C11** (`PITON_PAIR`, scheduler pairing) passed its Pi gate (mandel 1.06-1.07×,
-  nothing below 0.98×) but compiles 6.4× slower, so it is left off pending a decision
-  (branch `try/c11-pi`).
+  stalls double). **C11** (`PITON_PAIR=1`, scheduler pairing) passed its Pi gate on both boards (mandel
+  1.06-1.07×, softmax 1.03×, suite geomean 1.010×, nothing below 0.98×) and is in perf-loop as an
+  option, off by default: compiling with it takes 3-6× longer.
+- **Same board as the 11-03 baseline:** the final suite profile is **1.406×** (geomean, every case
+  checked; `perf/results/pi-2026-11-05-final-sameboard.json`), **1.424×** with `PITON_PAIR=1`.
 - **Setup:** measured on a WSL2 host with a new UART head. `tools/pi_power_linux` power-cycles the
   Pi through the CP2102N's GPIO0, and the firmware is built against the cs240lx libpi with gcc 13.2
   (`-mfloat-abi=softfp`). `pi/examples/primitives/arm_vfp_ops.S` now also works under softfp. The

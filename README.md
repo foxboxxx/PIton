@@ -51,7 +51,11 @@ Status:
 **1.409× faster** (geometric mean) than on 2026-11-03, every output checked
 (`perf/results/pi-2026-11-05-final.json`). These were measured on a different host and UART
 head, with the cs240lx libpi built by gcc 13.2 (`-mfloat-abi=softfp`). The same compiler timed
-there and on the earlier setup agrees within 0.2% (geometric mean over the suite). The
+there and on the earlier setup agrees within 0.2% (geometric mean over the suite); re-measured on
+the board of the 11-03 baseline the suite is **1.406×** faster
+(`perf/results/pi-2026-11-05-final-sameboard.json`). The optional scheduler pairing
+(`PITON_PAIR=1`, off by default because compiling takes 3-6× longer) adds Mandelbrot 1.06-1.07×
+and softmax 1.03×, **1.424×** over the suite (`perf/results/ab-2026-11-05-pair.json`). The
 paragraphs below are earlier checkpoints.
 
 **2026-10-30 tuning checkpoint:** the seven unfinished tiles were measured at both 512³ and
