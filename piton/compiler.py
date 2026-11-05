@@ -68,6 +68,16 @@ def _weighted_length(prog: Program, mf) -> int:
     return total
 
 
+def _build_cost(prog: Program, mf, stats: dict) -> tuple:
+    """What the choice between builds minimises: _weighted_length, after
+    whether the build fell back to the plain dot (PITON_MM: stats
+    mm_fallback, compiler._build). A plain dot's variant is kept only where
+    no variant of the MM dot allocates, so the switch's A/B compares the k
+    loops (the flag groups of PITON_ISSUE can need registers the MM dot's
+    row pointers hold)."""
+    return int(bool(stats.get("mm_fallback"))), _weighted_length(prog, mf)
+
+
 def _block_lengths(prog: Program) -> dict:
     starts = sorted((idx, label) for label, idx in prog.labels.items())
     bounds = [idx for idx, _ in starts] + [len(prog.instrs)]
@@ -301,7 +311,7 @@ def _compile_tile(fn, signature, constants, name, pid_max, options, chunk: int =
                 candidate = _build(tile, ranges, opts, interleave=True, alphas=alphas, flags=flags)
             except RegAllocError:
                 continue
-            if _weighted_length(candidate[0], candidate[1]) < _weighted_length(prog, mf):
+            if _build_cost(candidate[0], candidate[1], candidate[3]) < _build_cost(prog, mf, stats):
                 prog, mf, lw, stats, asm["mir"], asm["mir_alloc"] = candidate
                 stats["presched"] = k
     stats["rerolled"] = chunk
@@ -659,7 +669,7 @@ def _compile_program(fn, signature, constants, name, pid_max, options):
                     # it allocated only with the private VPM rows: the plain
                     # build's 1 KiB slot DMAs gain more than coarsening
                     continue
-                if best is None or _weighted_length(built[1], built[2]) < _weighted_length(best[1], best[2]):
+                if best is None or _build_cost(built[1], built[2], built[4]) < _build_cost(best[1], best[2], best[4]):
                     best = built
             if best is not None:
                 break

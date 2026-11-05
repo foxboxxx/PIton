@@ -541,6 +541,33 @@ def test_registers_that_do_not_fit_fall_back(monkeypatch):
     np.testing.assert_array_equal(_run(ck, (1,), values)["out_ptr"], a @ b)
 
 
+def test_mm_builds_win_over_plain_variants(monkeypatch):
+    """PITON_ISSUE's pre-scheduling variants (compiler._compile_tile) whose MM
+    dot does not allocate fall back to the plain dot, and those can be
+    shorter than every MM build (_b_stride_by_iteration at 8x32x4 with a
+    run-time trip count: its flag groups' variants ran out of accumulators,
+    and their plain builds won).  An MM build still wins
+    (compiler._build_cost), so the switch changes the k loop."""
+    real = compiler._build
+
+    def build(tile, ranges, options, interleave, alphas=None, flags=None):
+        if options.get("mm_tried") and interleave and flags is None:
+            raise RegAllocError("test: no accumulators for the flag groups")
+        return real(tile, ranges, options, interleave, alphas, flags)
+    monkeypatch.setattr(compiler, "_build", build)
+    bm, bn, bk, ni = 8, 32, 4, 3
+    rng = np.random.default_rng(220)
+    a = rng.integers(-3, 4, (bm, bk * ni)).astype(np.float32)
+    b = rng.integers(-3, 4, (bk * ni, bn)).astype(np.float32)
+    sig = {"a_ptr": "*fp32", "b_ptr": "*fp32", "out_ptr": "*fp32", "n_iter": "i32"}
+    values = dict(a_ptr=a, b_ptr=b, out_ptr=np.full((bm, bn), np.nan, np.float32), n_iter=ni)
+    out, ck = _off_and_on(monkeypatch, "1", _b_stride_by_iteration, sig,
+                          dict(NI=ni, BM=bm, BN=bn, BK=bk, RUNTIME=True), (1,), values, ["out_ptr"])
+    assert ck.stats["mm_dots"] == 1 and not ck.stats.get("mm_fallback")
+    np.testing.assert_array_equal(out["out_ptr"],
+                                  sum(a[:, i * bk:(i + 1) * bk] @ b[np.arange(bk) * (i + 1)] for i in range(ni)))
+
+
 def test_plan_order_and_spacing():
     """Every operand register exactly once, B row k + 1 during step k, A's
     column-block register r during step w r - 1, nothing in the last step."""
