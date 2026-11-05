@@ -466,7 +466,7 @@ def test_only_the_matmul_cases_request_noswap():
     assert [c.name for c in CASES if c.options.get("tmu_noswap")] == REQUESTING
 
 
-@pytest.mark.parametrize("value,on", [(None, False), ("", False), ("0", False), ("1", True)])
+@pytest.mark.parametrize("value,on", [(None, True), ("", False), ("0", False), ("1", True)])
 def test_switch_values(monkeypatch, value, on):
     if value is None:
         monkeypatch.delenv("PITON_TMU_NOSWAP", raising=False)
@@ -481,13 +481,18 @@ def test_switch_values(monkeypatch, value, on):
         assert _first(instrs, lambda ins: _writes(ins, isa.TMU_S)) - _noswap_writes(ck)[0] >= 3
 
 
-def test_switch_off_is_the_default(monkeypatch):
+def test_switch_on_is_the_default(monkeypatch):
+    """On by default (accepted on the Pi 2026-11-04); "" and "0" turn it off."""
     monkeypatch.delenv("PITON_TMU_NOSWAP", raising=False)
     unset = pcompile(add_kernel, ADD_SIG, {"BLOCK_SIZE": 256})
-    for value in ("0", ""):
-        monkeypatch.setenv("PITON_TMU_NOSWAP", value)
-        off = pcompile(add_kernel, ADD_SIG, {"BLOCK_SIZE": 256})
-        assert unset.words == off.words and unset.uniforms == off.uniforms
+    monkeypatch.setenv("PITON_TMU_NOSWAP", "1")
+    on = pcompile(add_kernel, ADD_SIG, {"BLOCK_SIZE": 256})
+    assert unset.words == on.words and unset.uniforms == on.uniforms
+    monkeypatch.setenv("PITON_TMU_NOSWAP", "0")
+    off = pcompile(add_kernel, ADD_SIG, {"BLOCK_SIZE": 256})
+    monkeypatch.setenv("PITON_TMU_NOSWAP", "")
+    empty = pcompile(add_kernel, ADD_SIG, {"BLOCK_SIZE": 256})
+    assert off.words == empty.words and off.words != on.words
 
 
 @pytest.mark.parametrize("value", ["2", "yes", "on", "noswap"])

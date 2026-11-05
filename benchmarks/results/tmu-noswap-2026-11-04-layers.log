@@ -1,0 +1,23 @@
+# each digits layer and matmul_8x64x8 built plain (PITON_PERSISTENT=0), full grid, TMU_NOSWAP 0 vs 1 (v2 rule: plain dots), alternating boots
+dense_relu 0 {"case": "dense_relu", "noswap": null, "best_us": 4417, "times": [4426, 4433, 4432, 4433, 4417], "err": {"y_ptr": 3.6365158362361427e-06}, "untouched": true}
+dense_relu 1 {"case": "dense_relu", "noswap": 1, "best_us": 4209, "times": [4331, 4209, 4365, 4340, 4304], "err": {"y_ptr": 3.6365158362361427e-06}, "untouched": true}
+digits_dense2 0 {"case": "digits_dense2", "noswap": null, "best_us": 3671, "times": [3782, 3688, 3671, 3793, 3687], "err": {"y_ptr": 1.2292537822311544e-05}, "untouched": true}
+digits_dense2 1 {"case": "digits_dense2", "noswap": 1, "best_us": 4237, "times": [4301, 4434, 4329, 4237, 4298], "err": {"y_ptr": 1.2292537822311544e-05}, "untouched": true}
+digits_dense3 0 {"case": "digits_dense3", "noswap": null, "best_us": 509, "times": [544, 517, 511, 511, 509], "err": {"y_ptr": 4.298337834995891e-06}, "untouched": true}
+digits_dense3 1 {"case": "digits_dense3", "noswap": 1, "best_us": 546, "times": [582, 546, 558, 552, 555], "err": {"y_ptr": 4.298337834995891e-06}, "untouched": true}
+matmul_8x64x8 0 {"case": "matmul_8x64x8", "noswap": null, "best_us": 3899, "times": [3928, 3912, 3977, 3899, 3900], "err": {"c_ptr": 0.00010032118720459948}, "untouched": true}
+matmul_8x64x8 1 {"case": "matmul_8x64x8", "noswap": 1, "best_us": 3511, "times": [3550, 3567, 3540, 3511, 3545], "err": {"c_ptr": 0.00010032118720459948}, "untouched": true}
+dense_relu 1 {"case": "dense_relu", "noswap": 1, "best_us": 4279, "times": [4305, 4304, 4308, 4296, 4279], "err": {"y_ptr": 3.6365158362361427e-06}, "untouched": true}
+dense_relu 0 {"case": "dense_relu", "noswap": null, "best_us": 4380, "times": [4417, 4422, 4408, 4380, 4438], "err": {"y_ptr": 3.6365158362361427e-06}, "untouched": true}
+digits_dense2 1 {"case": "digits_dense2", "noswap": 1, "best_us": 4233, "times": [4236, 4257, 4290, 4383, 4233], "err": {"y_ptr": 1.2292537822311544e-05}, "untouched": true}
+digits_dense2 0 {"case": "digits_dense2", "noswap": null, "best_us": 3722, "times": [3747, 3722, 3875, 3724, 3792], "err": {"y_ptr": 1.2292537822311544e-05}, "untouched": true}
+digits_dense3 1 {"case": "digits_dense3", "noswap": 1, "best_us": 538, "times": [590, 538, 560, 558, 583], "err": {"y_ptr": 4.298337834995891e-06}, "untouched": true}
+digits_dense3 0 {"case": "digits_dense3", "noswap": null, "best_us": 507, "times": [551, 507, 513, 524, 522], "err": {"y_ptr": 4.298337834995891e-06}, "untouched": true}
+matmul_8x64x8 1 {"case": "matmul_8x64x8", "noswap": 1, "best_us": 3553, "times": [3594, 3564, 3553, 3577, 3621], "err": {"c_ptr": 0.00010032118720459948}, "untouched": true}
+matmul_8x64x8 0 {"case": "matmul_8x64x8", "noswap": null, "best_us": 3903, "times": [3960, 3903, 3940, 3926, 3940], "err": {"c_ptr": 0.00010032118720459948}, "untouched": true}
+dense_relu      off [4417, 4380] on [4209, 4279]  best ratio 1.041
+digits_dense2   off [3671, 3722] on [4237, 4233]  best ratio 0.867
+digits_dense3   off [509, 507] on [546, 538]  best ratio 0.942
+matmul_8x64x8   off [3899, 3903] on [3511, 3553]  best ratio 1.111
+
+[exited with code 0]

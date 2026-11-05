@@ -1,0 +1,77 @@
+   12 passed in 601.66s (0:10:01)
+== Pi A/B
+   mandel_16x16x2      478/478       27988    27989   1.000x
+   compute_peak        148/148        1133     1132   1.001x
+   verdict: REJECT (slower: dense_relu 0.976x)
+REJECT PITON_TMU_NOSWAP=1 (log perf/loop/accept-20261104-1503-tmu_noswap.log)
+case              instr off/on   off_us    on_us  speedup
+copy                249/249        1116     1108   1.007x
+add                 333/333        1401     1416   0.989x
+mul                 332/332        1401     1387   1.010x
+fma                 312/312        1390     1399   0.994x
+scaled_relu         402/402        1141     1147   0.995x
+exp                 347/347        1119     1124   0.996x
+exp2                328/328        1147     1140   1.006x
+log                 342/342        1143     1140   1.003x
+log2                341/337        1140     1138   1.002x
+recip               414/414        1150     1134   1.014x
+rsqrt               312/312        1139     1145   0.995x
+sqrt                304/304        1151     1158   0.994x
+idiv                629/629        2534     2525   1.004x
+row_sum             187/187         140      137   1.022x
+row_max             188/188         144      142   1.014x
+transpose          1016/1000        758      738   1.027x
+softmax             482/484         396      394   1.005x
+matmul_8x64x4      1124/1124       4212     3846   1.095x
+matmul_8x64x8      1383/1383       3808     3477   1.095x
+dense_relu          550/550        3849     3945   0.976x
+mandel_32x16        487/487       27665    27665   1.000x
+mandel_16x16x2      478/478       27988    27989   1.000x
+compute_peak        148/148        1133     1132   1.001x
+
+verdict: REJECT (slower: dense_relu 0.976x)
+== matmul run 1 noswap=0
+N=  512 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2)  best    30145 us  8.905 GFLOPS  max sampled err 3.61e-04  (512 programs)  ok  times_us=[30152, 30281, 30145]
+N= 1024 cfg=(8, 64, 8, 4, 2)  compiling and measuring...
+N= 1024 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2)  best   271402 us  7.913 GFLOPS  max sampled err 1.10e-03  (2048 programs)  ok  times_us=[271828, 271402, 271468]
+== digits run 1 noswap=0
+DEBPi verified: 1743/1797 correct (96.99%); all 28,752 logits and all predictions passed
+Batch    1 (padded    4): QPU 0.174 ms, ARM VFP 0.726 ms, 4.17x speedup, 5,747 images/s
+Batch   16 (padded   16): QPU 0.233 ms, ARM VFP 1.453 ms, 6.24x speedup, 68,670 images/s
+Batch   64 (padded   64): QPU 0.507 ms, ARM VFP 4.513 ms, 8.90x speedup, 126,233 images/s
+Batch  256 (padded  256): QPU 1.465 ms, ARM VFP 18.563 ms, 12.67x speedup, 174,744 images/s
+Batch 1797 (padded 1800): QPU 9.282 ms, ARM VFP 133.651 ms, 14.40x speedup, 193,601 images/s
+== matmul run 1 noswap=1
+N=  512 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2)  best    26417 us  10.161 GFLOPS  max sampled err 3.61e-04  (512 programs)  ok  times_us=[26573, 26446, 26417]
+N= 1024 cfg=(8, 64, 8, 4, 2)  compiling and measuring...
+N= 1024 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2)  best   229812 us  9.345 GFLOPS  max sampled err 1.10e-03  (2048 programs)  ok  times_us=[229812, 231023, 229958]
+== digits run 1 noswap=1
+DEBPi verified: 1743/1797 correct (96.99%); all 28,752 logits and all predictions passed
+Batch    1 (padded    4): QPU 0.173 ms, ARM VFP 0.718 ms, 4.15x speedup, 5,780 images/s
+Batch   16 (padded   16): QPU 0.236 ms, ARM VFP 1.449 ms, 6.14x speedup, 67,797 images/s
+Batch   64 (padded   64): QPU 0.520 ms, ARM VFP 4.523 ms, 8.70x speedup, 123,077 images/s
+Batch  256 (padded  256): QPU 1.522 ms, ARM VFP 18.569 ms, 12.20x speedup, 168,200 images/s
+Batch 1797 (padded 1800): QPU 10.020 ms, ARM VFP 133.691 ms, 13.34x speedup, 179,341 images/s
+== matmul run 2 noswap=0
+N=  512 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2)  best    30532 us  8.792 GFLOPS  max sampled err 3.61e-04  (512 programs)  ok  times_us=[30532, 30693, 30669]
+N= 1024 cfg=(8, 64, 8, 4, 2)  compiling and measuring...
+N= 1024 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2)  best   266449 us  8.060 GFLOPS  max sampled err 1.10e-03  (2048 programs)  ok  times_us=[267047, 266449, 266500]
+== digits run 2 noswap=0
+DEBPi verified: 1743/1797 correct (96.99%); all 28,752 logits and all predictions passed
+Batch    1 (padded    4): QPU 0.174 ms, ARM VFP 0.727 ms, 4.18x speedup, 5,747 images/s
+Batch   16 (padded   16): QPU 0.236 ms, ARM VFP 1.452 ms, 6.15x speedup, 67,797 images/s
+Batch   64 (padded   64): QPU 0.487 ms, ARM VFP 4.517 ms, 9.28x speedup, 131,417 images/s
+Batch  256 (padded  256): QPU 1.462 ms, ARM VFP 18.573 ms, 12.70x speedup, 175,103 images/s
+Batch 1797 (padded 1800): QPU 9.387 ms, ARM VFP 133.691 ms, 14.24x speedup, 191,435 images/s
+== matmul run 2 noswap=1
+N=  512 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2)  best    26599 us  10.092 GFLOPS  max sampled err 3.61e-04  (512 programs)  ok  times_us=[26599, 26736, 26641]
+N= 1024 cfg=(8, 64, 8, 4, 2)  compiling and measuring...
+N= 1024 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2)  best   230002 us  9.337 GFLOPS  max sampled err 1.10e-03  (2048 programs)  ok  times_us=[230002, 230024, 230639]
+== digits run 2 noswap=1
+DEBPi verified: 1743/1797 correct (96.99%); all 28,752 logits and all predictions passed
+Batch    1 (padded    4): QPU 0.173 ms, ARM VFP 0.726 ms, 4.20x speedup, 5,780 images/s
+Batch   16 (padded   16): QPU 0.236 ms, ARM VFP 1.455 ms, 6.17x speedup, 67,797 images/s
+Batch   64 (padded   64): QPU 0.520 ms, ARM VFP 4.516 ms, 8.68x speedup, 123,077 images/s
+Batch  256 (padded  256): QPU 1.533 ms, ARM VFP 18.558 ms, 12.11x speedup, 166,993 images/s
+Batch 1797 (padded 1800): QPU 9.829 ms, ARM VFP 133.653 ms, 13.60x speedup, 182,826 images/s
+GATE-DONE

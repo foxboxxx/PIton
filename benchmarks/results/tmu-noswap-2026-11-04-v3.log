@@ -1,0 +1,108 @@
+   12 passed in 646.28s (0:10:46)
+== Pi A/B
+   mandel_16x16x2      478/478       27988    27989   1.000x
+   compute_peak        148/148        1132     1132   1.000x
+   verdict: REJECT (slower: mul 0.979x, row_sum 0.951x)
+REJECT PITON_TMU_NOSWAP=1 (log perf/loop/accept-20261104-1654-tmu_noswap.log)
+case              instr off/on   off_us    on_us  speedup
+copy                249/249        1109     1107   1.002x
+add                 333/333        1401     1405   0.997x
+mul                 332/332        1366     1395   0.979x
+fma                 312/312        1390     1387   1.002x
+scaled_relu         402/402        1156     1156   1.000x
+exp                 347/347        1118     1124   0.995x
+exp2                328/328        1140     1138   1.002x
+log                 342/342        1141     1134   1.006x
+log2                337/341        1138     1142   0.996x
+recip               414/414        1135     1129   1.005x
+rsqrt               313/313        1141     1140   1.001x
+sqrt                304/301        1158     1151   1.006x
+idiv                629/629        2532     2525   1.003x
+row_sum             187/187         135      142   0.951x
+row_max             188/188         139      141   0.986x
+transpose          1013/989         751      740   1.015x
+softmax             483/483         397      397   1.000x
+matmul_8x64x4      1124/1124       4216     3839   1.098x
+matmul_8x64x8      1383/1383       3826     3480   1.099x
+dense_relu          550/550        3896     3911   0.996x
+mandel_32x16        487/487       27665    27666   1.000x
+mandel_16x16x2      478/478       27988    27989   1.000x
+compute_peak        148/148        1132     1132   1.000x
+
+verdict: REJECT (slower: mul 0.979x, row_sum 0.951x)
+== matmul run 1 noswap=0
+N=  512 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2)  best    30580 us  8.778 GFLOPS  max sampled err 3.61e-04  (512 programs)  ok  times_us=[30734, 30694, 30580]
+N= 1024 cfg=(8, 64, 8, 4, 2)  compiling and measuring...
+N= 1024 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2)  best   267240 us  8.036 GFLOPS  max sampled err 1.10e-03  (2048 programs)  ok  times_us=[268907, 267240, 267482]
+== packed matmul run 1 noswap=0
+N=512 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2) specialized=False GPU repeats us=[34794, 34927, 34896] best=34794 us 7.715 GFLOPS; B generation+packed-placement=122297 us (outside GPU timer); sampled correctness PASS 2703 values, max err=3.613e-04, max error/bound=0.0225; 512 programs, 1554 instructions
+N=1024 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2) specialized=False GPU repeats us=[302192, 303188, 302379] best=302192 us 7.106 GFLOPS; B generation+packed-placement=489187 us (outside GPU timer); sampled correctness PASS 10811 values, max err=1.101e-03, max error/bound=0.0173; 2048 programs, 1515 instructions
+== digits run 1 noswap=0
+DEBPi verified: 1743/1797 correct (96.99%); all 28,752 logits and all predictions passed
+Batch    1 (padded    4): QPU 0.175 ms, ARM VFP 0.723 ms, 4.13x speedup, 5,714 images/s
+Batch   16 (padded   16): QPU 0.234 ms, ARM VFP 1.450 ms, 6.20x speedup, 68,376 images/s
+Batch   64 (padded   64): QPU 0.503 ms, ARM VFP 4.510 ms, 8.97x speedup, 127,237 images/s
+Batch  256 (padded  256): QPU 1.459 ms, ARM VFP 18.574 ms, 12.73x speedup, 175,463 images/s
+Batch 1797 (padded 1800): QPU 9.343 ms, ARM VFP 133.672 ms, 14.31x speedup, 192,337 images/s
+== matmul run 1 noswap=1
+
+== continuation (benchmarks after the suite A/B, recheck)
+== matmul run 1 noswap=0
+N=  512 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2)  best    30700 us  8.744 GFLOPS  max sampled err 3.61e-04  (512 programs)  ok  times_us=[31123, 31075, 30700]
+N= 1024 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2)  best   271023 us  7.924 GFLOPS  max sampled err 1.10e-03  (2048 programs)  ok  times_us=[271511, 271436, 271023]
+== packed matmul run 1 noswap=0
+N=512 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2) specialized=False GPU repeats us=[34814, 34785, 34777] best=34777 us 7.719 GFLOPS; B generatio
+N=1024 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2) specialized=False GPU repeats us=[297452, 298381, 297822] best=297452 us 7.220 GFLOPS; B gene
+== digits run 1 noswap=0
+Batch    1 (padded    4): QPU 0.174 ms, ARM VFP 0.722 ms, 4.15x speedup, 5,747 images/s
+Batch   16 (padded   16): QPU 0.230 ms, ARM VFP 1.450 ms, 6.30x speedup, 69,565 images/s
+Batch   64 (padded   64): QPU 0.485 ms, ARM VFP 4.519 ms, 9.32x speedup, 131,959 images/s
+Batch  256 (padded  256): QPU 1.449 ms, ARM VFP 18.571 ms, 12.82x speedup, 176,674 images/s
+Batch 1797 (padded 1800): QPU 9.285 ms, ARM VFP 133.656 ms, 14.39x speedup, 193,538 images/s
+== matmul run 1 noswap=1
+N=  512 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2)  best    26397 us  10.169 GFLOPS  max sampled err 3.61e-04  (512 programs)  ok  times_us=[26397, 26516, 26629]
+N= 1024 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2)  best   229589 us  9.354 GFLOPS  max sampled err 1.10e-03  (2048 programs)  ok  times_us=[229891, 229677, 229589]
+== packed matmul run 1 noswap=1
+N=512 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2) specialized=False GPU repeats us=[29114, 29049, 29116] best=29049 us 9.241 GFLOPS; B generatio
+N=1024 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2) specialized=False GPU repeats us=[250643, 252334, 250573] best=250573 us 8.570 GFLOPS; B gene
+== digits run 1 noswap=1
+Batch    1 (padded    4): QPU 0.174 ms, ARM VFP 0.724 ms, 4.16x speedup, 5,747 images/s
+Batch   16 (padded   16): QPU 0.231 ms, ARM VFP 1.449 ms, 6.27x speedup, 69,264 images/s
+Batch   64 (padded   64): QPU 0.500 ms, ARM VFP 4.515 ms, 9.03x speedup, 128,000 images/s
+Batch  256 (padded  256): QPU 1.465 ms, ARM VFP 18.568 ms, 12.67x speedup, 174,744 images/s
+Batch 1797 (padded 1800): QPU 9.357 ms, ARM VFP 133.639 ms, 14.28x speedup, 192,049 images/s
+== matmul run 2 noswap=0
+N=  512 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2)  best    30015 us  8.943 GFLOPS  max sampled err 3.61e-04  (512 programs)  ok  times_us=[30451, 30493, 30015]
+N= 1024 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2)  best   266363 us  8.062 GFLOPS  max sampled err 1.10e-03  (2048 programs)  ok  times_us=[266898, 266363, 267201]
+== packed matmul run 2 noswap=0
+N=512 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2) specialized=False GPU repeats us=[34875, 34782, 34843] best=34782 us 7.718 GFLOPS; B generatio
+N=1024 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2) specialized=False GPU repeats us=[297108, 297429, 297116] best=297108 us 7.228 GFLOPS; B gene
+== digits run 2 noswap=0
+Batch    1 (padded    4): QPU 0.174 ms, ARM VFP 0.722 ms, 4.15x speedup, 5,747 images/s
+Batch   16 (padded   16): QPU 0.237 ms, ARM VFP 1.450 ms, 6.12x speedup, 67,511 images/s
+Batch   64 (padded   64): QPU 0.492 ms, ARM VFP 4.516 ms, 9.18x speedup, 130,081 images/s
+Batch  256 (padded  256): QPU 1.468 ms, ARM VFP 18.567 ms, 12.65x speedup, 174,387 images/s
+Batch 1797 (padded 1800): QPU 9.428 ms, ARM VFP 133.653 ms, 14.18x speedup, 190,602 images/s
+== matmul run 2 noswap=1
+N=  512 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2)  best    26292 us  10.210 GFLOPS  max sampled err 3.61e-04  (512 programs)  ok  times_us=[26581, 26292, 26420]
+N= 1024 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2)  best   229760 us  9.347 GFLOPS  max sampled err 1.10e-03  (2048 programs)  ok  times_us=[229777, 236122, 229760]
+== packed matmul run 2 noswap=1
+N=512 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2) specialized=False GPU repeats us=[27073, 27662, 28900] best=27073 us 9.915 GFLOPS; B generatio
+N=1024 cfg(BM,BN,BK,G,stages)=(8, 64, 8, 4, 2) specialized=False GPU repeats us=[251788, 252870, 250858] best=250858 us 8.561 GFLOPS; B gene
+== digits run 2 noswap=1
+Batch    1 (padded    4): QPU 0.173 ms, ARM VFP 0.720 ms, 4.16x speedup, 5,780 images/s
+Batch   16 (padded   16): QPU 0.233 ms, ARM VFP 1.456 ms, 6.25x speedup, 68,670 images/s
+Batch   64 (padded   64): QPU 0.493 ms, ARM VFP 4.518 ms, 9.16x speedup, 129,817 images/s
+Batch  256 (padded  256): QPU 1.449 ms, ARM VFP 18.562 ms, 12.81x speedup, 176,674 images/s
+Batch 1797 (padded 1800): QPU 9.399 ms, ARM VFP 133.661 ms, 14.22x speedup, 191,191 images/s
+== recheck
+case              instr off/on   off_us    on_us  speedup
+mul                 332/332        1378     1373   1.004x
+row_sum             187/187         139      143   0.972x
+row_max             188/188         138      138   1.000x
+
+verdict: REJECT (slower: row_sum 0.972x)
+mul per-boot best off [1388, 1386, 1378, 1401, 1396, 1406] on [1408, 1401, 1373, 1410, 1400, 1400] median ratio 0.994
+row_sum per-boot best off [139, 143, 145, 143, 144, 143] on [148, 144, 145, 144, 143, 144] median ratio 0.993
+row_max per-boot best off [141, 140, 141, 143, 138, 141] on [140, 141, 140, 146, 139, 138] median ratio 1.007
+GATE-DONE
