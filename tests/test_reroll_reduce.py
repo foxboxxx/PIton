@@ -212,8 +212,9 @@ def layernorm_kernel(x_ptr, out_ptr, n, eps, BLOCK: tl.constexpr):
 def test_layernorm_three_passes(monkeypatch, block, n, slots):
     """(BLOCK=128 with store slots stays unrolled: 463 instructions, the passes
     with the store queued after them 475, so it is rerolled with private rows.
-    With PITON_ISSUE its unrolled build with private rows is 375 instructions and
-    fits the cache, so a threshold of 360 keeps the passes; 461 without.)"""
+    With PITON_ISSUE its unrolled build with private rows is 375 instructions (368
+    with PITON_PAIR too, 415 with PITON_PAIR alone) and fits the cache, so a
+    threshold of 360 keeps the passes; 461 without either.)"""
     monkeypatch.setenv("PITON_STORE_SLOTS", slots)
     rows = 3
     x = (rng.standard_normal((rows, block)) * 2 + 1).astype(np.float32)
@@ -511,6 +512,12 @@ def test_transposed_load_mask_and_other(monkeypatch):
     sig = {"x_ptr": "*fp32", "out_ptr": "*fp32", "n": "i32"}
     ck, got = on_and_off(monkeypatch, trans_other_kernel, sig, {"BLOCK": block}, (1,), values, icache=64)
     assert "load_operand" in ck.asm["ttir_opt"]
+    # and the transposed build through transposed_build, bit for bit (with
+    # port-aware allocation compile() may keep either build: they come within a
+    # few instructions of each other, and Lowering.permute orders rotations by id())
+    tr = transposed_build(trans_other_kernel, sig, {"BLOCK": block}, (1,))
+    assert "load_operand" in tr.asm["ttir_opt"]
+    np.testing.assert_array_equal(bits(run(tr, (1,), values)["out_ptr"]), bits(got["out_ptr"]))
     i, j = np.meshgrid(np.arange(block), np.arange(block), indexing="ij")
     src = np.where((i < n) & (j < n - 1), x, (i - j).astype(np.float32))
     np.testing.assert_allclose(got["out_ptr"].reshape(block, block), src.T * 2 + 1, rtol=1e-6)

@@ -20,17 +20,68 @@ Ready operations are packed greedily into instructions: one add-unit op,
 one mul-unit op, one signal, subject to read ports / write swap (checked by
 actually encoding the candidate instruction) and the one-peripheral-access-
 per-instruction rule.
+
+Pairing (PITON_PAIR=1)
+----------------------
+The greedy packing fills the add ALU with the highest-priority op that
+fits, so a register move that could run on either ALU often takes the add
+ALU while an add-only op of the same cycle waits for the next instruction,
+and in blocks with far more add-only than mul-only work (or the reverse)
+the critical-path order runs out of ops for the busy ALU at the end. With
+the switch:
+  * a move on the add ALU steps over to the idle mul ALU (as `v8min x, x`,
+    bit-exact) when an add-only op needs the add ALU (Bundle.try_add);
+  * each block is scheduled with several priority functions (PAIR_MODES:
+    the plain one, the move, and the move with a bonus of 1, 2 or 5 cycles
+    for ops of the ALU with more single-unit ops left) and the shortest
+    schedule is kept (the earlier one on ties); a loop that streams through
+    the TMU keeps the one whose iterations wait least for their loads
+    instead (tmu_loop_cost: the bonus can move a request closer to the load
+    that receives it, and matmul's loop is bound by those waits);
+  * with PITON_ISSUE each of those schedules is also built with its
+    prefer_mul (Bundle.try_add: an op for either ALU, moves and the rest,
+    starts an instruction on the mul ALU while an add-only op is ready;
+    the move above instead steps over only when an add-only op joins, so
+    the two leave different instructions and neither covers the other),
+    the plain and the prefer_mul schedule first: no block is longer than
+    PITON_ISSUE alone makes it (except a TMU loop's choice above), the
+    port-aware searches below compare the schedules the build keeps, and
+    PITON_ISSUE=0 builds none with prefer_mul;
+  * a dot product's multiply-add pairs stay atomic, except that the add of
+    the last product before each A broadcast (lower.py op_tt_dot, MInst
+    `split`) may also be scheduled on its own: the broadcast's rotation
+    leaves the add ALU idle, and that add is the one op ready for it; both
+    forms are scheduled and the shorter kept (allocation still sees the
+    pair, so the joint form always encodes);
+  * the pairs those schedules missed for the read ports go to the
+    port-aware allocation (regalloc.PortHints), each weighted by the share
+    of schedules that missed it, so its next attempt does not depend on
+    which schedule happened to be kept; a second port-aware search starts
+    from the pairs only the kept schedules missed (compiler._build: either
+    greedy search can end in the shorter loop), and the allocation the
+    switch-off search keeps stays a candidate (scheduled with the pairing
+    schedules), so a build is not left longer by searches that end
+    elsewhere;
+  * a hazard that only the way into a loop has (a value written just
+    before the loop and read at its head) is padded at the end of the
+    preheader, not at the loop head where every iteration ran the nop
+    (fix_block_boundaries).
+Every schedule is built from the same dependence DAG and Bundle checks, so
+all latency and hazard rules hold for each.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import os
+from collections import deque
+from dataclasses import dataclass, field, replace
 from itertools import combinations
 from typing import Optional
 
 from ..qpu import isa
 from ..qpu.asm import Program
 from ..qpu.isa import AluOp, EncodeError, Imm, Instr, Reg
+from .lower import TMU_DEPTH
 from .mir import MInst, MOp, VReg
 
 LAT_REGFILE = 2
@@ -42,6 +93,21 @@ LAT_UNIF_ADDR = 3
 LAT_TMU_NOSWAP = 3      # guide p37: TMU_NOSWAP three instructions before the first TMU write
 # Soft latency used only for priorities: keep TMU requests far from their reads.
 SOFT_TMU = 10
+# TMU latencies (instructions) for tmu_loop_cost: the emulator's fixed-latency
+# model reproduces the TMU stall of perf/results/pi-2026-11-03-baseline.json
+# at about 60 (dense_relu, 25%), 70 (row_sum, 43%) and 90-100 (matmul, 26-35%)
+TMU_LATENCIES = (60, 90, 120)
+# Special destinations a register move may write from either ALU (PITON_PAIR;
+# the mul ALU spells it `v8min x, x`), besides accumulators and register
+# files. Not a discarded result or a move of an immediate, which vc4asm
+# assembles to other bits on the mul ALU; VPM, DMA, uniform-address and mutex
+# writes keep the ALU the plain packing gives them.
+_EITHER_DSTS = frozenset([isa.R5QUAD, isa.R5REP, isa.TMU0_S, isa.TMU1_S] + list(isa.SFU_REGS))
+
+
+def pair_enabled() -> bool:
+    """PITON_PAIR=1: the pairing schedules (module docstring); unset or 0: off."""
+    return os.environ.get("PITON_PAIR", "0") not in ("", "0")
 
 
 def _phys(x):
@@ -295,7 +361,21 @@ def _node_for(i, m: MInst) -> Node:
     return Node(i, m, ops, res, list(m.ops))
 
 
-def build_dag(minsts) -> list:
+def _split_pairs(minsts) -> list:
+    """One MInst per op of each atomic MInst marked `split` (PITON_PAIR)."""
+    out = []
+    for m in minsts:
+        if m.split and m.atomic:
+            out += [replace(m, ops=[op], atomic=False, split=False) for op in m.ops]
+        else:
+            out.append(m)
+    return out
+
+
+def build_dag(minsts, split: bool = False) -> list:
+    """split: the ops of atomic MInsts marked `split` get a node each (PITON_PAIR)."""
+    if split:
+        minsts = _split_pairs(minsts)
     nodes = [_node_for(i, m) for i, m in enumerate(minsts)]
     last_w = {}
     readers = {}
@@ -347,8 +427,22 @@ def _edge(a: Node, b: Node, lat: int):
 # ---------------------------------------------------------------------------
 
 
+def _either_move(n: Node) -> bool:
+    """Is n a single register move that may run on either ALU (PITON_PAIR)?"""
+    if n.minst.kind != "alu" or len(n.mops) != 1:
+        return False
+    op, aop = n.mops[0], n.alu_ops[0]
+    if op.unit != "any" or op.op != "mov" or op.setf or aop.rot is not None:
+        return False
+    if any(isinstance(s, Imm) for s in aop.srcs()):
+        return False
+    d = aop.dst
+    return d.waddr is not None and (d.waddr < 36 or d in _EITHER_DSTS)
+
+
 class Bundle:
-    def __init__(self):
+    def __init__(self, swap: bool = False):
+        self.swap = swap            # PITON_PAIR: a move may leave the add ALU for the mul ALU
         self.kind = "alu"
         self.add = None
         self.mul = None
@@ -432,6 +526,12 @@ class Bundle:
             return False
         # place ops on units
         saved = (self.add, self.mul, self.sig, self.setf, self.setf_unit)
+        if self.swap and self.mul is None and self.add is not None and len(n.mops) == 1 \
+                and n.mops[0].unit == "add":
+            # the move holding the add ALU steps over to the idle mul ALU
+            holder = [x for x in self.nodes if x.alu_ops and x.alu_ops[0] is self.add]
+            if holder and _either_move(holder[0]):
+                self.add, self.mul = None, self.add
         placement = []
         free_add, free_mul = self.add is None, self.mul is None
         for op, aop in zip(n.mops, n.alu_ops):
@@ -443,6 +543,7 @@ class Bundle:
             elif unit == "mul" and free_mul:
                 free_mul = False
             else:
+                self.add, self.mul = saved[:2]
                 return False
             placement.append((unit, op, aop))
         dsts = set()
@@ -452,6 +553,8 @@ class Bundle:
         for unit, op, aop in placement:
             key = (aop.dst.waddr, aop.dst.wfile if aop.dst.waddr is not None and aop.dst.waddr < 32 else "")
             if aop.dst != isa.NOP and key in dsts:
+                # (an earlier op of the same node may already have set the flags)
+                self.add, self.mul, self.sig, self.setf, self.setf_unit = saved
                 return False
             if aop.dst != isa.NOP:
                 dsts.add(key)
@@ -503,33 +606,122 @@ def _missed_pair(bundle: Bundle, ready: list):
 
 
 def schedule_block(minsts, terminator: Optional[MInst] = None, missed: Optional[list] = None,
-                   weight: float = 1, prefer_mul: bool = False):
+                   weight: float = 1, prefer_mul: bool = False, kept: Optional[list] = None, cost=None,
+                   pair: Optional[bool] = None):
     """Returns list[Instr] for one block (terminator branch excluded).
 
     missed: if given, collects (weight, [(unit, MOp)]) for every instruction
     left with an idle ALU that a ready operation could have filled but for
-    the encoding (register allocation reads these, regalloc.PortHints)."""
-    nodes = build_dag(minsts)
+    the encoding (register allocation reads these, regalloc.PortHints).
+    prefer_mul (PITON_ISSUE): Bundle.try_add's prefer_mul.
+    With PITON_PAIR the shortest of the PAIR_MODES schedules (module
+    docstring; the later ones only while none reaches _lower_bound), each
+    built without and then, with prefer_mul, with it (so the two schedules
+    PITON_ISSUE compares come first), and `missed` gets the pairs of all
+    those built, each at weight / their number; `kept`, if given, gets the
+    pairs of the schedule returned, at full weight (compiler.py's second
+    port-aware search). cost (PITON_PAIR): every schedule is built and the
+    one of lowest (cost(schedule), length) kept, the earlier on ties
+    (schedule_function: a loop's TMU waits). pair: the pairing schedules,
+    whatever PITON_PAIR says (None: as it says)."""
+    if not (pair_enabled() if pair is None else pair):
+        return _list_schedule(build_dag(minsts), missed, weight, prefer_mul=prefer_mul)
+    best, best_key, best_pairs, pairs, built = None, None, None, [], 0
+    collect = missed is not None or kept is not None
+    modes = [(swap, balance, pm) for swap, balance in PAIR_MODES for pm in (False, True)[:1 + bool(prefer_mul)]]
+    for split in (False, True) if any(m.split for m in minsts) else (False,):
+        nodes = build_dag(minsts, split)
+        bound = -1 if cost is not None else _lower_bound(nodes)
+        for swap, balance, pm in modes:
+            mine = [] if collect else None
+            out = _list_schedule(nodes, mine, weight, swap, balance, pm)
+            built += 1
+            if collect:
+                pairs += mine
+            key = (cost(out), len(out)) if cost is not None else len(out)
+            if best is None or key < best_key:
+                best, best_key, best_pairs = out, key, mine
+            if len(best) <= bound:
+                break
+        if len(best) <= bound:
+            break
+    if missed is not None:
+        missed.extend((w / built, p) for w, p in pairs)
+    if kept is not None:
+        kept.extend(best_pairs)
+    return best
+
+
+# PITON_PAIR: (move to the mul ALU, balance bonus) of the schedules
+# schedule_block compares, in order of preference
+PAIR_MODES = ((False, 0), (True, 0), (True, 1), (True, 2), (True, 5))
+
+
+def _lower_bound(nodes) -> int:
+    """No schedule of the block is shorter: its critical path, and the ALU
+    ops, peripheral accesses and load immediates each instruction can hold."""
+    start = {}
+    add = mul = either = periph = full = 0
+    for n in nodes:
+        start[n.idx] = max((start[p.idx] + lat for p, lat in n.preds), default=0)
+        if n.minst.kind in ("ldi", "sem"):
+            full += 1
+            continue
+        for op in n.mops:
+            add += op.unit == "add"
+            mul += op.unit == "mul"
+            either += op.unit == "any"
+        periph += n.res.periph
+    alu = max(add, mul, -(-(add + mul + either) // 2), periph)
+    return max(max(start.values(), default=-1) + 1, full + alu)
+
+
+def _list_schedule(nodes, missed, weight, swap=False, balance=0, prefer_mul=False):
+    """Cycle-by-cycle list schedule of build_dag's nodes (schedule_block).
+    swap: Bundle's move to the mul ALU (PITON_PAIR); balance: priority bonus
+    of an op for the ALU with more single-unit ops left (PITON_PAIR);
+    prefer_mul: Bundle.try_add's (PITON_ISSUE)."""
+    pair = swap or balance
+    for n in nodes:
+        n.cycle = None
     remaining = set(range(len(nodes)))
     earliest = {n.idx: 0 for n in nodes}
     npred = {n.idx: len(n.preds) for n in nodes}
     out = []
     cycle = 0
     ready = [n for n in nodes if not n.preds]
+    left = {"add": 0, "mul": 0}             # single-unit ops not yet scheduled (balance)
+    if balance:
+        for n in nodes:
+            if len(n.mops) == 1 and n.mops[0].unit in left:
+                left[n.mops[0].unit] += 1
+
+    def key(n):
+        if balance and len(n.mops) == 1:
+            u = n.mops[0].unit
+            if u in left and left[u] > left["mul" if u == "add" else "add"]:
+                return (-n.prio - balance, n.idx)
+        return (-n.prio, n.idx)
     while remaining:
-        bundle = Bundle()
+        bundle = Bundle(swap)
+        refused = set()     # (PITON_PAIR) an op a bundle refused it refuses with more ops too
         progress = True
         while progress:
             progress = False
-            cands = sorted((n for n in ready if earliest[n.idx] <= cycle),
-                           key=lambda n: (-n.prio, n.idx))
+            now = [n for n in ready if earliest[n.idx] <= cycle]
+            cands = sorted((n for n in now if n.idx not in refused), key=key)
             # (PITON_ISSUE) an op for either ALU leaves the add ALU to a waiting add-only op
-            pm = prefer_mul and any(c.mops and all(o.unit == "add" for o in c.mops) for c in cands)
+            pm = prefer_mul and any(c.mops and all(o.unit == "add" for o in c.mops) for c in now)
             for n in cands:
+                if pair and (bundle.kind != "alu" or n.alu_ops and bundle.add is not None and bundle.mul is not None):
+                    refused.add(n.idx)          # (no ALU left for it: what try_add would find)
+                    continue
                 if bundle.try_add(n, pm):
                     n.cycle = cycle
                     ready.remove(n)
                     remaining.discard(n.idx)
+                    if balance and len(n.mops) == 1 and n.mops[0].unit in left:
+                        left[n.mops[0].unit] -= 1
                     for s, lat in n.succs:
                         earliest[s.idx] = max(earliest[s.idx], cycle + lat)
                         npred[s.idx] -= 1
@@ -537,6 +729,8 @@ def schedule_block(minsts, terminator: Optional[MInst] = None, missed: Optional[
                             ready.append(s)
                     progress = True
                     break
+                if pair:
+                    refused.add(n.idx)
         if bundle.empty:
             stuck = [n for n in ready if earliest[n.idx] <= cycle]
             if stuck:
@@ -664,10 +858,11 @@ def _repair_delay_latencies(instructions: list) -> Optional[list]:
     return None
 
 
-def fix_block_boundaries(blocks_instrs: list, preds: dict, order: list) -> None:
+def fix_block_boundaries(blocks_instrs: list, preds: dict, order: list, pair: Optional[bool] = None) -> None:
     """Insert nops at block heads so no hazard crosses a block boundary.
 
     blocks_instrs: label -> list[Instr] (including branches and delay slots)
+    pair: pad loop-entry hazards in the preheader (PITON_PAIR; None: as it says)
     """
     def tails(lbl, k, depth=0):
         """The possible last-k instruction sequences executed up to the end of
@@ -682,31 +877,106 @@ def fix_block_boundaries(blocks_instrs: list, preds: dict, order: list) -> None:
                 out.append(t + ins)
         return out
 
+    def needed(tail, head):
+        """Nops between tail and head for every latency across them."""
+        need = 0
+        for i, t in enumerate(tail):
+            tr = instr_res(t)
+            dist_tail = len(tail) - i      # distance to head[0]
+            for j, h in enumerate(head[:4]):
+                req = required_distance(tr, instr_res(h))
+                if req > dist_tail + j:
+                    need = max(need, req - (dist_tail + j))
+        return need
+
+    pair = pair_enabled() if pair is None else pair
+    succs = {}
+    for lbl, ps in preds.items():
+        for p in ps:
+            succs.setdefault(p, set()).add(lbl)
     changed = True
     while changed:
         changed = False
         for label in order:
             head = blocks_instrs[label]
-            for tail in [t for p in preds.get(label, []) for t in tails(p, 4)]:
-                need = 0
-                for i, t in enumerate(tail):
-                    tr = instr_res(t)
-                    dist_tail = len(tail) - i      # distance to head[0]
-                    for j, h in enumerate(head[:4]):
-                        req = required_distance(tr, instr_res(h))
-                        if req > dist_tail + j:
-                            need = max(need, req - (dist_tail + j))
+            ps = preds.get(label, [])
+            if pair and len(ps) > 1:
+                # PITON_PAIR: a hazard only on the way in from blocks that fall
+                # through into this one and nowhere else (a loop's preheader) is
+                # padded at their end, so the other predecessors (the loop's back
+                # edge) do not run the nops
+                needs = {p: max(needed(t, head) for t in tails(p, 4)) for p in ps}
+                late = [p for p in ps if needs[p]]
+                if late and len(late) < len(ps) and all(
+                        succs.get(p) == {label} and order.index(p) + 1 == order.index(label)
+                        and not any(ins.kind == "branch" for ins in blocks_instrs[p][-4:]) for p in late):
+                    for p in late:
+                        blocks_instrs[p] = blocks_instrs[p] + [Instr.nop("boundary hazard")
+                                                               for _ in range(needs[p])]
+                    changed = True
+                    continue
+            for tail in [t for p in ps for t in tails(p, 4)]:
+                need = needed(tail, head)
                 if need:
                     blocks_instrs[label] = [Instr.nop("boundary hazard") for _ in range(need)] + head
                     head = blocks_instrs[label]
                     changed = True
 
 
-def schedule_function(fn, name: str, missed: Optional[list] = None, prefer_mul: bool = False) -> Program:
-    """Schedule an allocated mir.Function into a Program (missed: see
+def _tmu_events(ins: Instr):
+    """(TMU unit requested, TMU unit received) by one instruction, None for neither."""
+    req = None
+    for op in (ins.add, ins.mul):
+        if op is not None and op.dst in isa.TMU_S:
+            req = isa.TMU_S.index(op.dst)
+    recv = None
+    if ins.kind == "alu" and ins.sig in ("ldtmu0", "ldtmu1"):
+        recv = int(ins.sig[-1])
+    return req, recv
+
+
+def tmu_loop_period(body: list, latency: int, iters: int = 8) -> float:
+    """Instructions per iteration, waits included, of a loop body that runs
+    again and again with each TMU result ready `latency` instructions after its
+    request (the emulator's TimingModel).  The FIFOs start as full as the body
+    allows: a LoopStream keeps them full across the back edge."""
+    events = [_tmu_events(ins) for ins in body]
+    fifo = (deque(), deque())
+    for u in (0, 1):
+        level = peak = 0
+        for req, recv in events:
+            level += (req == u) - (recv == u)
+            peak = max(peak, level)
+        fifo[u].extend([0] * max(0, TMU_DEPTH - peak))
+    t = 0
+    ends = []
+    for _ in range(iters):
+        for req, recv in events:
+            if recv is not None and fifo[recv]:
+                t = max(t, fifo[recv].popleft())
+            if req is not None:
+                fifo[req].append(t + latency)
+            t += 1
+        ends.append(t)
+    half = iters // 2
+    return (ends[-1] - ends[half - 1]) / (iters - half)
+
+
+def tmu_loop_cost(body: list) -> float:
+    """tmu_loop_period averaged over TMU_LATENCIES."""
+    return sum(tmu_loop_period(body, lat) for lat in TMU_LATENCIES) / len(TMU_LATENCIES)
+
+
+def schedule_function(fn, name: str, missed: Optional[list] = None, prefer_mul: bool = False,
+                      kept: Optional[list] = None, pair: Optional[bool] = None) -> Program:
+    """Schedule an allocated mir.Function into a Program (missed, kept: see
     schedule_block; weighted by 100^loop depth, as compiler.py weighs blocks;
     prefer_mul: also schedule each block with Bundle.try_add's prefer_mul and
-    keep the shorter version; `missed` comes from the plain one)."""
+    keep the shorter version; `missed` comes from the plain one. With
+    PITON_PAIR, schedule_block builds every PAIR_MODES schedule both ways
+    and `missed` gets the pairs of all of them. pair: the pairing schedules,
+    whatever PITON_PAIR says (None: as it says))."""
+    pair = pair_enabled() if pair is None else pair
     fn.compute_cfg()
     preds = fn.preds()
     per_block = {}
@@ -721,21 +991,35 @@ def schedule_function(fn, name: str, missed: Optional[list] = None, prefer_mul: 
             term = insts.pop()
         ends = insts and insts[-1].sig == "thrend"
         end_inst = insts.pop() if ends else None
-        body = schedule_block(insts, missed=missed, weight=100 ** b.loop_depth)
-        if prefer_mul:
-            # keep whichever is shorter (`missed` stays the plain schedule's, so
-            # port-aware allocation searches as without prefer_mul)
-            other = schedule_block(insts, weight=100 ** b.loop_depth, prefer_mul=True)
-            if len(other) < len(body):
-                body = other
         if term is not None:
             br = Instr(kind="branch", bcond=term.bcond, target=term.target, rel=True,
                        add=AluOp("mov", isa.NOP, isa.NOP), mul=AluOp("mov", isa.NOP, isa.NOP))
+        if pair:
+            cost = None
+            if term is not None and term.target == b.label \
+                    and any(op.dst in isa.TMU_S for m in insts for op in m.ops):
+                # (PITON_PAIR) a loop that streams through the TMU keeps the schedule
+                # that waits least for its loads (matmul_8x64x4: the shortest one
+                # waits longer at every latency from 24 to 120)
+                def cost(body, br=br):
+                    return tmu_loop_cost(fill_delay_slots(body, br))
+            # (prefer_mul: every pairing schedule also with it, schedule_block)
+            body = schedule_block(insts, missed=missed, weight=100 ** b.loop_depth, prefer_mul=prefer_mul,
+                                  kept=kept, cost=cost, pair=True)
+        else:
+            body = schedule_block(insts, missed=missed, weight=100 ** b.loop_depth, pair=False)
+            if prefer_mul:
+                # keep whichever is shorter (`missed` stays the plain schedule's, so
+                # port-aware allocation searches as without prefer_mul)
+                other = schedule_block(insts, weight=100 ** b.loop_depth, prefer_mul=True, pair=False)
+                if len(other) < len(body):
+                    body = other
+        if term is not None:
             body = fill_delay_slots(body, br)
         if end_inst is not None:
             body += [Instr(kind="alu", sig="thrend", comment="end of program"), Instr.nop(), Instr.nop()]
         per_block[b.label] = body
-    fix_block_boundaries(per_block, preds, order)
+    fix_block_boundaries(per_block, preds, order, pair)
     prog = Program(name)
     for label in order:
         prog.labels[label] = len(prog.instrs)

@@ -322,18 +322,26 @@ def _run_scheduled(fn, trips, qpu):
     return int(q.acc[2][0])
 
 
+@pytest.mark.parametrize("pair", ["0", "1"])
 @pytest.mark.parametrize("value", [0, 1])
 @pytest.mark.parametrize("qpu", [0, 2])
-def test_scheduler_noswap_before_a_loop_that_starts_with_a_request(qpu, value):
+def test_scheduler_noswap_before_a_loop_that_starts_with_a_request(qpu, value, pair, monkeypatch):
     """A two-instruction entry block (TMU_NOSWAP and two uniform reads): the
     request at the loop's head needs a boundary nop on the path from the
-    entry, and the back edge never reaches TMU_NOSWAP."""
+    entry (at the loop's head, or with PITON_PAIR at the end of the entry,
+    which only the way in runs), and the back edge never reaches TMU_NOSWAP."""
+    monkeypatch.setenv("PITON_PAIR", pair)
     fn = _mir([("entry", 0, [alu("mov", isa.TMU_NOSWAP, Imm(value)), alu("mov", isa.R1, isa.UNIF),
                              alu("mov", isa.RA[2], isa.UNIF)]),
                ("loop", 1, _count_loop(isa.R1)),
                ("end", 0, [MInst(ops=[], sig="thrend")])])
     prog = schedule_function(fn, "t")
-    assert prog.labels["loop"] == 2 and prog.instrs[2].comment == "boundary hazard"
+    loop = prog.labels["loop"]
+    if pair == "1":
+        assert loop > 2 and all(i.comment == "boundary hazard" for i in prog.instrs[2:loop])
+        assert prog.instrs[loop].comment != "boundary hazard"
+    else:
+        assert loop == 2 and prog.instrs[2].comment == "boundary hazard"
     assert _run_scheduled(fn, 3, qpu) == 21
 
 

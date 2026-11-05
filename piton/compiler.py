@@ -11,7 +11,7 @@ from . import frontend, ir, passes, reroll
 from .backend import opt, presched
 from .backend.lower import Lowering, fast_idiv_enabled
 from .backend.regalloc import PortHints, RegAllocError, allocate, clone_function
-from .backend.sched import schedule_function
+from .backend.sched import pair_enabled, schedule_function
 from .qpu.asm import Program
 
 PORT_ROUNDS = 4         # port-aware allocation attempts per build (PITON_PORT_ALLOC)
@@ -135,14 +135,17 @@ def _port_better(new: Program, new_mf, old: Program, old_mf) -> bool:
     return cost(new) < cost(old)
 
 
-def _port_aware(original, name: str, missed: list, copy_of: dict, rounds: int = PORT_ROUNDS):
+def _port_aware(original, name: str, missed: list, copy_of: dict, rounds: int = PORT_ROUNDS,
+                kept: bool = False, pair: Optional[bool] = None, prefer_mul: bool = False):
     """Port-aware allocations of `original` (regalloc.py, "Port-aware file
     choice"), starting from the pairs the scheduler could not form with the
     plain allocation (`missed`, `copy_of`): each round allocates a fresh
     clone, schedules it, and adds the pairs it still missed for the next.
     Yields (program, mir, allocator, self moves dropped); stops when an
     attempt fails to allocate or schedule (the plain allocation then stays)
-    or the scheduler misses nothing new."""
+    or the scheduler misses nothing new. kept (PITON_PAIR): the pairs come
+    from the schedules kept (sched.schedule_block `kept`), not from all;
+    pair, prefer_mul: sched.schedule_function's."""
     hints = PortHints()
     hints.add(missed, copy_of)
     for _ in range(rounds):
@@ -151,7 +154,8 @@ def _port_aware(original, name: str, missed: list, copy_of: dict, rounds: int = 
             alloc = allocate(mf, hints=hints)
             dropped = opt.drop_self_moves(mf)
             missed = []
-            prog = schedule_function(mf, name, missed=missed)
+            prog = schedule_function(mf, name, missed=None if kept else missed, kept=missed if kept else None,
+                                     pair=pair, prefer_mul=prefer_mul)
         except (RegAllocError, RuntimeError):
             return
         yield prog, mf, alloc, dropped
@@ -186,21 +190,62 @@ def _build(tile, ranges, options: dict, interleave: bool, alphas=None, flags=Non
         break
     stats["copies_inserted"] = alloc.copies_inserted
     stats["self_moves_dropped"] = opt.drop_self_moves(mf)
-    mir_alloc = mf.dump()
-    missed = [] if original is not None else None
-    prog = schedule_function(mf, tile.name, missed=missed)
-    if original is not None:
-        # The plain allocation stays unless a port-aware one schedules shorter.
-        stats["port_alloc"] = 0
-        for attempt, (p, f, a, dropped) in enumerate(_port_aware(original, tile.name, missed, alloc.copy_of), 1):
-            if _port_better(p, f, prog, mf):
-                prog, mf, mir_alloc = p, f, f.dump()
-                stats.update(port_alloc=attempt, copies_inserted=a.copies_inserted, self_moves_dropped=dropped)
-    if issue:
+    base = {k: stats[k] for k in ("copies_inserted", "self_moves_dropped")}
+    pair = pair_enabled()
+    if pair and original is not None:
+        # (PITON_PAIR) the allocation the switch-off search keeps (searched first,
+        # as without the switch) is a candidate too, below
+        off = _search(original, tile.name, mf, alloc.copy_of, base, False)
+    # (PITON_PAIR) its searches schedule with prefer_mul already (PITON_ISSUE), so
+    # they compare, and take the missed pairs of, the schedules the build keeps
+    prog, chosen, mir_alloc, found = _search(original, tile.name, mf, alloc.copy_of, base, pair,
+                                             prefer_mul=issue and pair)
+    if issue and not pair:
         # the chosen allocation again, each block also with either-ALU ops on the
         # mul ALU (sched.py prefer_mul; never longer)
-        prog = schedule_function(mf, tile.name, prefer_mul=True)
-    return prog, mf, lw, stats, mir, mir_alloc
+        prog = schedule_function(chosen, tile.name, prefer_mul=True)
+    if pair and original is not None and off[1] is not chosen:
+        # The pairing schedules are never longer per block than the switch-off ones
+        # of the same allocation (sched.schedule_block), but the greedy searches
+        # can end in different allocations, longer ones too: keep the switch-off
+        # search's allocation, scheduled with the pairing schedules, when it is
+        # shorter (exp2 and mandel_32x16 at emulator size: 326 and 467
+        # instructions, 331 and 471 from the pairing searches, 328 and 470
+        # without the switch).
+        p = schedule_function(off[1], tile.name, prefer_mul=issue)
+        if _port_better(p, off[1], prog, chosen):
+            prog, chosen, mir_alloc, found = p, off[1], off[2], dict(off[3], pair_alloc_off=1)
+    stats.update(found)
+    return prog, chosen, lw, stats, mir, mir_alloc
+
+
+def _search(original, name: str, mf, copy_of: dict, base: dict, pair: bool, prefer_mul: bool = False):
+    """The allocation _build keeps: the plain one (`mf`, already allocated)
+    unless a port-aware one of `original` schedules shorter; pair: with the
+    pairing schedules (PITON_PAIR), or as without the switch; prefer_mul:
+    sched.schedule_function's. Returns (program, mir, its dump, stats:
+    port_alloc, copies_inserted and self_moves_dropped, starting from `base`)."""
+    stats = dict(base)
+    mir_alloc = mf.dump()
+    missed = [] if original is not None else None
+    kept = [] if original is not None and pair else None
+    prog = schedule_function(mf, name, missed=missed, kept=kept, pair=pair, prefer_mul=prefer_mul)
+    if original is not None:
+        # The plain allocation stays unless a port-aware one schedules shorter.
+        # (PITON_PAIR) A second search starts from the pairs only the kept
+        # schedules missed: the searches are greedy, and either can end in the
+        # shorter loop (mandel_32x16's Pi build: 246 or 236 instructions).
+        stats["port_alloc"] = 0
+        searches = [(missed, False)] + ([(kept, True)] if kept is not None else [])
+        attempt = 0
+        for seed, from_kept in searches:
+            for p, f, a, dropped in _port_aware(original, name, seed, copy_of, kept=from_kept, pair=pair,
+                                                prefer_mul=prefer_mul):
+                attempt += 1
+                if _port_better(p, f, prog, mf):
+                    prog, mf, mir_alloc = p, f, f.dump()
+                    stats.update(port_alloc=attempt, copies_inserted=a.copies_inserted, self_moves_dropped=dropped)
+    return prog, mf, mir_alloc, stats
 
 
 def _compile_tile(fn, signature, constants, name, pid_max, options, chunk: int = 0,
@@ -466,6 +511,10 @@ def compile(kernel, signature: dict, constants: Optional[dict] = None, num_stage
         options["fast_branches"] = True
     if coarsen_runtime_enabled():
         options["coarsen_runtime"] = True       # Lowering.begin_programs: the factor is a uniform
+    if pair_enabled():
+        # PITON_PAIR (backend/sched.py "Pairing"): a dot product's add before each
+        # broadcast is left free to pair (lower.py op_tt_dot)
+        options["pair"] = True
     try:
         tile, prog, lw, stats, asm, coarsen = _compile_program(fn, signature, constants, name, pid_max, options)
     except RegAllocError:

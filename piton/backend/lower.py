@@ -3862,7 +3862,10 @@ class Lowering:
                     ops = [mul]
                     if pending is not None:
                         ops.insert(0, MOp("fadd", pending[0], [pending[0], pending[1]]))
-                    self.emit(MInst(ops=ops, atomic=len(ops) == 2, tag="mac"))
+                    # (PITON_PAIR) the add of the last product before a broadcast
+                    # may also join the broadcast's instruction (sched.py "Pairing")
+                    split = cb == 0 and len(ops) == 2 and bool(self.opts.get("pair"))
+                    self.emit(MInst(ops=ops, atomic=len(ops) == 2, split=split, tag="mac"))
                     pending = (acc[m * NV + cb], p)
                 # prefetch the next B row while the remaining rows run
                 if k + 1 < K and m < NV:

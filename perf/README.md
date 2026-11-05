@@ -74,3 +74,53 @@ add/mul pair that could share an instruction did.
 5. **matmul is at its structure bound** (pack 0.88-0.89): the A broadcast into
    r5 needs the mul unit once per four MACs, and the hardware run is limited by
    the B stream through the TMU, not by issue.
+6. **Neighbours the scheduler left apart** (C11, `PITON_PAIR=1`, off by
+   default; sched.py "Pairing"). Most "free" unpaired neighbours were not free:
+   a mul-output rotation takes the B read port (matmul 8x64x8's A broadcasts
+   next to TMU address adds that read B: 72% of its unpaired neighbours) and
+   row_sum/row_max's were a register-file latency; analyze.py now says so. The
+   losses that were the scheduler's: a move took the add ALU from a ready
+   add-only op (elementwise and math kernels), the critical-path priority ran
+   add-bound blocks out of add work (Mandelbrot: 225 add-only to 128 mul-only
+   ops per loop body), each dot broadcast's add ALU stayed idle because the
+   lowering pre-pairs every add with the next multiply, the port-aware
+   allocation saw the pairs only one schedule missed and its greedy search
+   ends where its first hints lead (mandel_32x16's Pi build stopped at a
+   246-instruction loop, its emulator-size build at 232; a second search
+   from the kept schedules' pairs finds 236), and a nop for a hazard on the
+   way into a loop ran on every iteration (compute_peak, Mandelbrot). The
+   shortest schedule is not always the fastest: matmul_8x64x4's Pi build
+   (12 programs, one per QPU) took 1-6% more emulator cycles at TMU latencies
+   of 24-120 instructions, so a loop that streams through the TMU keeps the
+   schedule that waits least (tmu_loop_cost; the same runs now 0.957-0.991 of
+   the switch-off cycles, dense_relu 0.945-0.970, matmul_8x64x8 0.987-1.002;
+   cycles at latency 24 geomean 0.968 for the Pi builds over 48 programs,
+   0.962 at emulator size). Executed instructions geomean 0.945, both at emulator
+   size and for the Pi builds (recip 0.876, add 0.871, transpose 0.926,
+   softmax 0.937, mandel_32x16 0.948, mandel_16x16x2 0.932, matmul
+   0.991/0.985, dense_relu 0.984, the digits layers 0.96-0.975), never more
+   in the suite (other shapes can run a few more: the loop the TMU-aware
+   choice keeps may be longer, row_sum 8x64 one program 308 against 307, and
+   the greedy port-aware searches may end elsewhere, dot_loop 4x32x64 1100
+   against 1097);
+   the paired share rises in every kernel (mandel_32x16 39 -> 49%, recip 30 ->
+   48%). Scaled by the busy fractions of `pi-2026-11-04-d1once.json` that is
+   ~1.03x on the Pi (mandelbrot 1.05-1.07x, recip 1.12x, rsqrt 1.08x, softmax
+   1.06x; memory-bound kernels less than that); compiling takes 3.3-3.6x the
+   CPU time (per case 2.6-4.9x, dense_relu the most). With the switch, the
+   unpaired neighbours left at emulator size are mostly dependencies and
+   read-port conflicts, but not only: register-file latencies (Mandelbrot
+   24-37%), one peripheral access per instruction (matmul 8x64x8 55%, plus
+   9% two signals) and write-file conflicts (mul 40%); 0-7% are free
+   (softmax 7%). One instruction shape is new on the Pi: the VPM mutex
+   released by the mul ALU next to an add-only op (`v8subs mutex, s, s`,
+   write address 51 in B space; 14 instructions in the Pi builds of
+   compute_peak, both Mandelbrot cases, both matmuls and transpose), where
+   switch-off builds release it with `ldi mutex, 0` (A space). The guide's
+   Table 14 maps write address 51 to MUTEX_RELEASE in both spaces; run one
+   of those kernels first on hardware, since a release that does not
+   happen hangs the other QPUs. Every other mul-ALU write of the switch-on
+   builds (moves into the TMU, VPM, VPM setup, uniform address, r5rep and
+   accumulators, conditional accumulator writes) and every signal pairing
+   also occurs with the switch off; no suite build writes r5quad or an SFU
+   register.
