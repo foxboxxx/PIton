@@ -74,7 +74,12 @@ compiler changes; G3 on/off matrix of all switches.
 ## H. Algorithms and kernels
 H1 fusion; H2 (accepted with H4, on by default, `PITON_MANDEL_FAST=0` restores the plain kernel: cardioid/bulb lanes, lane-flag exit checks, early loop exit; counts identical) Mandelbrot rectangle skipping, cardioid/bulb tests, periodicity; H3 reuse
 pixels when panning; H4 escape-check cadence, regroup live lanes; H5 opt-in u8/16-bit
-outputs; H6 matmul register blocking for more A reuse.
+outputs; H6 matmul register blocking for more A reuse (rejected on the Pi 2026-11-05, try/h6
+873e3f3, `PITON_MM=1`: the dot's k loop receiving in use order with A as column blocks executes
+3-10% fewer instructions in the emulator (programs 2.4-4.0% shorter) but runs matmul_8x64x8 0.716x and 8x64x4 0.803x on the
+Pi, because the TMU-stall share of QPU time goes 0.22 -> 0.47 and 0.32 -> 0.47 (busy 0.63 -> 0.42,
+0.57 -> 0.44): receiving each load just before its use leaves no load latency hidden, which the
+emulator does not model. dense_relu 1.010x, everything else the same code or within 1.5%).
 
 ## Log
 | date | item | result |
@@ -110,3 +115,4 @@ outputs; H6 matmul register blocking for more A reuse.
 | 2026-11-04 | B5 v1 | TMU_NOSWAP in every balanced program that is not coarsened, on top of C7 + E4 + E5: matmul 1.086-1.097x, matmul_pi 512^3 1.13-1.15x, 1024^3 1.16x, but row_max 0.926x and the digits network 0.935x (`benchmarks/results/tmu-noswap-2026-11-04-v1.log`, `ab-2026-11-04-tmu_noswap-v1.json`): rejected |
 | 2026-11-04 | B5 v2 | only for dots, 0 written everywhere else: row_max / row_sum fixed (1.014x / 1.022x), matmul 1.095x, but digits still 0.94-0.95x (`-v2.log`, `-v2.json`). Each layer built plain, noswap 0 vs 1 (`benchmarks/results/tmu-noswap-2026-11-04-layers.log`): matmul_8x64x8 1.111x, dense_relu (2 column tiles) 1.041x, digits layer 2 (1 column tile) 0.867x, layer 3 0.942x: noswap pays where programs running together on a slice load the same A rows, which the compiler cannot see, and E5 leaves layer 2 plain. Rejected |
 | 2026-11-04 | B5 v3 | per-kernel request (`tmu_noswap=True`, the tutorial matmul), 0 elsewhere: suite matmul_8x64x4 1.098x, matmul_8x64x8 1.099x, everything else within 2% except mul 0.979x / row_sum 0.951x on one sample each, which 6 boots each way put at 0.994x / 0.993x (median of per-boot bests; row_max 1.007x; `ab-2026-11-04-tmu_noswap{,-recheck6}.json`); matmul_pi 512^3 8.74 / 8.94 -> 10.17 / 10.21 GFLOPS, 1024^3 7.92 / 8.06 -> 9.35 / 9.35; packed matmul 512^3 7.72 -> 9.24 / 9.92, 1024^3 7.22 / 7.23 -> 8.57 / 8.56; digits even (`-v3.log`); test_hw 12/12, host tests both ways (1249 on opt/noswap). Accepted |
+| 2026-11-05 | H6 | `PITON_MM=1` on C7 + E4 + E5 + B5 (try/h6 873e3f3): test_hw 12/12, suite A/B matmul_8x64x8 3497 -> 4881 us (0.716x), 8x64x4 3855 -> 4803 us (0.803x), 3 boots each way for the two matmuls, dense_relu 1.010x (1 boot), rest the same code or within 1.5% (`ab-2026-11-05-mm.json`): TMU stalls 0.22 -> 0.47 of QPU time (means over the boots). Rejected. First on this machine (WSL2, cs140e libpi, LIB_POST=libgcc.a, see NOTES.md) |

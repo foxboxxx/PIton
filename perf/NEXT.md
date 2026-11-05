@@ -16,6 +16,18 @@ Two changes are merged onto this branch's head (d164de2) but not yet gated on th
 The loop runs in "fast mode": one full host suite per landing, no separate merge review, noise
 rechecks only for cases whose code changed.
 
+## Progress 2026-11-05 (WSL2 machine, cs140e setup)
+- Pi runner env on this machine: `PITON_TTY=/dev/serial/by-id/usb-Silicon_Labs_CP2102N_...`
+  (survives renames), `PITON_BOOTLOADER=~/projects/cs140e/bin/pi-install.linux`,
+  `PITON_LIBPI_ROOT=CS140E_2026_PATH=~/projects/cs140e`, and
+  `LIB_POST=/usr/lib/gcc/arm-none-eabi/13.2.1/libgcc.a`: cs140e's libpi does not link libgcc, so any
+  ARM-side float math failed to link. test_hw 12/12.
+- Step 1 (H6) done: REJECTED on the Pi (matmul_8x64x8 0.716x, 8x64x4 0.803x; TMU stalls
+  0.22 -> 0.47), BACKLOG H6 + log row. perf-loop is unchanged, so C11 needs no rebase onto it.
+- Power: tools/pi_power_linux (libgpiod on the cp210x gpiochip), branch infra/linux-power. On this
+  head GPIO0 low powers the Pi off but the bridge stays up (no re-enumeration); power.cycle()
+  takes 2.1 s and test_hw passes after it, so hung kernels recover again.
+
 ## Commands, in order (from the repo root, `.venv/bin/python` = `PY`)
 
 1. H6 Pi gate (in a worktree of `try/h6`: `git worktree add .claude/worktrees/try-h6 try/h6`, cd there):
