@@ -398,7 +398,10 @@ class QPU:
         self.unif_ptr = 0
         self.unif_block_until = -1
         self.tmu = [deque(), deque()]   # this QPU's FIFOs of physical TMU0 / TMU1 of its slice
-        self.tmu_noswap = False         # TMU_NOSWAP state of this program (reset at program start)
+        # TMU_NOSWAP state of this program, reset at program start (whether the
+        # Pi keeps it across programs is not known; PIton's programs write it
+        # before their first request, PITON_TMU_NOSWAP=1, or never)
+        self.tmu_noswap = False
         self.tmu_noswap_at = None       # instruction index of the last TMU_NOSWAP write
         self.tmu_used = False           # a TMU request was made by this program
         self.r4_pending = None          # (ready_cycle, value) for SFU

@@ -38,7 +38,8 @@ def bench(n, bm=8, bn=64, bk=8, group=4, stages=2, repeats=3, sample_stride=97,
     else:
         sig.update({name: "i32" for name in scalars})
     grid = (piton.cdiv(n, bm) * piton.cdiv(n, bn),)
-    ck = pc.compile(matmul_packed_b_kernel, sig, cons, num_stages=stages, grid=grid)
+    # the tutorial's grouped order (PITON_TMU_NOSWAP=1: TMU_NOSWAP, as benchmarks/matmul_pi.py)
+    ck = pc.compile(matmul_packed_b_kernel, sig, cons, num_stages=stages, grid=grid, tmu_noswap=True)
     programs = []
     k = launch_coarsen(ck, grid)
     for pid, g in program_ids(grid, k):
