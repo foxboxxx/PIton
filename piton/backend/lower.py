@@ -1698,7 +1698,7 @@ class Lowering:
             # group by source register so its accumulator copy is short-lived
             if stable:
                 order = sorted(groups.items(), key=lambda kv: (
-                    kv[1][0].id if isinstance(kv[1][0], VReg) else kv[0][0], -len(kv[1][1])))
+                    (0, kv[1][0].id) if isinstance(kv[1][0], VReg) else (1, kv[0][0]), -len(kv[1][1])))
             else:
                 order = sorted(groups.items(), key=lambda kv: (kv[0][0], -len(kv[1][1])))
             first = max(range(len(order)), key=lambda i: len(order[i][1][1]))
