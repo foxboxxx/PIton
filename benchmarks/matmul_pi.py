@@ -38,7 +38,8 @@ def compile_matmul(n, bm, bn, bk, group=4, stages=2, specialize_layout=False):
     if specialize_layout:
         cons.update(M=n, N=n, stride_am=n, stride_bk=n, stride_cm=n)
     grid = (piton.cdiv(n, bm) * piton.cdiv(n, bn),)
-    ck = pc.compile(matmul_kernel, sig, cons, num_stages=stages, grid=grid)
+    # programs of the grouped order share A rows and B columns (PITON_TMU_NOSWAP=1: TMU_NOSWAP)
+    ck = pc.compile(matmul_kernel, sig, cons, num_stages=stages, grid=grid, tmu_noswap=True)
     return ck, grid
 
 

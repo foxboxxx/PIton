@@ -1986,21 +1986,27 @@ class Lowering:
             # each slice address the other physical TMU (guide p40), and data
             # the slice's QPUs share lands in both TMU caches.  The scheduler
             # keeps it three instructions ahead of the first request (p37).
-            # Only for dots in programs that are not coarsened: on the Pi
-            # (2026-11-04) it sped up the plain dot builds, whose programs load
-            # the same tiles (matmul 8x64x8 1.09x at 256^3, 1.13-1.16x at
-            # 512^3 and 1024^3, dense_relu 1.026x), no other kernel (row_max
-            # 0.926x, row_sum 0.986x, exp 0.992x) and slowed the coarsened
-            # ones (dense_relu with k=2 0.960x).  The setting outlasts the
-            # program: the digits network ran 0.935x when only its plain last
-            # layer wrote 1, about as slow as with every layer writing it, so
-            # every program that loads writes it, 0 to keep the swap.
-            noswap = coarsen == 1 and self.tmu_balanced() and any(o.name == "tt.dot" for o in self.fn.walk())
+            # Only where the kernel asks for it (compile(tmu_noswap=True)), the
+            # program is not coarsened and its requests are balanced: whether
+            # the programs running together on a slice load the same data
+            # depends on the kernel's pid -> (pid_m, pid_n) mapping and the
+            # run-time sizes, which the compiler does not see.  On the Pi
+            # (2026-11-04, built plain, PITON_PERSISTENT=0) it paid where
+            # neighbouring programs share A rows across several column tiles
+            # (matmul 8x64x8 1.111x, dense_relu = digits layer 1 with N=128,
+            # two column tiles of 64, 1.041x) and cost where there is one
+            # column tile (digits layer 2, K=128 N=64, 0.867x; layer 3, N=16,
+            # 0.942x), on no other kernel (row_max 0.926x, row_sum 0.986x, exp
+            # 0.992x) and in coarsened programs (dense_relu with k=2 0.960x).
+            # Every other program that makes requests writes 0: it is not known
+            # whether the setting outlasts a program, and the 0 costs nothing.
+            noswap = bool(self.opts.get("tmu_noswap_request")) and coarsen == 1 and self.tmu_balanced()
             entry.insts.insert(0, alu("mov", isa.TMU_NOSWAP, Imm(int(noswap))))
             self.stats["tmu_noswap"] = int(noswap)
         return self.mf
 
     def tmu_requests(self) -> bool:
+        """The program writes a TMU request somewhere (cold blocks included)."""
         return any(op.dst in isa.TMU_S for b in self.mf.blocks for ins in b.insts for op in ins.ops)
 
     def tmu_balanced(self) -> bool:

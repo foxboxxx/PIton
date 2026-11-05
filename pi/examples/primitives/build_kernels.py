@@ -74,6 +74,8 @@ OPS = [
       "BLOCK_SIZE_N": 64, "BLOCK_SIZE_K": 4, "GROUP_SIZE_M": 4},
      ((MM + 7) // 8) * ((MM + 63) // 64)),
 ]
+# extra compile() arguments: the grouped matmul requests TMU_NOSWAP (PITON_TMU_NOSWAP=1)
+OPTIONS = {"op_matmul": {"tmu_noswap": True}}
 
 
 def build(out_dir: str, verbose: bool = True) -> list:
@@ -84,7 +86,7 @@ def build(out_dir: str, verbose: bool = True) -> list:
     rows = []
     for name, path, kernel, sig, cons, grid in OPS:
         fn = _load_kernel(os.path.join(ROOT, path), kernel)
-        ck = compiler.compile(fn, dict(sig), dict(cons), name=name, grid=(grid,))
+        ck = compiler.compile(fn, dict(sig), dict(cons), name=name, grid=(grid,), **OPTIONS.get(name, {}))
         h, c = emit_c(ck, name)
         with open(os.path.join(out_dir, name + ".h"), "w") as f:
             f.write(h)

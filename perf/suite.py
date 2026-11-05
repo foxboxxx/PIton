@@ -252,7 +252,10 @@ def matmul_case(name, bm, bn, bk, group=4):
         return Run(g, grid, {"c_ptr": (a @ b).ravel()}, 1e-3, 2e-4 * k_pi)
     cons = {"K": k_pi, "stride_ak": 1, "stride_bn": 1, "stride_cn": 1, "BLOCK_SIZE_M": bm,
             "BLOCK_SIZE_N": bn, "BLOCK_SIZE_K": bk, "GROUP_SIZE_M": group}
-    return Case(name, matmul_kernel, sig, cons, make, f"tutorial 03, {bm}x{bn}x{bk}", ("dot",))
+    # neighbouring programs of the grouped order share A rows and B columns:
+    # TMU_NOSWAP requested (with PITON_TMU_NOSWAP=1; lower.py)
+    return Case(name, matmul_kernel, sig, cons, make, f"tutorial 03, {bm}x{bn}x{bk}", ("dot",),
+                {"tmu_noswap": True})
 
 
 def dense_case():

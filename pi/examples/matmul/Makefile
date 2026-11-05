@@ -41,7 +41,7 @@ $(CONFIG_STAMP): matmul-config-force
 # One primary target owns both compiler outputs, including under make -j.
 matmul.c: Makefile $(PITON_ROOT)/examples/kernels.py $(PITON_COMPILER_SRC) $(CONFIG_STAMP)
 	PYTHONPATH=$(PITON_ROOT) $(PYTHON) -m piton.tools.compile $(PITON_ROOT)/examples/kernels.py \
-	  -n matmul_kernel --out-name matmul -o . \
+	  -n matmul_kernel --out-name matmul -o . --tmu-noswap \
 	  -s "a_ptr=*fp32,b_ptr=*fp32,c_ptr=*fp32,M=i32,N=i32,stride_am=i32,stride_bk=i32,stride_cm=i32" \
 	  -c "K=$(MM_K),stride_ak=1,stride_bn=1,stride_cn=1,BLOCK_SIZE_M=$(BM),BLOCK_SIZE_N=$(BN),BLOCK_SIZE_K=$(BK),GROUP_SIZE_M=4"
 
