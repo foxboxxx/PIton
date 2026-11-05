@@ -74,13 +74,19 @@ compiler changes; G3 on/off matrix of all switches.
 ## H. Algorithms and kernels
 H1 fusion; H2 (accepted with H4, on by default, `PITON_MANDEL_FAST=0` restores the plain kernel: cardioid/bulb lanes, lane-flag exit checks, early loop exit; counts identical) Mandelbrot rectangle skipping, cardioid/bulb tests, periodicity; H3 reuse
 pixels when panning; H4 escape-check cadence, regroup live lanes; H5 opt-in u8/16-bit
-outputs; H6 matmul register blocking for more A reuse (wip, opt/h6-mm-block, `PITON_MM=1`,
-off by default: the dot's k loop receives in use order, A as column blocks in two
-accumulators, B row pointers in an accumulator; emulator: k loop 8x64x8 385 -> 354
-instructions, 8x64x4 194 -> 186, dense_relu 219 -> 206, the same TMU requests; bit for bit
-the plain dot's results. A needs two registers instead of four, so 16x32x4 and 8x64x4
-digits dense tiles allocate (12 / 18 TMU requests per 128 MACs instead of 34); untested
-on the Pi).
+outputs; H6 matmul register blocking for more A reuse (wip, opt/h6-mm-block, merged onto
+C7 + E4 + E5 + B5 in try/h6, `PITON_MM=1`, off by default: the dot's k loop receives in use
+order, A as column blocks in two accumulators, B row pointers in an accumulator; emulator on
+that base (with PITON_ISSUE=0 in brackets): k loop matmul 8x64x8 390 -> 354 instructions
+(394 -> 354), 8x64x4 192 -> 186 (194 -> 186), dense_relu 217 -> 203 (219 -> 206), digits
+layers 113 -> 109, 112 -> 109, 84 -> 83, matmul_pi 512^3 / 1024^3 383 -> 354 (385 -> 354);
+instructions executed per program matmul_8x64x8 1.096x (1.106x), 8x64x4 1.034x (1.041x),
+dense_relu 1.058x (1.060x), digits layers 1.028x / 1.026x / 1.014x (1.032x / 1.018x /
+1.033x), matmul_pi 1.080x / 1.081x (1.085x / 1.086x); the same TMU requests, coarsening,
+store slots and TMU_NOSWAP as the plain dot (those rules count the plain dot's build), and
+an MM build is kept over the plain dot's pre-scheduling variants; bit for bit the plain
+dot's results. A needs two registers instead of four, so 16x32x4 and 8x64x4 digits dense
+tiles allocate (12 / 18 TMU requests per 128 MACs instead of 34); untested on the Pi).
 
 ## Log
 | date | item | result |
