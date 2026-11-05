@@ -443,7 +443,8 @@ def _coarsening(tile, pid_max, id_length) -> int:
     """Logical program ids per hardware program along axis 0 (PITON_PERSISTENT):
     unset or 1 -> automatic, 0 -> 1 (one hardware program per id), k >= 2 -> k
     for every grid. Kernels that never read tl.program_id(0) are not coarsened.
-    id_length() is _id_length of the plain build."""
+    id_length() is _id_length of the uncoarsened build (with PITON_MM, of the
+    plain dot's: _compile_program counts)."""
     env = os.environ.get("PITON_PERSISTENT", "1")
     try:
         want = int(env)
@@ -455,8 +456,8 @@ def _coarsening(tile, pid_max, id_length) -> int:
     bound = None if pid_max is None else pid_max[0] + 1
     if want >= 2:
         return want if bound is None else max(1, min(want, bound))
-    if bound is None or any(pid_max[1:]):
-        return 1
+    if bound is None or any(pid_max[1:]) or bound < min(COARSEN_MIN_GRID, COARSEN_LAUNCH_MIN_GRID):
+        return 1            # (before the limits, which count the build's instructions)
     min_grid, min_programs = _coarsen_limits(tile, id_length)
     if bound < min_grid:
         return 1
@@ -649,14 +650,33 @@ def _compile_program(fn, signature, constants, name, pid_max, options):
     # them. (With slots every store waits for its DMAs before it releases the
     # slot, so only the start is saved; the private rows' last DMA of an id
     # still runs on into the next.)
+    counted = []
+
+    def counts():
+        """(tile, program, mir) whose instructions the store-slot and coarsening
+        rules count: with the MM dot (PITON_MM), the plain dot's build of the
+        same variant where it allocates, so the switch changes the k loop, not
+        how the ids run (a shorter loop stores more bytes per instruction; E5's
+        thresholds were measured on plain builds); where only the MM dot fits,
+        its own (_build coarsens it only where the plain dot's coarsened build
+        allocates)."""
+        if not counted:
+            counted.append((tile, prog, mf))
+            if stats.get("mm_dots"):
+                try:
+                    counted[0] = _compile_tile(fn, signature, constants, name, pid_max, dict(options, mm=None),
+                                               *variant[0], **variant[1])[:3]
+                except RegAllocError:
+                    pass
+        return counted[0]
     if stats.get("store_slots") and not options.get("store_slots_all"):
-        length = _id_length(tile, prog, mf, upper=False)
+        length = _id_length(*counts(), upper=False)
         stored = _id_bytes(tile, ("tt.store",))
         if length and stored is not None and stored < SLOTS_MIN_STORE_BYTES * length:
             return _compile_program(fn, signature, constants, name, pid_max, dict(options, store_slots=False))
-    coarsen = _coarsening(tile, pid_max, lambda: _id_length(tile, prog, mf))
+    coarsen = _coarsening(tile, pid_max, lambda: _id_length(*counts()))
     if coarsen > 1:
-        limits = _coarsen_limits(tile, lambda: _id_length(tile, prog, mf)) if options.get("coarsen_runtime") else None
+        limits = _coarsen_limits(tile, lambda: _id_length(*counts())) if options.get("coarsen_runtime") else None
         best = None
         for hoist in (True, False):
             for reload in (False, True):

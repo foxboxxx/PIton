@@ -568,6 +568,41 @@ def test_mm_builds_win_over_plain_variants(monkeypatch):
                                   sum(a[:, i * bk:(i + 1) * bk] @ b[np.arange(bk) * (i + 1)] for i in range(ni)))
 
 
+def test_rules_count_the_plain_dot(monkeypatch):
+    """The store-slot and coarsening rules (compiler._compile_program) count
+    the plain dot's instructions, whose bytes per instruction E5's and the
+    slots' thresholds were measured on: at the Pi size, dense_relu (two ids
+    per hardware program, chosen per launch) and the tutorial matmul (store
+    slots, TMU_NOSWAP requested and taken) read the same lengths and keep
+    every decision with the MM dot's shorter k loop."""
+    seen = []
+    real = compiler._id_length
+
+    def spy(*args, **kwargs):
+        seen.append((real(*args, **kwargs), kwargs.get("upper", True)))
+        return seen[-1][0]
+    monkeypatch.setattr(compiler, "_id_length", spy)
+    decisions = {}
+    for name in ("dense_relu", "matmul_8x64x8"):
+        builds = []
+        for mm in (None, "1"):
+            if mm is None:
+                monkeypatch.delenv("PITON_MM", raising=False)
+            else:
+                monkeypatch.setenv("PITON_MM", mm)
+            seen.clear()
+            ck, _ = compile_case(CASES_BY_NAME[name], "pi")
+            builds.append((ck, list(seen), (ck.coarsen, ck.coarsen_launch, ck.stats.get("store_slots"),
+                                            ck.stats.get("tmu_noswap"))))
+        (off, lengths_off, decided_off), (on, lengths_on, decided_on) = builds
+        assert on.stats["mm_dots"] == 1 and len(on.program.instrs) < len(off.program.instrs)
+        assert lengths_on == lengths_off and lengths_off
+        assert decided_on == decided_off
+        decisions[name] = decided_on
+    launch = (compiler.COARSEN_LAUNCH_MIN_GRID, compiler.COARSEN_LAUNCH_MIN_PROGRAMS)
+    assert decisions == {"dense_relu": (2, launch, None, 0), "matmul_8x64x8": (1, None, 1, 1)}
+
+
 def test_plan_order_and_spacing():
     """Every operand register exactly once, B row k + 1 during step k, A's
     column-block register r during step w r - 1, nothing in the last step."""
