@@ -9,7 +9,9 @@
 @ matters here: these loops are bounded by SDRAM, not by the FPU.
 @
 @ Every routine requires n > 0 and n divisible by 8 (main.c picks such sizes).
-@ Hard-float ABI: pointer/int arguments in r0-r3, float arguments in s0.
+@ Pointer/int arguments in r0-r3. Float arguments and results are in s0 under the
+@ hard-float ABI (__ARM_PCS_VFP); under softfp (libpi's -mfloat-abi=softfp) a fifth
+@ argument is on the stack and a float result goes back in r0.
 
 .text
 .align 2
@@ -87,11 +89,14 @@ arm_mul_vfp:
 .size arm_mul_vfp, .-arm_mul_vfp
 
 @ void arm_fma_vfp(const float *x, const float *y, float *out, int n, float alpha)
-@ out = x * alpha + y.  alpha arrives in s0, already in the scalar bank.
+@ out = x * alpha + y.  alpha is used from s0, in the scalar bank.
 .globl arm_fma_vfp
 .type arm_fma_vfp, %function
 arm_fma_vfp:
     push    {r4, lr}
+#ifndef __ARM_PCS_VFP
+    vldr    s0, [sp, #8]            @ softfp: alpha is the stacked fifth argument
+#endif
     vpush   {s16-s31}
     VEC_ON
 1:
@@ -135,6 +140,9 @@ arm_sum_vfp:
     vadd.f32 s24, s24, s25
     vadd.f32 s26, s26, s27
     vadd.f32 s0, s24, s26
+#ifndef __ARM_PCS_VFP
+    vmov    r0, s0                  @ softfp: a float result is returned in r0
+#endif
     vpop    {s16-s31}
     pop     {r4, pc}
 .size arm_sum_vfp, .-arm_sum_vfp
