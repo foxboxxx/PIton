@@ -106,8 +106,10 @@ _EITHER_DSTS = frozenset([isa.R5QUAD, isa.R5REP, isa.TMU0_S, isa.TMU1_S] + list(
 
 
 def pair_enabled() -> bool:
-    """PITON_PAIR=1: the pairing schedules (module docstring); unset or 0: off."""
-    return os.environ.get("PITON_PAIR", "0") not in ("", "0")
+    """PITON_PAIR (on unless "" or "0"): the pairing schedules (module
+    docstring). On by default since 2026-11-05 (Pi: mandel 1.06-1.07x, softmax
+    1.03x, suite 1.010x); compiling takes 3-6x the CPU time, PITON_PAIR=0 skips it."""
+    return os.environ.get("PITON_PAIR", "1") not in ("", "0")
 
 
 def _phys(x):

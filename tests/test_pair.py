@@ -48,8 +48,10 @@ def _node(op, *srcs, dst=isa.R0, cond="always", setf=False, sig=None, rot=None):
 # ---------------------------------------------------------------------------
 
 
-def test_switch_defaults_off(monkeypatch):
+def test_switch_defaults_on(monkeypatch):
     monkeypatch.delenv("PITON_PAIR", raising=False)
+    assert sched.pair_enabled()
+    monkeypatch.setenv("PITON_PAIR", "")
     assert not sched.pair_enabled()
     monkeypatch.setenv("PITON_PAIR", "0")
     assert not sched.pair_enabled()

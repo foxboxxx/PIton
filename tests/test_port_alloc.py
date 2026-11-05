@@ -50,7 +50,7 @@ def _dynamic(case, env, monkeypatch):
     """(executed instructions, stats) of a suite case, checked against numpy."""
     monkeypatch.setenv("PITON_PORT_ALLOC", env)
     # (without PITON_PAIR, whose schedules may keep the plain allocation: tests/test_pair.py)
-    monkeypatch.delenv("PITON_PAIR", raising=False)
+    monkeypatch.setenv("PITON_PAIR", "0")
     ck, run = compile_case(case, "emu")
     v3d = V3D()
     v3d.pc_counts = [0] * len(ck.program.instrs)
@@ -264,7 +264,7 @@ def test_compute_peak_one_program(port_alloc, monkeypatch):
     x = rng.uniform(-1, 1, 64).astype(np.float32)
     out = np.zeros(64, np.float32)
     cons = dict(case.constants, ITERS=3)
-    monkeypatch.delenv("PITON_PAIR", raising=False)        # (as _dynamic)
+    monkeypatch.setenv("PITON_PAIR", "0")        # (as _dynamic)
     ck = piton.compiler.compile(case.kernel, case.signature, cons, grid=(1,))
     assert ck.stats["port_alloc"] > 0
     run_emulator(ck, (1,), {"x_ptr": x, "out_ptr": out})
@@ -360,7 +360,7 @@ def test_outputs_bit_identical_to_the_plain_allocation(monkeypatch, make, n, blo
     kernel, sig, cons, vals = make(n, block)
     grid = (piton.cdiv(n, block),)
     bound = tuple(1 << max(0, int(g) - 1).bit_length() for g in grid)
-    monkeypatch.delenv("PITON_PAIR", raising=False)        # (as _dynamic)
+    monkeypatch.setenv("PITON_PAIR", "0")        # (as _dynamic)
     out = {}
     for env in ("0", "1"):
         monkeypatch.setenv("PITON_PORT_ALLOC", env)

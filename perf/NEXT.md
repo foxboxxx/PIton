@@ -46,10 +46,10 @@ rechecks only for cases whose code changed.
   /dev/cu.usbserial-110; find_tty() finds it).
 - C11 gate repeated on this board (try/c11 7f22f86 = c784e58 + 386a609): no hang from the mul-ALU
   mutex release; mandel 1.074x / 1.057x, row_sum 1.044x, softmax 1.026x, idiv 1.019x, suite geomean
-  1.010x, digits batch 1 1.04x. Landed in perf-loop as an option, off by default (`PITON_PAIR=1`).
+  1.010x, digits batch 1 1.04x. Landed in perf-loop, on by default (`PITON_PAIR=0` turns it off).
 - Final profile on this board: 1.406x geomean over the 11-03 baseline (1.424x with `PITON_PAIR=1`).
-- Open: turn `PITON_PAIR` on by default (one line in sched.pair_enabled) if 3-6x compile time is
-  acceptable; the follow-ups below.
+- `PITON_PAIR` is on by default (the best configuration); `PITON_PAIR=0` compiles 3-6x faster.
+- Open: the follow-ups below.
 
 ## Commands, in order (from the repo root, `.venv/bin/python` = `PY`)
 
