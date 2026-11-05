@@ -143,38 +143,59 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def build_firmware(build_dir: Path, repeats: int, arm_repeats: int, sizes=SIZES, make=True):
+def compile_kernel(spec: dict, symbol: str) -> dict:
+    """One kernel of the plan at the Pi size, as C (picklable, for a process pool)."""
+    started = time.monotonic()
+    ck = compile_attention(spec["head_dim"], spec["block_m"], spec["block_n"], spec["causal"],
+                           spec["even_n"], spec["k_layout"], n_ctx=MAX_N, max_n_ctx=MAX_N)
+    header, source = emit_c(ck, symbol)
+    return dict(symbol=symbol, header=header, source=source, qasm=ck.asm["qasm"],
+                instructions=len(ck.words), signature=list(ck.signature),
+                semaphores=slot_semaphores(ck.words), seconds=time.monotonic() - started,
+                code_sha256=hashlib.sha256(b"".join(int(w).to_bytes(8, "little") for w in ck.words)).hexdigest())
+
+
+def compile_kernels(kernels, jobs: int = 1) -> list:
+    """compile_kernel for every kernel, `jobs` at a time (each takes 10-45 s with the
+    default pairing schedules, PITON_PAIR)."""
+    symbols = [f"attn_k{i}" for i in range(len(kernels))]
+    if jobs <= 1:
+        return [compile_kernel(k, s) for k, s in zip(kernels, symbols)]
+    from concurrent.futures import ProcessPoolExecutor
+    with ProcessPoolExecutor(max_workers=jobs) as pool:
+        return list(pool.map(compile_kernel, kernels, symbols))
+
+
+def build_firmware(build_dir: Path, repeats: int, arm_repeats: int, sizes=SIZES, make=True, jobs=1):
     kernels, problems, cases = plan(sizes)
     build_dir.mkdir(parents=True, exist_ok=True)
     kernel_src, launchers, table, semaphores = [], [], [], set()
-    for i, k in enumerate(kernels):
-        started = time.monotonic()
-        ck = compile_attention(k["head_dim"], k["block_m"], k["block_n"], k["causal"], k["even_n"],
-                               k["k_layout"], n_ctx=MAX_N, max_n_ctx=MAX_N)
-        sym = f"attn_k{i}"
-        if slot_semaphores(ck.words):
-            semaphores.add(slot_semaphores(ck.words))
+    started = time.monotonic()
+    for i, (k, out) in enumerate(zip(kernels, compile_kernels(kernels, jobs))):
+        sym = out["symbol"]
+        if out["semaphores"]:
+            semaphores.add(out["semaphores"])
         if len(semaphores) > 1:
             # piton_launch_slots_once sets the store-slot semaphores up once per boot
             raise RuntimeError(f"kernels use different store-slot semaphores {semaphores}")
-        header, source = emit_c(ck, sym)
-        (build_dir / f"{sym}.h").write_text(header)
-        (build_dir / f"{sym}.c").write_text(source)
-        (build_dir / f"{sym}.qasm").write_text(ck.asm["qasm"])
+        (build_dir / f"{sym}.h").write_text(out["header"])
+        (build_dir / f"{sym}.c").write_text(out["source"])
+        (build_dir / f"{sym}.qasm").write_text(out["qasm"])
         kernel_src.append(f"{sym}.c")
         fields = [".Q = c->q", ".K = c->k", ".V = c->v", ".Out = c->out", ".sm_scale = c->sm_scale",
                   ".N_CTX = (int32_t)c->n_ctx"]
-        fields += [f".{name} = 0" for name in ck.signature if name.startswith("stride_")]
+        fields += [f".{name} = 0" for name in out["signature"] if name.startswith("stride_")]
         launchers.append(f'#include "{sym}.h"\nstatic uint32_t launch_{i}(const attn_call_t *c) {{\n'
                          f'    {sym}_args_t a = {{ {", ".join(fields)} }};\n'
                          f'    return {sym}_launch(&a, c->grid_x, 1, 1);\n}}\n')
         table.append(f'    {{ "{k["name"]}", {k["head_dim"]}, {k["block_m"]}, {k["block_n"]}, '
                      f'{int(k["causal"])}, {int(k["even_n"])}, {int(k["k_layout"] == "dn")}, '
-                     f'{len(ck.words)}, launch_{i} }},')
-        k.update(instructions=len(ck.words), symbol=sym, compile_seconds=round(time.monotonic() - started, 2),
-                 code_sha256=hashlib.sha256(b"".join(int(w).to_bytes(8, "little") for w in ck.words)).hexdigest())
-        print(f"kernel {i:2d} {k['name']:24s} {len(ck.words):5d} QPU instructions "
-              f"({k['compile_seconds']:.1f} s)", flush=True)
+                     f'{out["instructions"]}, launch_{i} }},')
+        k.update(instructions=out["instructions"], symbol=sym, compile_seconds=round(out["seconds"], 2),
+                 code_sha256=out["code_sha256"])
+        print(f"kernel {i:2d} {k['name']:24s} {out['instructions']:5d} QPU instructions "
+              f"({out['seconds']:.1f} s)", flush=True)
+    print(f"compiled {len(kernels)} kernels in {time.monotonic() - started:.0f} s ({jobs} at a time)", flush=True)
     for p in problems:
         p["sm_scale"] = float(np.float32(1.0 / np.sqrt(p["head_dim"])))
     for c, (ki, pi) in enumerate(cases):
@@ -390,6 +411,8 @@ def main(argv=None):
     parser.add_argument("--tty")
     parser.add_argument("--timeout", type=float, default=600)
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--jobs", type=int, default=min(4, os.cpu_count() or 1),
+                        help="kernels compiled at a time (default: up to 4)")
     today = f"{datetime.now():%Y-%m-%d}"
     parser.add_argument("--output", type=Path, default=ROOT / f"benchmarks/results/attention-pi-{today}.json")
     parser.add_argument("--image", type=Path, default=ROOT / "docs/images/attention-pi-weights.png")
@@ -403,7 +426,8 @@ def main(argv=None):
         except PiError as ex:
             sys.exit(f"error: {ex}.\nConnect the Pi (PITON_TTY, my-install, CS240LX_2025_PATH) or use "
                      "--build-only / --dry-run.")
-    kernels, problems, cases, manifest = build_firmware(args.build_dir.resolve(), args.repeats, args.arm_repeats)
+    kernels, problems, cases, manifest = build_firmware(args.build_dir.resolve(), args.repeats, args.arm_repeats,
+                                                      jobs=args.jobs)
     print(f"Built {manifest['firmware_bytes']:,}-byte firmware: {len(kernels)} kernels, "
           f"{len(problems)} problems, {len(cases)} cases", flush=True)
     refs = references(problems)

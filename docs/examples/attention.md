@@ -54,25 +54,28 @@ of eight random tokens (the dots: tokens attending to other copies of themselves
   accumulator first). Per query-key pair the full loop is 12.7 instructions at d = 32 (2×32) and
   21.8 at d = 64 (2×32), against 2d/16 = 4 and 8 multiply-adds; packing the per-row `exp2` into
   one register would save 5-10% of the loop, which the compiler does not do yet.
-* **The instruction cache.** Of the Pi tiles only d = 32, 2×16 (loops of 470, causal 465 and 485
-  instructions) fits the ~500-instruction QPU instruction cache; the others stream their loop
-  from L2 every iteration. So the Pi run sweeps the tiles rather than trusting the emulator's
-  issue-bound estimate, which does not model fetch stalls:
+* **The instruction cache.** Of the Pi tiles only d = 32, 2×16 (loops of 465 instructions,
+  causal 459 and 468) fits the ~500-instruction QPU instruction cache; the others stream their
+  loop from L2 every iteration. So the Pi run sweeps the tiles rather than trusting the
+  emulator's issue-bound estimate, which does not model fetch stalls. The firmware is built with
+  the default pairing schedules (`PITON_PAIR`); the estimates below are of `PITON_PAIR=0` builds
+  (same outputs bit for bit, slightly different loops):
 
-  | strict emulator, N = 256, 62.5 M instructions/s per QPU, no fetch stalls | loop instructions | GFLOPS |
-  |---|---|---|
-  | d = 32, full, 2×32 | 810 | 6.94 |
-  | d = 32, full, 2×16 | 470 | 6.01 |
-  | d = 32, full, 4×16 | 935 | 5.65 |
-  | d = 32, full, 2×64 | 1561 | 7.15 |
-  | d = 32, causal, 2×32 | 782 + 871 | 5.73 |
-  | d = 32, causal, 2×16 | 465 + 475 | 5.26 |
-  | d = 64, full, 2×16 | 812 | 7.04 |
-  | d = 64, full, 2×32 | 1392 | 8.17 |
-  | d = 64, causal, 2×16 | 855 + 882 | 5.85 |
+  | d, mask, tile | loop, firmware build | loop, `PITON_PAIR=0` | emulator GFLOPS, N = 256, `PITON_PAIR=0` |
+  |---|---|---|---|
+  | 32, full, 2×32 | 838 | 810 | 6.94 |
+  | 32, full, 2×16 | 465 | 470 | 6.01 |
+  | 32, full, 4×16 | 935 | 935 | 5.65 |
+  | 32, full, 2×64 | 1568 | 1561 | 7.15 |
+  | 32, causal, 2×32 | 815 + 844 | 782 + 871 | 5.73 |
+  | 32, causal, 2×16 | 459 + 468 | 465 + 475 | 5.26 |
+  | 64, full, 2×16 | 828 | 812 | 7.04 |
+  | 64, full, 2×32 | 1496 | 1392 | 8.17 |
+  | 64, causal, 2×16 | 837 + 845 | 855 + 882 | 5.85 |
 
-  (causal kernels have two loops, the unmasked stage and the diagonal; their GFLOPS count half
-  the N² pairs, as tutorial 06 does, while the diagonal blocks compute all of theirs.)
+  (62.5 M instructions/s per QPU, no fetch stalls. Causal kernels have two loops, the unmasked
+  stage and the diagonal; their GFLOPS count half the N² pairs, as tutorial 06 does, while the
+  diagonal blocks compute all of theirs.)
 
 * **Numerics.** Against float64 numpy the round-toward-zero QPU result is within 5·10⁻⁶ at
   N = 512 (outputs of magnitude ≤ 1). Where the arithmetic is exact the result is too: with one
@@ -85,8 +88,8 @@ of eight random tokens (the dots: tokens attending to other copies of themselves
 
 ```bash
 .venv/bin/python examples/attention.py                    # emulator preview -> docs/images/attention-weights.png
-.venv/bin/python -m pytest tests/test_attention.py -q      # emulator + harness tests (~1.5 min)
-.venv/bin/python examples/attention_pi.py --dry-run        # compile 13 kernels, build the firmware, parse a synthetic log
+.venv/bin/python -m pytest tests/test_attention.py -q      # emulator + harness tests (~2 min)
+.venv/bin/python examples/attention_pi.py --dry-run        # compile 13 kernels (~2 min, 4 at a time), build the firmware, parse a synthetic log
 .venv/bin/python examples/attention_pi.py                  # build, boot, check, time on the Pi
 ```
 

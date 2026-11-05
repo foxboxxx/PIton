@@ -1,5 +1,11 @@
 """Flash-attention example (examples/attention.py) on the strict emulator, and
-the Pi harness (examples/attention_pi.py) without a Pi."""
+the Pi harness (examples/attention_pi.py) without a Pi.
+
+The pairing schedules (PITON_PAIR, on by default) change only the instruction
+schedule and take 3-6x longer to compile, so these tests build with
+PITON_PAIR=0 except test_pairing_schedules_give_the_same_bits, which checks the
+default build against it; `examples/attention_pi.py --build-only` compiles the
+firmware's kernels with the default."""
 import os
 import re
 import sys
@@ -19,6 +25,11 @@ ATOL = 2e-5
 # PIton's x / y is within 2 ulp (x / 1.0 lands 2 ulp toward zero), so outputs
 # that are exact up to the final normalisation are compared to that.
 DIV_ULP = 2
+
+
+@pytest.fixture(autouse=True)
+def plain_schedules(monkeypatch):
+    monkeypatch.setenv("PITON_PAIR", "0")
 
 
 def qkv(n, d, seed=0, gain=1.0, heads=None):
@@ -126,6 +137,15 @@ def test_causal_rows_ignore_future_keys():
     assert not np.array_equal(a[32:], b[32:])
 
 
+def test_pairing_schedules_give_the_same_bits(monkeypatch):
+    q, k, v = qkv(32, 16, seed=21)
+    plain, ck_plain, _ = run_attention(q, k, v, True, 2, 16)
+    monkeypatch.delenv("PITON_PAIR")             # the default, as the firmware is built
+    paired, ck_paired, _ = run_attention(q, k, v, True, 2, 16)
+    assert ck_paired.words != ck_plain.words
+    np.testing.assert_array_equal(plain.view(np.uint32), paired.view(np.uint32))
+
+
 def test_large_scores_stay_finite():
     # Scores of +-100: without the running maximum exp would overflow
     q, k, v = qkv(48, 16, seed=4, gain=25.0)
@@ -153,7 +173,8 @@ KERNELS, PROBLEMS, CASES = attention_pi.plan()
 
 @pytest.mark.parametrize("spec", KERNELS, ids=[k["name"] for k in KERNELS])
 def test_pi_kernels_compile(spec):
-    # every kernel the Pi firmware runs, at its size (grid for N_CTX 512)
+    # every kernel the Pi firmware runs, at its size (grid for N_CTX 512; plain
+    # schedules, see the module docstring)
     ck = compile_attention(spec["head_dim"], spec["block_m"], spec["block_n"], spec["causal"],
                            spec["even_n"], spec["k_layout"], n_ctx=attention_pi.MAX_N,
                            max_n_ctx=attention_pi.MAX_N)
