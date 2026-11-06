@@ -1,8 +1,9 @@
-DEBUG:done with options: dev name=</dev/cu.usbserial-110>, pi-prog=</Users/adamalhusaiki/Desktop/CS340LX/PIton/.claude/worktrees/ex-attention/build/attention/main.bin>, trace=0
-opened tty port </dev/cu.usbserial-110>.
-DEBUG:/Users/adamalhusaiki/bin/my-install: tty-usb=</dev/cu.usbserial-110> program=</Users/adamalhusaiki/Desktop/CS340LX/PIton/.claude/worktrees/ex-attention/build/attention/main.bin>: about to boot
-TRACE:simple_boot: sending 207612 bytes, crc32=155f8385
+DEBUG:done with options: dev name=</dev/cu.usbserial-210>, pi-prog=</Users/joe/Documents/github/PIton/build/attention/main.bin>, trace=0
+opened tty port </dev/cu.usbserial-210>.
+DEBUG:/Users/joe/bin/my-install: tty-usb=</dev/cu.usbserial-210> program=</Users/joe/Documents/github/PIton/build/attention/main.bin>: about to boot
+TRACE:simple_boot: sending 207404 bytes, crc32=1585cbb7
 BOOT:waiting for a start
+DEBUG:PRINT_STRING:pi sent print: <jreed [UART]: success: Received the program!>
 BOOT:bootloader: Done.
 redzone checking: init
 PIton attention: softmax(Q K^T / sqrt(d)) V, 13 kernels, 16 problems, 33 cases, 12 QPUs
@@ -11,77 +12,77 @@ ATTN_CLOCK name=core mhz=250
 ATTN_CLOCK name=v3d mhz=250
 ATTN_CLOCK name=sdram mhz=400
 ATTN_CONFIG repeats=5 arm_repeats=3
-ATTN_ARM problem=0 us=30903
-ATTN_ARM problem=0 us=30866
-ATTN_ARM problem=0 us=30876
+ATTN_ARM problem=0 us=30929
+ATTN_ARM problem=0 us=30877
+ATTN_ARM problem=0 us=30882
 ATTN_ARM_REPEAT problem=0 differing=0
-ATTN_ARM problem=1 us=127933
-ATTN_ARM problem=1 us=127864
-ATTN_ARM problem=1 us=127855
+ATTN_ARM problem=1 us=127971
+ATTN_ARM problem=1 us=127877
+ATTN_ARM problem=1 us=127867
 ATTN_ARM_REPEAT problem=1 differing=0
-ATTN_ARM problem=2 us=525985
-ATTN_ARM problem=2 us=525971
-ATTN_ARM problem=2 us=526027
+ATTN_ARM problem=2 us=526090
+ATTN_ARM problem=2 us=525989
+ATTN_ARM problem=2 us=526039
 ATTN_ARM_REPEAT problem=2 differing=0
-ATTN_ARM problem=3 us=14287
-ATTN_ARM problem=3 us=14278
-ATTN_ARM problem=3 us=14280
+ATTN_ARM problem=3 us=14296
+ATTN_ARM problem=3 us=14293
+ATTN_ARM problem=3 us=14282
 ATTN_ARM_REPEAT problem=3 differing=0
-ATTN_ARM problem=4 us=62113
-ATTN_ARM problem=4 us=62013
-ATTN_ARM problem=4 us=61997
+ATTN_ARM problem=4 us=62128
+ATTN_ARM problem=4 us=62004
+ATTN_ARM problem=4 us=62010
 ATTN_ARM_REPEAT problem=4 differing=0
-ATTN_ARM problem=5 us=258028
-ATTN_ARM problem=5 us=258042
-ATTN_ARM problem=5 us=258002
+ATTN_ARM problem=5 us=258027
+ATTN_ARM problem=5 us=258046
+ATTN_ARM problem=5 us=258062
 ATTN_ARM_REPEAT problem=5 differing=0
-ATTN_ARM problem=6 us=59418
+ATTN_ARM problem=6 us=59444
 ATTN_ARM problem=6 us=59324
-ATTN_ARM problem=6 us=59327
+ATTN_ARM problem=6 us=59344
 ATTN_ARM_REPEAT problem=6 differing=0
-ATTN_ARM problem=7 us=243391
-ATTN_ARM problem=7 us=243391
-ATTN_ARM problem=7 us=243448
+ATTN_ARM problem=7 us=243467
+ATTN_ARM problem=7 us=243535
+ATTN_ARM problem=7 us=243464
 ATTN_ARM_REPEAT problem=7 differing=0
-ATTN_ARM problem=8 us=1317592
-ATTN_ARM problem=8 us=1317604
-ATTN_ARM problem=8 us=1317626
+ATTN_ARM problem=8 us=1317991
+ATTN_ARM problem=8 us=1317934
+ATTN_ARM problem=8 us=1317932
 ATTN_ARM_REPEAT problem=8 differing=0
-ATTN_ARM problem=9 us=29060
-ATTN_ARM problem=9 us=28921
-ATTN_ARM problem=9 us=28919
+ATTN_ARM problem=9 us=29055
+ATTN_ARM problem=9 us=28930
+ATTN_ARM problem=9 us=28934
 ATTN_ARM_REPEAT problem=9 differing=0
-ATTN_ARM problem=10 us=120280
-ATTN_ARM problem=10 us=120222
-ATTN_ARM problem=10 us=120246
+ATTN_ARM problem=10 us=120332
+ATTN_ARM problem=10 us=120269
+ATTN_ARM problem=10 us=120287
 ATTN_ARM_REPEAT problem=10 differing=0
-ATTN_ARM problem=11 us=592206
-ATTN_ARM problem=11 us=592253
-ATTN_ARM problem=11 us=592187
+ATTN_ARM problem=11 us=592456
+ATTN_ARM problem=11 us=592426
+ATTN_ARM problem=11 us=592436
 ATTN_ARM_REPEAT problem=11 differing=0
-ATTN_ARM problem=12 us=499116
-ATTN_ARM problem=12 us=499062
-ATTN_ARM problem=12 us=499098
+ATTN_ARM problem=12 us=499076
+ATTN_ARM problem=12 us=499072
+ATTN_ARM problem=12 us=499257
 ATTN_ARM_REPEAT problem=12 differing=0
-ATTN_ARM problem=13 us=244817
-ATTN_ARM problem=13 us=244811
-ATTN_ARM problem=13 us=244818
+ATTN_ARM problem=13 us=244841
+ATTN_ARM problem=13 us=244805
+ATTN_ARM problem=13 us=244871
 ATTN_ARM_REPEAT problem=13 differing=0
-ATTN_ARM problem=14 us=14294
-ATTN_ARM problem=14 us=14230
-ATTN_ARM problem=14 us=14235
+ATTN_ARM problem=14 us=14307
+ATTN_ARM problem=14 us=14246
+ATTN_ARM problem=14 us=14241
 ATTN_ARM_REPEAT problem=14 differing=0
-ATTN_ARM problem=15 us=6633
-ATTN_ARM problem=15 us=6632
-ATTN_ARM problem=15 us=6624
+ATTN_ARM problem=15 us=6630
+ATTN_ARM problem=15 us=6625
+ATTN_ARM problem=15 us=6630
 ATTN_ARM_REPEAT problem=15 differing=0
-ATTN_FIRST case=0 us=1533
+ATTN_FIRST case=0 us=1535
 ATTN_CHECK case=0 pass=first checked=4096 failures=0 nonfinite=0 max_abs_err_bits=0x36140000
-ATTN_TIME case=0 us=858
-ATTN_TIME case=0 us=848
-ATTN_TIME case=0 us=847
-ATTN_TIME case=0 us=846
-ATTN_TIME case=0 us=847
+ATTN_TIME case=0 us=853
+ATTN_TIME case=0 us=845
+ATTN_TIME case=0 us=844
+ATTN_TIME case=0 us=844
+ATTN_TIME case=0 us=844
 ATTN_CHECK case=0 pass=timed checked=4096 failures=0 nonfinite=0 max_abs_err_bits=0x36140000
 ATTN_SAMPLE case=0 stride=17 count=241
 0xbdce2dfa 0xbd5c9282 0x3ce662b5 0x3df1e385 0x3d8dcff1 0x3e2d009e 0xbd72f97b 0xbd030712 
@@ -116,13 +117,13 @@ ATTN_SAMPLE case=0 stride=17 count=241
 0x3bc76870 0xbd7e8c8a 0xbd7c5252 0xbc8e61fd 0x3d8ebce8 0x3e0f4ee2 0xbdc9ceac 0xbd8fdb37 
 0x3e185a17 
 ATTN_SAMPLE_END case=0
-ATTN_FIRST case=1 us=3027
+ATTN_FIRST case=1 us=3016
 ATTN_CHECK case=1 pass=first checked=8192 failures=0 nonfinite=0 max_abs_err_bits=0x367c0000
-ATTN_TIME case=1 us=2907
-ATTN_TIME case=1 us=2862
+ATTN_TIME case=1 us=2897
+ATTN_TIME case=1 us=2856
+ATTN_TIME case=1 us=2858
 ATTN_TIME case=1 us=2860
-ATTN_TIME case=1 us=2853
-ATTN_TIME case=1 us=2863
+ATTN_TIME case=1 us=2854
 ATTN_CHECK case=1 pass=timed checked=8192 failures=0 nonfinite=0 max_abs_err_bits=0x367c0000
 ATTN_SAMPLE case=1 stride=33 count=249
 0x3c0f1f5d 0x3d6125ac 0xbd6e0332 0xbdef39e2 0x3cf6bd38 0x3ce6af7a 0xbd62dbdb 0xbdc4d724 
@@ -158,13 +159,13 @@ ATTN_SAMPLE case=1 stride=33 count=249
 0x3d1600f4 0x3c592070 0x3d5b2f06 0x3c596a4d 0xbda5d132 0xbc851f44 0xbb96cea5 0xbd0fba29 
 0xbd917033 
 ATTN_SAMPLE_END case=1
-ATTN_FIRST case=2 us=11737
+ATTN_FIRST case=2 us=11690
 ATTN_CHECK case=2 pass=first checked=16384 failures=0 nonfinite=0 max_abs_err_bits=0x36900000
-ATTN_TIME case=2 us=11554
-ATTN_TIME case=2 us=11506
-ATTN_TIME case=2 us=11505
-ATTN_TIME case=2 us=11540
-ATTN_TIME case=2 us=11539
+ATTN_TIME case=2 us=11572
+ATTN_TIME case=2 us=11547
+ATTN_TIME case=2 us=11519
+ATTN_TIME case=2 us=11507
+ATTN_TIME case=2 us=11559
 ATTN_CHECK case=2 pass=timed checked=16384 failures=0 nonfinite=0 max_abs_err_bits=0x36900000
 ATTN_SAMPLE case=2 stride=65 count=253
 0xbba5f76b 0x3dc58601 0x3ce242e4 0xbd865f2e 0x3d4f222c 0xbd3ef2e8 0x3d14ecb7 0xbdb15e84 
@@ -200,13 +201,13 @@ ATTN_SAMPLE case=2 stride=65 count=253
 0xbccf4a5b 0x3cc0f2f9 0x3d18fdf5 0xbcf2970f 0xbdd5586e 0x3c75806f 0x3ce1de50 0xbb368f9c 
 0xbba77aa9 0x3d0ca951 0xbde40ee9 0xbd0bc9f4 0xbd1d16dd 
 ATTN_SAMPLE_END case=2
-ATTN_FIRST case=3 us=1260
+ATTN_FIRST case=3 us=1264
 ATTN_CHECK case=3 pass=first checked=4096 failures=0 nonfinite=0 max_abs_err_bits=0x36120000
-ATTN_TIME case=3 us=709
-ATTN_TIME case=3 us=702
-ATTN_TIME case=3 us=684
-ATTN_TIME case=3 us=701
-ATTN_TIME case=3 us=701
+ATTN_TIME case=3 us=708
+ATTN_TIME case=3 us=694
+ATTN_TIME case=3 us=699
+ATTN_TIME case=3 us=703
+ATTN_TIME case=3 us=699
 ATTN_CHECK case=3 pass=timed checked=4096 failures=0 nonfinite=0 max_abs_err_bits=0x36120000
 ATTN_SAMPLE case=3 stride=17 count=241
 0xbdce2dfb 0xbd5c9280 0x3ce662b3 0x3df1e385 0x3d8dcfee 0x3e2d009e 0xbd72f97b 0xbd030715 
@@ -241,13 +242,13 @@ ATTN_SAMPLE case=3 stride=17 count=241
 0x3bc76870 0xbd7e8c8a 0xbd7c5254 0xbc8e61fb 0x3d8ebce5 0x3e0f4ee1 0xbdc9ceac 0xbd8fdb37 
 0x3e185a18 
 ATTN_SAMPLE_END case=3
-ATTN_FIRST case=4 us=2451
+ATTN_FIRST case=4 us=2434
 ATTN_CHECK case=4 pass=first checked=8192 failures=0 nonfinite=0 max_abs_err_bits=0x36780000
-ATTN_TIME case=4 us=2322
-ATTN_TIME case=4 us=2290
-ATTN_TIME case=4 us=2328
-ATTN_TIME case=4 us=2317
-ATTN_TIME case=4 us=2301
+ATTN_TIME case=4 us=2548
+ATTN_TIME case=4 us=2282
+ATTN_TIME case=4 us=2306
+ATTN_TIME case=4 us=2318
+ATTN_TIME case=4 us=2370
 ATTN_CHECK case=4 pass=timed checked=8192 failures=0 nonfinite=0 max_abs_err_bits=0x36780000
 ATTN_SAMPLE case=4 stride=33 count=249
 0x3c0f1f59 0x3d6125ac 0xbd6e0337 0xbdef39e4 0x3cf6bd3f 0x3ce6af7c 0xbd62dbdf 0xbdc4d725 
@@ -283,13 +284,13 @@ ATTN_SAMPLE case=4 stride=33 count=249
 0x3d1600f4 0x3c592070 0x3d5b2f0a 0x3c596a51 0xbda5d133 0xbc851f46 0xbb96ce8f 0xbd0fba29 
 0xbd917035 
 ATTN_SAMPLE_END case=4
-ATTN_FIRST case=5 us=15140
+ATTN_FIRST case=5 us=18983
 ATTN_CHECK case=5 pass=first checked=16384 failures=0 nonfinite=0 max_abs_err_bits=0x368e0000
-ATTN_TIME case=5 us=13770
-ATTN_TIME case=5 us=15890
-ATTN_TIME case=5 us=15746
-ATTN_TIME case=5 us=13963
-ATTN_TIME case=5 us=15436
+ATTN_TIME case=5 us=11718
+ATTN_TIME case=5 us=13119
+ATTN_TIME case=5 us=15403
+ATTN_TIME case=5 us=15013
+ATTN_TIME case=5 us=13834
 ATTN_CHECK case=5 pass=timed checked=16384 failures=0 nonfinite=0 max_abs_err_bits=0x368e0000
 ATTN_SAMPLE case=5 stride=65 count=253
 0xbba5f76e 0x3dc58606 0x3ce242ee 0xbd865f2f 0x3d4f2233 0xbd3ef2f1 0x3d14ecb9 0xbdb15e8b 
@@ -325,13 +326,13 @@ ATTN_SAMPLE case=5 stride=65 count=253
 0xbccf4a61 0x3cc0f300 0x3d18fdf9 0xbcf29715 0xbdd55872 0x3c75807e 0x3ce1de53 0xbb368fa1 
 0xbba77aac 0x3d0ca955 0xbde40eee 0xbd0bc9f6 0xbd1d16e0 
 ATTN_SAMPLE_END case=5
-ATTN_FIRST case=6 us=1517
+ATTN_FIRST case=6 us=1518
 ATTN_CHECK case=6 pass=first checked=4096 failures=0 nonfinite=0 max_abs_err_bits=0x36120000
 ATTN_TIME case=6 us=763
 ATTN_TIME case=6 us=749
-ATTN_TIME case=6 us=748
 ATTN_TIME case=6 us=749
-ATTN_TIME case=6 us=749
+ATTN_TIME case=6 us=752
+ATTN_TIME case=6 us=750
 ATTN_CHECK case=6 pass=timed checked=4096 failures=0 nonfinite=0 max_abs_err_bits=0x36120000
 ATTN_SAMPLE case=6 stride=17 count=241
 0xbdce2dfb 0xbd5c9280 0x3ce662b3 0x3df1e385 0x3d8dcfee 0x3e2d009e 0xbd72f97b 0xbd030715 
@@ -366,13 +367,13 @@ ATTN_SAMPLE case=6 stride=17 count=241
 0x3bc76870 0xbd7e8c8a 0xbd7c5254 0xbc8e61fb 0x3d8ebce5 0x3e0f4ee1 0xbdc9ceac 0xbd8fdb37 
 0x3e185a18 
 ATTN_SAMPLE_END case=6
-ATTN_FIRST case=7 us=2784
+ATTN_FIRST case=7 us=2783
 ATTN_CHECK case=7 pass=first checked=8192 failures=0 nonfinite=0 max_abs_err_bits=0x36780000
-ATTN_TIME case=7 us=2781
+ATTN_TIME case=7 us=2786
+ATTN_TIME case=7 us=2746
+ATTN_TIME case=7 us=2746
 ATTN_TIME case=7 us=2750
-ATTN_TIME case=7 us=2745
-ATTN_TIME case=7 us=2745
-ATTN_TIME case=7 us=2750
+ATTN_TIME case=7 us=2747
 ATTN_CHECK case=7 pass=timed checked=8192 failures=0 nonfinite=0 max_abs_err_bits=0x36780000
 ATTN_SAMPLE case=7 stride=33 count=249
 0x3c0f1f59 0x3d6125ac 0xbd6e0337 0xbdef39e4 0x3cf6bd3f 0x3ce6af7c 0xbd62dbdf 0xbdc4d725 
@@ -408,13 +409,13 @@ ATTN_SAMPLE case=7 stride=33 count=249
 0x3d1600f4 0x3c592070 0x3d5b2f0a 0x3c596a51 0xbda5d133 0xbc851f46 0xbb96ce8f 0xbd0fba29 
 0xbd917035 
 ATTN_SAMPLE_END case=7
-ATTN_FIRST case=8 us=10298
+ATTN_FIRST case=8 us=10303
 ATTN_CHECK case=8 pass=first checked=16384 failures=0 nonfinite=0 max_abs_err_bits=0x368e0000
-ATTN_TIME case=8 us=10141
+ATTN_TIME case=8 us=10140
+ATTN_TIME case=8 us=10148
+ATTN_TIME case=8 us=10130
 ATTN_TIME case=8 us=10138
-ATTN_TIME case=8 us=10125
-ATTN_TIME case=8 us=10129
-ATTN_TIME case=8 us=10109
+ATTN_TIME case=8 us=10146
 ATTN_CHECK case=8 pass=timed checked=16384 failures=0 nonfinite=0 max_abs_err_bits=0x368e0000
 ATTN_SAMPLE case=8 stride=65 count=253
 0xbba5f76e 0x3dc58606 0x3ce242ee 0xbd865f2f 0x3d4f2233 0xbd3ef2f1 0x3d14ecb9 0xbdb15e8b 
@@ -450,13 +451,13 @@ ATTN_SAMPLE case=8 stride=65 count=253
 0xbccf4a61 0x3cc0f300 0x3d18fdf9 0xbcf29715 0xbdd55872 0x3c75807e 0x3ce1de53 0xbb368fa1 
 0xbba77aac 0x3d0ca955 0xbde40eee 0xbd0bc9f6 0xbd1d16e0 
 ATTN_SAMPLE_END case=8
-ATTN_FIRST case=9 us=3544
+ATTN_FIRST case=9 us=3549
 ATTN_CHECK case=9 pass=first checked=4096 failures=0 nonfinite=0 max_abs_err_bits=0x36140000
-ATTN_TIME case=9 us=2667
-ATTN_TIME case=9 us=2685
-ATTN_TIME case=9 us=2661
-ATTN_TIME case=9 us=2658
-ATTN_TIME case=9 us=2675
+ATTN_TIME case=9 us=2744
+ATTN_TIME case=9 us=2704
+ATTN_TIME case=9 us=2692
+ATTN_TIME case=9 us=2681
+ATTN_TIME case=9 us=2674
 ATTN_CHECK case=9 pass=timed checked=4096 failures=0 nonfinite=0 max_abs_err_bits=0x36140000
 ATTN_SAMPLE case=9 stride=17 count=241
 0xbdce2df8 0xbd5c9281 0x3ce662b5 0x3df1e385 0x3d8dcff0 0x3e2d009f 0xbd72f978 0xbd030712 
@@ -491,13 +492,13 @@ ATTN_SAMPLE case=9 stride=17 count=241
 0x3bc76866 0xbd7e8c87 0xbd7c5253 0xbc8e61e4 0x3d8ebce9 0x3e0f4ee2 0xbdc9ceab 0xbd8fdb36 
 0x3e185a16 
 ATTN_SAMPLE_END case=9
-ATTN_FIRST case=10 us=10323
+ATTN_FIRST case=10 us=10319
 ATTN_CHECK case=10 pass=first checked=8192 failures=0 nonfinite=0 max_abs_err_bits=0x367c0000
-ATTN_TIME case=10 us=10185
+ATTN_TIME case=10 us=10169
+ATTN_TIME case=10 us=10139
 ATTN_TIME case=10 us=10144
-ATTN_TIME case=10 us=10180
-ATTN_TIME case=10 us=10148
-ATTN_TIME case=10 us=10147
+ATTN_TIME case=10 us=9917
+ATTN_TIME case=10 us=10143
 ATTN_CHECK case=10 pass=timed checked=8192 failures=0 nonfinite=0 max_abs_err_bits=0x367c0000
 ATTN_SAMPLE case=10 stride=33 count=249
 0x3c0f1f58 0x3d6125ab 0xbd6e0334 0xbdef39de 0x3cf6bd35 0x3ce6af72 0xbd62dbde 0xbdc4d724 
@@ -533,13 +534,13 @@ ATTN_SAMPLE case=10 stride=33 count=249
 0x3d1600f4 0x3c59206e 0x3d5b2f06 0x3c596a4e 0xbda5d12e 0xbc851f40 0xbb96ceb1 0xbd0fba26 
 0xbd917033 
 ATTN_SAMPLE_END case=10
-ATTN_FIRST case=11 us=40174
+ATTN_FIRST case=11 us=40163
 ATTN_CHECK case=11 pass=first checked=16384 failures=0 nonfinite=0 max_abs_err_bits=0x36910000
-ATTN_TIME case=11 us=40046
-ATTN_TIME case=11 us=39975
-ATTN_TIME case=11 us=39963
-ATTN_TIME case=11 us=39977
-ATTN_TIME case=11 us=39954
+ATTN_TIME case=11 us=40056
+ATTN_TIME case=11 us=39982
+ATTN_TIME case=11 us=39971
+ATTN_TIME case=11 us=39981
+ATTN_TIME case=11 us=39984
 ATTN_CHECK case=11 pass=timed checked=16384 failures=0 nonfinite=0 max_abs_err_bits=0x36910000
 ATTN_SAMPLE case=11 stride=65 count=253
 0xbba5f76a 0x3dc585ff 0x3ce242da 0xbd865f2c 0x3d4f222b 0xbd3ef2f0 0x3d14ecb8 0xbdb15e84 
@@ -575,13 +576,13 @@ ATTN_SAMPLE case=11 stride=65 count=253
 0xbccf4a5d 0x3cc0f2f9 0x3d18fdf4 0xbcf2970c 0xbdd5586d 0x3c75806b 0x3ce1de4e 0xbb368f9a 
 0xbba77aa8 0x3d0ca94f 0xbde40ee7 0xbd0bc9f3 0xbd1d16dc 
 ATTN_SAMPLE_END case=11
-ATTN_FIRST case=12 us=1596
+ATTN_FIRST case=12 us=1611
 ATTN_CHECK case=12 pass=first checked=4096 failures=0 nonfinite=0 max_abs_err_bits=0x360a0000
-ATTN_TIME case=12 us=675
-ATTN_TIME case=12 us=662
-ATTN_TIME case=12 us=662
+ATTN_TIME case=12 us=682
 ATTN_TIME case=12 us=665
-ATTN_TIME case=12 us=664
+ATTN_TIME case=12 us=665
+ATTN_TIME case=12 us=666
+ATTN_TIME case=12 us=842
 ATTN_CHECK case=12 pass=timed checked=4096 failures=0 nonfinite=0 max_abs_err_bits=0x360a0000
 ATTN_SAMPLE case=12 stride=17 count=241
 0xbe360316 0xbe4eceb6 0x3f358e7a 0xbe8ee0e1 0xbe8f2fd4 0xbee144a6 0xbdf120e3 0xbea21c04 
@@ -616,13 +617,13 @@ ATTN_SAMPLE case=12 stride=17 count=241
 0x3c6e4cba 0xbd5f9625 0xbd0c4f30 0x3bb67317 0x3d8e2f3d 0x3e0ee619 0xbdb8a0bc 0xbd87f115 
 0x3e185a17 
 ATTN_SAMPLE_END case=12
-ATTN_FIRST case=13 us=2156
+ATTN_FIRST case=13 us=2154
 ATTN_CHECK case=13 pass=first checked=8192 failures=0 nonfinite=0 max_abs_err_bits=0x36740000
 ATTN_TIME case=13 us=2039
 ATTN_TIME case=13 us=2008
-ATTN_TIME case=13 us=2000
-ATTN_TIME case=13 us=1995
-ATTN_TIME case=13 us=1999
+ATTN_TIME case=13 us=2002
+ATTN_TIME case=13 us=2002
+ATTN_TIME case=13 us=1997
 ATTN_CHECK case=13 pass=timed checked=8192 failures=0 nonfinite=0 max_abs_err_bits=0x36740000
 ATTN_SAMPLE case=13 stride=33 count=249
 0xbe360316 0xbec9b8fe 0x3ee4306e 0xbe70ee19 0x3daabc7f 0x3e16eda0 0xbce6016b 0xbd7356d2 
@@ -658,13 +659,13 @@ ATTN_SAMPLE case=13 stride=33 count=249
 0x3d24ac54 0x3d166616 0x3d56496f 0xba96de40 0xbda13ec1 0xbc5ca18e 0xbcac11d6 0xbd123794 
 0xbd917033 
 ATTN_SAMPLE_END case=13
-ATTN_FIRST case=14 us=7386
+ATTN_FIRST case=14 us=7338
 ATTN_CHECK case=14 pass=first checked=16384 failures=0 nonfinite=0 max_abs_err_bits=0x36930000
-ATTN_TIME case=14 us=7157
-ATTN_TIME case=14 us=7233
-ATTN_TIME case=14 us=7176
-ATTN_TIME case=14 us=7220
 ATTN_TIME case=14 us=7200
+ATTN_TIME case=14 us=7202
+ATTN_TIME case=14 us=7142
+ATTN_TIME case=14 us=7142
+ATTN_TIME case=14 us=7167
 ATTN_CHECK case=14 pass=timed checked=16384 failures=0 nonfinite=0 max_abs_err_bits=0x36930000
 ATTN_SAMPLE case=14 stride=65 count=253
 0xbe360316 0xbef72893 0x3e912dcb 0x3dd13168 0xbdc01e6c 0xbf201040 0xbdb16c85 0xbe1b6b16 
@@ -700,13 +701,13 @@ ATTN_SAMPLE case=14 stride=65 count=253
 0xbd434ed8 0x3d5be516 0x3d44ba59 0xbcb4ec76 0xbdb39c68 0x3c551b1d 0x3c9770ba 0xbba50b60 
 0xbc5e9464 0x3d0a3082 0xbdec6658 0xbd18db56 0xbd1d16dd 
 ATTN_SAMPLE_END case=14
-ATTN_FIRST case=15 us=1282
+ATTN_FIRST case=15 us=1283
 ATTN_CHECK case=15 pass=first checked=4096 failures=0 nonfinite=0 max_abs_err_bits=0x36080000
-ATTN_TIME case=15 us=546
-ATTN_TIME case=15 us=535
-ATTN_TIME case=15 us=531
-ATTN_TIME case=15 us=534
+ATTN_TIME case=15 us=542
+ATTN_TIME case=15 us=543
 ATTN_TIME case=15 us=536
+ATTN_TIME case=15 us=534
+ATTN_TIME case=15 us=534
 ATTN_CHECK case=15 pass=timed checked=4096 failures=0 nonfinite=0 max_abs_err_bits=0x36080000
 ATTN_SAMPLE case=15 stride=17 count=241
 0xbe360316 0xbe4eceb6 0x3f358e7a 0xbe8ee0e1 0xbe8f2fd4 0xbee144a6 0xbdf120e3 0xbea21c04 
@@ -741,13 +742,13 @@ ATTN_SAMPLE case=15 stride=17 count=241
 0x3c6e4cba 0xbd5f9625 0xbd0c4f31 0x3bb67322 0x3d8e2f3c 0x3e0ee618 0xbdb8a0bc 0xbd87f115 
 0x3e185a18 
 ATTN_SAMPLE_END case=15
-ATTN_FIRST case=16 us=1689
+ATTN_FIRST case=16 us=1694
 ATTN_CHECK case=16 pass=first checked=8192 failures=0 nonfinite=0 max_abs_err_bits=0x366c0000
-ATTN_TIME case=16 us=1559
-ATTN_TIME case=16 us=1542
-ATTN_TIME case=16 us=1531
-ATTN_TIME case=16 us=1527
+ATTN_TIME case=16 us=1567
+ATTN_TIME case=16 us=1536
 ATTN_TIME case=16 us=1526
+ATTN_TIME case=16 us=1525
+ATTN_TIME case=16 us=1524
 ATTN_CHECK case=16 pass=timed checked=8192 failures=0 nonfinite=0 max_abs_err_bits=0x366c0000
 ATTN_SAMPLE case=16 stride=33 count=249
 0xbe360316 0xbec9b8fe 0x3ee4306e 0xbe70ee19 0x3daabc7f 0x3e16eda0 0xbce6016b 0xbd7356d2 
@@ -783,13 +784,13 @@ ATTN_SAMPLE case=16 stride=33 count=249
 0x3d24ac55 0x3d166619 0x3d564973 0xba96de42 0xbda13ec3 0xbc5ca191 0xbcac11d4 0xbd123796 
 0xbd917035 
 ATTN_SAMPLE_END case=16
-ATTN_FIRST case=17 us=5450
+ATTN_FIRST case=17 us=5466
 ATTN_CHECK case=17 pass=first checked=16384 failures=0 nonfinite=0 max_abs_err_bits=0x36900000
-ATTN_TIME case=17 us=5385
-ATTN_TIME case=17 us=5307
-ATTN_TIME case=17 us=5411
-ATTN_TIME case=17 us=5304
-ATTN_TIME case=17 us=5292
+ATTN_TIME case=17 us=5408
+ATTN_TIME case=17 us=5217
+ATTN_TIME case=17 us=5277
+ATTN_TIME case=17 us=5288
+ATTN_TIME case=17 us=5270
 ATTN_CHECK case=17 pass=timed checked=16384 failures=0 nonfinite=0 max_abs_err_bits=0x36900000
 ATTN_SAMPLE case=17 stride=65 count=253
 0xbe360316 0xbef72893 0x3e912dcb 0x3dd13168 0xbdc01e6c 0xbf201040 0xbdb16c85 0xbe1b6b16 
@@ -825,12 +826,12 @@ ATTN_SAMPLE case=17 stride=65 count=253
 0xbd434edd 0x3d5be51e 0x3d44ba5f 0xbcb4ec7b 0xbdb39c6c 0x3c551b2b 0x3c9770bb 0xbba50b65 
 0xbc5e9469 0x3d0a3087 0xbdec665f 0xbd18db58 0xbd1d16e0 
 ATTN_SAMPLE_END case=17
-ATTN_FIRST case=18 us=2300
+ATTN_FIRST case=18 us=2298
 ATTN_CHECK case=18 pass=first checked=8192 failures=0 nonfinite=0 max_abs_err_bits=0x36980000
-ATTN_TIME case=18 us=1590
+ATTN_TIME case=18 us=1579
+ATTN_TIME case=18 us=1531
+ATTN_TIME case=18 us=1532
 ATTN_TIME case=18 us=1524
-ATTN_TIME case=18 us=1529
-ATTN_TIME case=18 us=1530
 ATTN_TIME case=18 us=1525
 ATTN_CHECK case=18 pass=timed checked=8192 failures=0 nonfinite=0 max_abs_err_bits=0x36980000
 ATTN_SAMPLE case=18 stride=33 count=249
@@ -867,13 +868,13 @@ ATTN_SAMPLE case=18 stride=33 count=249
 0x3dc78fe0 0xbb93cd89 0xbe7a80d1 0xbe39bc6f 0x3e30079a 0x3e5fe388 0xbe00d160 0x3d172924 
 0x3e097b77 
 ATTN_SAMPLE_END case=18
-ATTN_FIRST case=19 us=6112
+ATTN_FIRST case=19 us=6087
 ATTN_CHECK case=19 pass=first checked=16384 failures=0 nonfinite=0 max_abs_err_bits=0x36a10000
-ATTN_TIME case=19 us=5937
-ATTN_TIME case=19 us=5922
-ATTN_TIME case=19 us=5904
-ATTN_TIME case=19 us=5928
-ATTN_TIME case=19 us=5914
+ATTN_TIME case=19 us=5964
+ATTN_TIME case=19 us=5939
+ATTN_TIME case=19 us=5931
+ATTN_TIME case=19 us=5938
+ATTN_TIME case=19 us=5938
 ATTN_CHECK case=19 pass=timed checked=16384 failures=0 nonfinite=0 max_abs_err_bits=0x36a10000
 ATTN_SAMPLE case=19 stride=65 count=253
 0x3e0cab9c 0xbd897f86 0xbe1e46e0 0x3d395e11 0xbd4785c9 0x3c9f102d 0x3de17967 0xbd3913f6 
@@ -909,13 +910,13 @@ ATTN_SAMPLE case=19 stride=65 count=253
 0xbdbd06e3 0x3ce4faf1 0xbe00483e 0x3c8f351e 0xbb91a824 0xbd790c9d 0x3cacd77e 0xbd81d6c4 
 0xbcff72eb 0xbe4caac8 0x3befe7da 0x3d86cd24 0x3df179ad 
 ATTN_SAMPLE_END case=19
-ATTN_FIRST case=20 us=24803
+ATTN_FIRST case=20 us=24879
 ATTN_CHECK case=20 pass=first checked=32768 failures=0 nonfinite=0 max_abs_err_bits=0x36b40000
-ATTN_TIME case=20 us=24640
-ATTN_TIME case=20 us=24642
-ATTN_TIME case=20 us=24611
-ATTN_TIME case=20 us=24646
-ATTN_TIME case=20 us=24666
+ATTN_TIME case=20 us=24749
+ATTN_TIME case=20 us=24715
+ATTN_TIME case=20 us=24672
+ATTN_TIME case=20 us=24717
+ATTN_TIME case=20 us=24712
 ATTN_CHECK case=20 pass=timed checked=32768 failures=0 nonfinite=0 max_abs_err_bits=0x36b40000
 ATTN_SAMPLE case=20 stride=129 count=255
 0x3d9757a5 0xbe0e7766 0x3cb248e8 0x3ce81752 0xbd1ce508 0xbcdbfa53 0x3da5c573 0xbcf79084 
@@ -951,13 +952,13 @@ ATTN_SAMPLE case=20 stride=129 count=255
 0xbe284df2 0x3d14301e 0x3d61771c 0xbd472fda 0x3b8c2a2b 0xbd94088c 0xbaf13f30 0x3cb4b455 
 0x3d83c257 0xbd9bae50 0xbdd2983c 0x3db6b5e5 0x3dc40074 0xbc10babe 0x3db0812e 
 ATTN_SAMPLE_END case=20
-ATTN_FIRST case=21 us=6038
+ATTN_FIRST case=21 us=6059
 ATTN_CHECK case=21 pass=first checked=8192 failures=0 nonfinite=0 max_abs_err_bits=0x369a0000
-ATTN_TIME case=21 us=5014
-ATTN_TIME case=21 us=5031
-ATTN_TIME case=21 us=5031
-ATTN_TIME case=21 us=5031
+ATTN_TIME case=21 us=5114
 ATTN_TIME case=21 us=5027
+ATTN_TIME case=21 us=4998
+ATTN_TIME case=21 us=5005
+ATTN_TIME case=21 us=5001
 ATTN_CHECK case=21 pass=timed checked=8192 failures=0 nonfinite=0 max_abs_err_bits=0x369a0000
 ATTN_SAMPLE case=21 stride=33 count=249
 0x3da5d23a 0xbe0c3e9b 0xbc27f0a1 0x3dc3f10d 0x3e6e6f90 0x3d2f8ce1 0xbcdf7618 0x3e41c6b8 
@@ -993,13 +994,13 @@ ATTN_SAMPLE case=21 stride=33 count=249
 0x3dc78fde 0xbb93cd7f 0xbe7a80ce 0xbe39bc6f 0x3e30079a 0x3e5fe387 0xbe00d160 0x3d172922 
 0x3e097b76 
 ATTN_SAMPLE_END case=21
-ATTN_FIRST case=22 us=20677
+ATTN_FIRST case=22 us=20661
 ATTN_CHECK case=22 pass=first checked=16384 failures=0 nonfinite=0 max_abs_err_bits=0x36a30000
-ATTN_TIME case=22 us=20503
-ATTN_TIME case=22 us=20474
-ATTN_TIME case=22 us=20438
-ATTN_TIME case=22 us=20466
-ATTN_TIME case=22 us=20442
+ATTN_TIME case=22 us=20550
+ATTN_TIME case=22 us=20434
+ATTN_TIME case=22 us=20495
+ATTN_TIME case=22 us=20407
+ATTN_TIME case=22 us=19389
 ATTN_CHECK case=22 pass=timed checked=16384 failures=0 nonfinite=0 max_abs_err_bits=0x36a30000
 ATTN_SAMPLE case=22 stride=65 count=253
 0x3e0cab9b 0xbd897f85 0xbe1e46df 0x3d395e11 0xbd4785c7 0x3c9f102a 0x3de17963 0xbd3913f3 
@@ -1035,13 +1036,13 @@ ATTN_SAMPLE case=22 stride=65 count=253
 0xbdbd06df 0x3ce4faee 0xbe00483e 0x3c8f3520 0xbb91a851 0xbd790c9a 0x3cacd77e 0xbd81d6c2 
 0xbcff72e7 0xbe4caac2 0x3befe7d7 0x3d86cd24 0x3df179ac 
 ATTN_SAMPLE_END case=22
-ATTN_FIRST case=23 us=82687
+ATTN_FIRST case=23 us=82778
 ATTN_CHECK case=23 pass=first checked=32768 failures=0 nonfinite=0 max_abs_err_bits=0x36b50000
-ATTN_TIME case=23 us=82536
-ATTN_TIME case=23 us=82512
-ATTN_TIME case=23 us=82475
-ATTN_TIME case=23 us=82413
-ATTN_TIME case=23 us=82421
+ATTN_TIME case=23 us=82592
+ATTN_TIME case=23 us=82591
+ATTN_TIME case=23 us=82608
+ATTN_TIME case=23 us=82600
+ATTN_TIME case=23 us=82604
 ATTN_CHECK case=23 pass=timed checked=32768 failures=0 nonfinite=0 max_abs_err_bits=0x36b50000
 ATTN_SAMPLE case=23 stride=129 count=255
 0x3d9757a3 0xbe0e7763 0x3cb248ec 0x3ce8174b 0xbd1ce506 0xbcdbfa4b 0x3da5c56c 0xbcf7907c 
@@ -1077,13 +1078,13 @@ ATTN_SAMPLE case=23 stride=129 count=255
 0xbe284def 0x3d143019 0x3d617713 0xbd472fd5 0x3b8c2a29 0xbd940889 0xbaf13f2e 0x3cb4b453 
 0x3d83c252 0xbd9bae4e 0xbdd29838 0x3db6b5dd 0x3dc40071 0xbc10babc 0x3db0812c 
 ATTN_SAMPLE_END case=23
-ATTN_FIRST case=24 us=2145
+ATTN_FIRST case=24 us=2150
 ATTN_CHECK case=24 pass=first checked=8192 failures=0 nonfinite=0 max_abs_err_bits=0x36980000
-ATTN_TIME case=24 us=1109
-ATTN_TIME case=24 us=1085
-ATTN_TIME case=24 us=1080
-ATTN_TIME case=24 us=1081
-ATTN_TIME case=24 us=1081
+ATTN_TIME case=24 us=1113
+ATTN_TIME case=24 us=1083
+ATTN_TIME case=24 us=1082
+ATTN_TIME case=24 us=1078
+ATTN_TIME case=24 us=1076
 ATTN_CHECK case=24 pass=timed checked=8192 failures=0 nonfinite=0 max_abs_err_bits=0x36980000
 ATTN_SAMPLE case=24 stride=33 count=249
 0xbe1c9d0e 0xbe8bf4ba 0x3f360652 0xbd04c55f 0x3d267f9f 0x3f1687f4 0xbf663037 0xbd2de4b0 
@@ -1119,13 +1120,13 @@ ATTN_SAMPLE case=24 stride=33 count=249
 0x3dd793dc 0xbd954167 0xbe46b455 0xbe38b727 0x3e3a7a1e 0x3e627c01 0xbe075a85 0x3d172924 
 0x3e097b77 
 ATTN_SAMPLE_END case=24
-ATTN_FIRST case=25 us=3803
+ATTN_FIRST case=25 us=3790
 ATTN_CHECK case=25 pass=first checked=16384 failures=0 nonfinite=0 max_abs_err_bits=0x36980000
-ATTN_TIME case=25 us=3654
-ATTN_TIME case=25 us=3617
-ATTN_TIME case=25 us=3617
-ATTN_TIME case=25 us=3611
-ATTN_TIME case=25 us=3614
+ATTN_TIME case=25 us=3649
+ATTN_TIME case=25 us=3627
+ATTN_TIME case=25 us=3622
+ATTN_TIME case=25 us=3610
+ATTN_TIME case=25 us=3623
 ATTN_CHECK case=25 pass=timed checked=16384 failures=0 nonfinite=0 max_abs_err_bits=0x36980000
 ATTN_SAMPLE case=25 stride=65 count=253
 0xbe1c9d0e 0xbf2e8648 0x3e588950 0xbf3b3d55 0xbda36c4f 0x3f1b089d 0x3d8e8446 0x3eccc0f2 
@@ -1161,13 +1162,13 @@ ATTN_SAMPLE case=25 stride=65 count=253
 0xbdcbee75 0x3d029d62 0xbe029c19 0xbc7322a2 0xbb8b5818 0xbd71b522 0xbcce5596 0xbd883025 
 0xbce00f53 0xbe53e1de 0x3b324d90 0x3d86cc19 0x3df179ad 
 ATTN_SAMPLE_END case=25
-ATTN_FIRST case=26 us=14800
+ATTN_FIRST case=26 us=26595
 ATTN_CHECK case=26 pass=first checked=32768 failures=0 nonfinite=0 max_abs_err_bits=0x36980000
-ATTN_TIME case=26 us=14652
-ATTN_TIME case=26 us=14596
-ATTN_TIME case=26 us=14621
-ATTN_TIME case=26 us=14674
-ATTN_TIME case=26 us=14665
+ATTN_TIME case=26 us=14646
+ATTN_TIME case=26 us=14654
+ATTN_TIME case=26 us=14609
+ATTN_TIME case=26 us=14669
+ATTN_TIME case=26 us=14654
 ATTN_CHECK case=26 pass=timed checked=32768 failures=0 nonfinite=0 max_abs_err_bits=0x36980000
 ATTN_SAMPLE case=26 stride=129 count=255
 0xbe1c9d0e 0xbe82c3e8 0xbf066a0d 0x3e665afd 0xbe56584c 0x3e503689 0x3dbf0d31 0x3a8e932c 
@@ -1203,13 +1204,13 @@ ATTN_SAMPLE case=26 stride=129 count=255
 0xbe06de60 0x3cdc9400 0x3d4da232 0xbd546e8a 0x3b22f078 0xbd848743 0xba9eebb2 0x3cafc407 
 0x3d8a0911 0xbdac3f35 0xbdd7c15a 0x3dbd1143 0x3dc63163 0xbc48f271 0x3db0812e 
 ATTN_SAMPLE_END case=26
-ATTN_FIRST case=27 us=13563
+ATTN_FIRST case=27 us=13588
 ATTN_CHECK case=27 pass=first checked=15968 failures=0 nonfinite=0 max_abs_err_bits=0x368e0000
-ATTN_TIME case=27 us=12463
-ATTN_TIME case=27 us=12436
-ATTN_TIME case=27 us=12437
-ATTN_TIME case=27 us=12434
-ATTN_TIME case=27 us=12436
+ATTN_TIME case=27 us=12480
+ATTN_TIME case=27 us=12465
+ATTN_TIME case=27 us=12470
+ATTN_TIME case=27 us=12468
+ATTN_TIME case=27 us=12471
 ATTN_CHECK case=27 pass=timed checked=15968 failures=0 nonfinite=0 max_abs_err_bits=0x368e0000
 ATTN_SAMPLE case=27 stride=63 count=254
 0x3b823fb0 0x3c947747 0x3e2149aa 0xbd77adc5 0x3cf5232e 0x3df332af 0xbb251a0f 0x3d20be35 
@@ -1245,13 +1246,13 @@ ATTN_SAMPLE case=27 stride=63 count=254
 0x3c5e1e75 0xbcee7045 0x3d1b68f3 0xbcac64ad 0x3d527c1c 0xbd3f4582 0xbbb16119 0x3d99c327 
 0xbbc28ed8 0x3ab3703f 0xbca762d5 0x3c2fcb11 0x3d586d24 0xbda07f3f 
 ATTN_SAMPLE_END case=27
-ATTN_FIRST case=28 us=8589
+ATTN_FIRST case=28 us=8521
 ATTN_CHECK case=28 pass=first checked=15968 failures=0 nonfinite=0 max_abs_err_bits=0x36930000
-ATTN_TIME case=28 us=7397
-ATTN_TIME case=28 us=7434
+ATTN_TIME case=28 us=7469
+ATTN_TIME case=28 us=7384
+ATTN_TIME case=28 us=7376
+ATTN_TIME case=28 us=7358
 ATTN_TIME case=28 us=7365
-ATTN_TIME case=28 us=7351
-ATTN_TIME case=28 us=7426
 ATTN_CHECK case=28 pass=timed checked=15968 failures=0 nonfinite=0 max_abs_err_bits=0x36930000
 ATTN_SAMPLE case=28 stride=63 count=254
 0xbe360316 0xbe94f213 0x3e892c11 0x3f01892e 0x3e55a684 0x3efda64c 0x3f1c176d 0x3db80791 
@@ -1287,13 +1288,13 @@ ATTN_SAMPLE case=28 stride=63 count=254
 0x3c4f69ad 0xbcff7cf0 0x3d48c54e 0x3caf5ffc 0x3d4083b5 0xbd1ed209 0xbc74ab82 0x3da603b7 
 0xbd1fef1d 0xbbcc7c60 0xbcb0028e 0x3c31117d 0x3d5a02ec 0xbda07f3f 
 ATTN_SAMPLE_END case=28
-ATTN_FIRST case=29 us=11597
+ATTN_FIRST case=29 us=11643
 ATTN_CHECK case=29 pass=first checked=16384 failures=0 nonfinite=0 max_abs_err_bits=0x36900000
-ATTN_TIME case=29 us=10934
-ATTN_TIME case=29 us=10867
-ATTN_TIME case=29 us=10843
-ATTN_TIME case=29 us=10833
-ATTN_TIME case=29 us=10855
+ATTN_TIME case=29 us=10953
+ATTN_TIME case=29 us=10883
+ATTN_TIME case=29 us=10874
+ATTN_TIME case=29 us=10880
+ATTN_TIME case=29 us=10872
 ATTN_CHECK case=29 pass=timed checked=16384 failures=0 nonfinite=0 max_abs_err_bits=0x36900000
 ATTN_SAMPLE case=29 stride=65 count=253
 0xbba5f76b 0x3dc58601 0x3ce242e4 0xbd865f2e 0x3d4f222c 0xbd3ef2e8 0x3d14ecb7 0xbdb15e84 
@@ -1329,13 +1330,13 @@ ATTN_SAMPLE case=29 stride=65 count=253
 0xbccf4a5b 0x3cc0f2f9 0x3d18fdf5 0xbcf2970f 0xbdd5586e 0x3c75806f 0x3ce1de50 0xbb368f9c 
 0xbba77aa9 0x3d0ca951 0xbde40ee9 0xbd0bc9f4 0xbd1d16dd 
 ATTN_SAMPLE_END case=29
-ATTN_FIRST case=30 us=9934
+ATTN_FIRST case=30 us=10217
 ATTN_CHECK case=30 pass=first checked=16384 failures=0 nonfinite=0 max_abs_err_bits=0x368e0000
-ATTN_TIME case=30 us=9325
-ATTN_TIME case=30 us=9314
-ATTN_TIME case=30 us=9083
-ATTN_TIME case=30 us=9067
-ATTN_TIME case=30 us=9112
+ATTN_TIME case=30 us=9563
+ATTN_TIME case=30 us=9555
+ATTN_TIME case=30 us=9533
+ATTN_TIME case=30 us=9508
+ATTN_TIME case=30 us=9515
 ATTN_CHECK case=30 pass=timed checked=16384 failures=0 nonfinite=0 max_abs_err_bits=0x368e0000
 ATTN_SAMPLE case=30 stride=65 count=253
 0xbba5f76e 0x3dc58606 0x3ce242ee 0xbd865f2f 0x3d4f2233 0xbd3ef2f1 0x3d14ecb9 0xbdb15e8b 
@@ -1371,13 +1372,13 @@ ATTN_SAMPLE case=30 stride=65 count=253
 0xbccf4a61 0x3cc0f300 0x3d18fdf9 0xbcf29715 0xbdd55872 0x3c75807e 0x3ce1de53 0xbb368fa1 
 0xbba77aac 0x3d0ca955 0xbde40eee 0xbd0bc9f6 0xbd1d16e0 
 ATTN_SAMPLE_END case=30
-ATTN_FIRST case=31 us=487
+ATTN_FIRST case=31 us=482
 ATTN_CHECK case=31 pass=first checked=4096 failures=0 nonfinite=0 max_abs_err_bits=0x35a80000
-ATTN_TIME case=31 us=445
-ATTN_TIME case=31 us=441
+ATTN_TIME case=31 us=444
+ATTN_TIME case=31 us=434
+ATTN_TIME case=31 us=435
 ATTN_TIME case=31 us=438
-ATTN_TIME case=31 us=440
-ATTN_TIME case=31 us=438
+ATTN_TIME case=31 us=439
 ATTN_CHECK case=31 pass=timed checked=4096 failures=0 nonfinite=0 max_abs_err_bits=0x35a80000
 ATTN_SAMPLE case=31 stride=1 count=4096
 0x3eac5033 0x3d186058 0x3cb9565f 0x3c57e672 0x3c1643f0 0x3d74782b 0x3d7502e5 0x3c01eed2 
@@ -1893,13 +1894,13 @@ ATTN_SAMPLE case=31 stride=1 count=4096
 0x3cf65069 0x3b925d42 0x3b9c9203 0x3b9ce4ba 0x3b987d04 0x3b9b9103 0x3badf173 0x3bcc1881 
 0x3be4ab9f 0x3d579962 0x3be8e8ce 0x3c043a11 0x3c3dfb82 0x3ca316ae 0x3d06159d 0x3e97a0b4 
 ATTN_SAMPLE_END case=31
-ATTN_FIRST case=32 us=386
+ATTN_FIRST case=32 us=387
 ATTN_CHECK case=32 pass=first checked=4096 failures=0 nonfinite=0 max_abs_err_bits=0x35cc0000
-ATTN_TIME case=32 us=378
-ATTN_TIME case=32 us=361
-ATTN_TIME case=32 us=361
+ATTN_TIME case=32 us=375
 ATTN_TIME case=32 us=363
-ATTN_TIME case=32 us=361
+ATTN_TIME case=32 us=362
+ATTN_TIME case=32 us=363
+ATTN_TIME case=32 us=362
 ATTN_CHECK case=32 pass=timed checked=4096 failures=0 nonfinite=0 max_abs_err_bits=0x35cc0000
 ATTN_SAMPLE case=32 stride=1 count=4096
 0x3f7ffffe 0x0 0x0 0x0 0x0 0x0 0x0 0x0 
