@@ -19,6 +19,25 @@ PITON_PRESCHED=0 .venv/bin/python perf/profile_pi.py --label before   # A/B a co
 
 Results are written to `perf/results/` (`analysis*.json`, `pi-<date>*.json`).
 
+## The optimisation loop (2026-11-03 to 2026-11-05)
+
+Every change was gated on the Pi (`perf/accept.py`: hardware tests with the switch on, then
+`perf/ab.py` off/on over the suite; accepted only if a target is more than 2% faster and nothing is
+more than 2% slower). Rules, results and rejections are in `BACKLOG.md`; the state and the
+commands for the next round are in `NEXT.md`. Final profile (`perf/compare.py
+pi-2026-11-03-baseline.json pi-2026-11-05-final.json`): **1.409× geomean** over the 23 cases.
+idiv is 3.08×, softmax 2.27×, exp 1.54×, mandel 1.53× / 1.47×, copy 1.49×, dense_relu 1.31×,
+matmul 1.13× / 1.18×, row_sum 0.965× (138 -> 143 µs: no accepted change was more than 2% slower
+on it, and these ~140 µs cases move 3-5% between boots), and row_max and compute_peak are
+unchanged. Rejected on the
+Pi: H6 (`PITON_MM`, 0.72-0.80× on matmul: TMU stalls 0.22 -> 0.47 of QPU time, which the emulator
+does not model). C11 (`PITON_PAIR`) passed but compiles 6.4× slower, so it is not on by default.
+
+On Linux, `tools/pi_power_linux` (libgpiod, the cp210x gpiochip of `PITON_TTY`'s bridge)
+power-cycles a hung Pi, as `tools/pi_power` does on macOS. Point `PITON_TTY` at the
+`/dev/serial/by-id/` link. Build against a copy of the course libpi when its build outputs are
+tracked in git, because the libpi makefile rebuilds them in place.
+
 ## What the Pi found (2026-11-02, hardware counters and experiments)
 
 | finding | evidence | change |

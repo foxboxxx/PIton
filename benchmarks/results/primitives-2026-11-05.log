@@ -1,0 +1,188 @@
+DEBUG:/home/sandbox/projects/cs140e/bin/pi-install.linux: tty-usb=</dev/serial/by-id/usb-Silicon_Labs_CP2102N_USB_to_UART_Bridge_Controller_fe0738f21859ed11a420991b5820eef3-if00-port0> program=<main.bin>: about to boot
+BOOT:simple_boot: sending 101220 bytes, crc32=25996926
+BOOT:waiting for a start
+DEBUG:PRINT_STRING:pi sent print: <jreed [UART]: success: Received the program!>
+BOOT:bootloader: Done.
+PIton primitive benchmark: 12 QPUs, vec=262144, mat=256x256, matmul=256^3
+clock arm: 700 MHz (firmware max 1000 MHz)
+clock core: 250 MHz (firmware max 250 MHz)
+clock v3d: 250 MHz (firmware max 300 MHz)
+clock sdram: 400 MHz (firmware max 450 MHz)
+memory: ARM 128 MB, GPU 128 MB at 0x8000000
+QPU phase done; instruction counts: copy=249 add=333 exp=347 idiv=629 matmul=1124
+
+ARM clock 700 MHz (PMU), V3D 250 MHz; ARM VFP peak 1.399999 GFLOPS, 12-QPU issue ceiling 96.0 GFLOPS
+cyc/elem for qpu rows is derived (wall time x V3D clock), not measured
+
+op          impl         us        cycles     cyc/elem GB/s    GFLOPS  err_ppm     bad
+----------------------------------------------------------------------------------------
+copy        qpu          1234      0          1.18     1.699   0.000   0.000       0
+copy        arm-naive    11593     8115760    30.96    0.181   0.000   0.000       0
+copy        arm-unroll   11439     8007989    30.55    0.183   0.000   0.000       0
+copy        arm-vfp      7402      5181958    19.77    0.283   0.000   0.000       0
+add         qpu          1592      0          1.52     1.976   0.165   0.116       0
+add         arm-naive    21256     14879422   56.76    0.148   0.012   0.000       0
+add         arm-unroll   16979     11885781   45.34    0.185   0.015   0.000       0
+add         arm-vfp      14204     9943148    37.93    0.221   0.018   0.000       0
+mul         qpu          1550      0          1.48     2.030   0.169   0.066       0
+mul         arm-naive    21257     14879669   56.76    0.148   0.012   0.000       0
+mul         arm-unroll   16978     11884991   45.34    0.185   0.015   0.000       0
+mul         arm-vfp      14204     9942655    37.93    0.221   0.018   0.000       0
+fma         qpu          1664      0          1.59     1.890   0.315   0.098       0
+fma         arm-naive    20376     14263212   54.41    0.154   0.026   0.000       0
+fma         arm-unroll   16836     11785204   44.96    0.187   0.031   0.000       0
+fma         arm-vfp      14203     9942673    37.93    0.221   0.037   0.000       0
+relu        qpu          1304      0          1.24     1.608   0.402   0.095       0
+relu        arm-naive    17485     12239431   46.69    0.120   0.030   0.000       0
+relu        arm-unroll   11977     8384430    31.98    0.175   0.044   0.000       0
+exp         qpu          1608      0          1.53     1.304   0.000   0.175       0
+exp         arm-naive    69501     48650789   185.59   0.030   0.000   0.000       0
+exp         arm-unroll   62796     43956738   167.68   0.033   0.000   0.000       0
+exp         arm-fast     57322     40124994   153.06   0.037   0.000   5210.861    0
+log         qpu          1598      0          1.52     1.312   0.000   0.120       0
+log         arm-naive    58530     40971421   156.29   0.036   0.000   0.000       0
+log         arm-unroll   53741     37618900   143.50   0.039   0.000   0.000       0
+log         arm-fast     33625     23537652   89.79    0.062   0.000   3031.147    0
+sqrt        qpu          1645      0          1.57     1.275   0.000   0.266       0
+sqrt        arm-vfp      21251     14876022   56.75    0.099   0.000   0.000       0
+sqrt        arm-naive    51931     36351794   138.67   0.040   0.000   0.177       0
+sqrt        arm-fast     34085     23859897   91.02    0.062   0.000   1519.727    0
+rsqrt       qpu          1659      0          1.58     1.264   0.000   0.179       0
+rsqrt       arm-vfp      31954     22368274   85.33    0.066   0.000   0.000       0
+rsqrt       arm-naive    48952     34266266   130.72   0.043   0.000   0.119       0
+rsqrt       arm-fast     30996     21697637   82.77    0.068   0.000   1690.935    0
+recip       qpu          1277      0          1.22     1.642   0.000   0.119       0
+recip       arm-naive    21774     15242451   58.15    0.096   0.000   0.000       0
+recip       arm-fast     27205     19043893   72.65    0.077   0.000   7283.461    0
+idiv        qpu          3172      0          3.03     1.322   0.000   0.000       0
+idiv        arm-naive    146654    102657098  391.61   0.029   0.000   0.000       0
+idiv        arm-fast     53910     37736944   143.96   0.078   0.000   0.000       0
+rowsum      qpu          187       0          0.71     1.407   0.350   0.659       0
+rowsum      arm-naive    1871      1309420    19.98    0.141   0.035   0.000       0
+rowsum      arm-unroll   1518      1062896    16.22    0.173   0.043   0.512       0
+rowsum      arm-vfp      1400      980114     14.96    0.188   0.047   0.512       0
+rowmax      qpu          196       0          0.75     1.343   0.000   0.000       0
+rowmax      arm-naive    3134      2194362    33.48    0.084   0.000   0.000       0
+rowmax      arm-unroll   2560      1792007    27.34    0.103   0.000   0.000       0
+transpose   qpu          929       0          3.54     0.564   0.000   0.000       0
+transpose   arm-naive    2362      1653835    25.24    0.222   0.000   0.000       0
+transpose   arm-blocked  2622      1835430    28.01    0.200   0.000   0.000       0
+softmax     qpu          560       0          2.14     0.936   0.468   0.707       0
+softmax     arm-naive    21169     14818348   226.11   0.025   0.012   0.000       0
+softmax     arm-fast     18175     12723331   194.14   0.029   0.014   3534.595    0
+matmul      qpu          3991      0          15.22    0.197   8.408   6.574       0
+matmul      arm-naive    751809    526265298  8030.17  0.001   0.045   0.649       0
+matmul      arm-blocked  73356     51349028   783.52   0.011   0.457   0.000       0
+matmul      arm-vfp      48201     33740586   514.84   0.016   0.696   0.649       0
+
+Speedup of the PIton-compiled QPU kernel over each CPU baseline
+(>1x means the QPU is faster; saved is the reduction in run time)
+
+op          baseline     qpu_us    arm_us    speedup  saved
+------------------------------------------------------------
+copy        arm-naive    1234      11593     9.39    89.4  %
+copy        arm-unroll   1234      11439     9.27    89.2  %
+copy        arm-vfp      1234      7402      6.00    83.3  %
+add         arm-naive    1592      21256     13.35   92.5  %
+add         arm-unroll   1592      16979     10.67   90.6  %
+add         arm-vfp      1592      14204     8.92    88.8  %
+mul         arm-naive    1550      21257     13.71   92.7  %
+mul         arm-unroll   1550      16978     10.95   90.9  %
+mul         arm-vfp      1550      14204     9.16    89.1  %
+fma         arm-naive    1664      20376     12.25   91.8  %
+fma         arm-unroll   1664      16836     10.12   90.1  %
+fma         arm-vfp      1664      14203     8.54    88.3  %
+relu        arm-naive    1304      17485     13.41   92.5  %
+relu        arm-unroll   1304      11977     9.18    89.1  %
+exp         arm-naive    1608      69501     43.22   97.7  %
+exp         arm-unroll   1608      62796     39.05   97.4  %
+exp         arm-fast     1608      57322     35.65   97.2  %
+log         arm-naive    1598      58530     36.63   97.3  %
+log         arm-unroll   1598      53741     33.63   97.0  %
+log         arm-fast     1598      33625     21.04   95.2  %
+sqrt        arm-vfp      1645      21251     12.92   92.3  %
+sqrt        arm-naive    1645      51931     31.57   96.8  %
+sqrt        arm-fast     1645      34085     20.72   95.2  %
+rsqrt       arm-vfp      1659      31954     19.26   94.8  %
+rsqrt       arm-naive    1659      48952     29.51   96.6  %
+rsqrt       arm-fast     1659      30996     18.68   94.6  %
+recip       arm-naive    1277      21774     17.05   94.1  %
+recip       arm-fast     1277      27205     21.30   95.3  %
+idiv        arm-naive    3172      146654    46.23   97.8  %
+idiv        arm-fast     3172      53910     17.00   94.1  %
+rowsum      arm-naive    187       1871      10.01   90.0  %
+rowsum      arm-unroll   187       1518      8.12    87.7  %
+rowsum      arm-vfp      187       1400      7.49    86.6  %
+rowmax      arm-naive    196       3134      15.99   93.7  %
+rowmax      arm-unroll   196       2560      13.06   92.3  %
+transpose   arm-naive    929       2362      2.54    60.7  %
+transpose   arm-blocked  929       2622      2.82    64.6  %
+softmax     arm-naive    560       21169     37.80   97.4  %
+softmax     arm-fast     560       18175     32.46   96.9  %
+matmul      arm-naive    3991      751809    188.38  99.5  %
+matmul      arm-blocked  3991      73356     18.38   94.6  %
+matmul      arm-vfp      3991      48201     12.08   91.7  %
+
+RESULT op=copy impl=qpu us=1234 cycles=0 cyc_per_elem=1.176834 gbps=1.699474 gflops=0.0 err_ppm=0.0 bad=0
+RESULT op=copy impl=arm-naive us=11593 cycles=8115760 cyc_per_elem=30.959167 gbps=0.180898 gflops=0.0 err_ppm=0.0 bad=0
+RESULT op=copy impl=arm-unroll us=11439 cycles=8007989 cyc_per_elem=30.548053 gbps=0.183333 gflops=0.0 err_ppm=0.0 bad=0
+RESULT op=copy impl=arm-vfp us=7402 cycles=5181958 cyc_per_elem=19.767601 gbps=0.283322 gflops=0.0 err_ppm=0.0 bad=0
+RESULT op=add impl=qpu us=1592 cycles=0 cyc_per_elem=1.518249 gbps=1.975959 gflops=0.164663 err_ppm=0.115683 bad=0
+RESULT op=add impl=arm-naive us=21256 cycles=14879422 cyc_per_elem=56.760490 gbps=0.147992 gflops=0.012332 err_ppm=0.0 bad=0
+RESULT op=add impl=arm-unroll us=16979 cycles=11885781 cyc_per_elem=45.340656 gbps=0.185271 gflops=0.015439 err_ppm=0.0 bad=0
+RESULT op=add impl=arm-vfp us=14204 cycles=9943148 cyc_per_elem=37.930099 gbps=0.221467 gflops=0.018455 err_ppm=0.0 bad=0
+RESULT op=mul impl=qpu us=1550 cycles=0 cyc_per_elem=1.478195 gbps=2.029501 gflops=0.169125 err_ppm=0.065917 bad=0
+RESULT op=mul impl=arm-naive us=21257 cycles=14879669 cyc_per_elem=56.761432 gbps=0.147985 gflops=0.012332 err_ppm=0.0 bad=0
+RESULT op=mul impl=arm-unroll us=16978 cycles=11884991 cyc_per_elem=45.337642 gbps=0.185282 gflops=0.015440 err_ppm=0.0 bad=0
+RESULT op=mul impl=arm-vfp us=14204 cycles=9942655 cyc_per_elem=37.928218 gbps=0.221467 gflops=0.018455 err_ppm=0.0 bad=0
+RESULT op=fma impl=qpu us=1664 cycles=0 cyc_per_elem=1.586914 gbps=1.890461 gflops=0.315076 err_ppm=0.097947 bad=0
+RESULT op=fma impl=arm-naive us=20376 cycles=14263212 cyc_per_elem=54.409835 gbps=0.154383 gflops=0.025730 err_ppm=0.0 bad=0
+RESULT op=fma impl=arm-unroll us=16836 cycles=11785204 cyc_per_elem=44.956985 gbps=0.186845 gflops=0.031140 err_ppm=0.0 bad=0
+RESULT op=fma impl=arm-vfp us=14203 cycles=9942673 cyc_per_elem=37.928287 gbps=0.221483 gflops=0.036913 err_ppm=0.0 bad=0
+RESULT op=relu impl=qpu us=1304 cycles=0 cyc_per_elem=1.243591 gbps=1.608245 gflops=0.402061 err_ppm=0.095368 bad=0
+RESULT op=relu impl=arm-naive us=17485 cycles=12239431 cyc_per_elem=46.689723 gbps=0.119940 gflops=0.029985 err_ppm=0.0 bad=0
+RESULT op=relu impl=arm-unroll us=11977 cycles=8384430 cyc_per_elem=31.984062 gbps=0.175098 gflops=0.043774 err_ppm=0.0 bad=0
+RESULT op=exp impl=qpu us=1608 cycles=0 cyc_per_elem=1.533508 gbps=1.304198 gflops=0.0 err_ppm=0.175420 bad=0
+RESULT op=exp impl=arm-naive us=69501 cycles=48650789 cyc_per_elem=185.588027 gbps=0.030174 gflops=0.0 err_ppm=0.0 bad=0
+RESULT op=exp impl=arm-unroll us=62796 cycles=43956738 cyc_per_elem=167.681640 gbps=0.033396 gflops=0.0 err_ppm=0.0 bad=0
+RESULT op=exp impl=arm-fast us=57322 cycles=40124994 cyc_per_elem=153.064697 gbps=0.036585 gflops=0.0 err_ppm=5210.483647 bad=0
+RESULT op=log impl=qpu us=1598 cycles=0 cyc_per_elem=1.523971 gbps=1.312360 gflops=0.0 err_ppm=0.120352 bad=0
+RESULT op=log impl=arm-naive us=58530 cycles=40971421 cyc_per_elem=156.293563 gbps=0.035830 gflops=0.0 err_ppm=0.0 bad=0
+RESULT op=log impl=arm-unroll us=53741 cycles=37618900 cyc_per_elem=143.504714 gbps=0.039023 gflops=0.0 err_ppm=0.0 bad=0
+RESULT op=log impl=arm-fast us=33625 cycles=23537652 cyc_per_elem=89.789016 gbps=0.062368 gflops=0.0 err_ppm=3031.483647 bad=0
+RESULT op=sqrt impl=qpu us=1645 cycles=0 cyc_per_elem=1.568794 gbps=1.274864 gflops=0.0 err_ppm=0.265640 bad=0
+RESULT op=sqrt impl=arm-vfp us=21251 cycles=14876022 cyc_per_elem=56.747520 gbps=0.098684 gflops=0.0 err_ppm=0.0 bad=0
+RESULT op=sqrt impl=arm-naive us=51931 cycles=36351794 cyc_per_elem=138.671081 gbps=0.040383 gflops=0.0 err_ppm=0.177093 bad=0
+RESULT op=sqrt impl=arm-fast us=34085 cycles=23859897 cyc_per_elem=91.018280 gbps=0.061527 gflops=0.0 err_ppm=1519.726440 bad=0
+RESULT op=rsqrt impl=qpu us=1659 cycles=0 cyc_per_elem=1.582145 gbps=1.264106 gflops=0.0 err_ppm=0.178821 bad=0
+RESULT op=rsqrt impl=arm-vfp us=31954 cycles=22368274 cyc_per_elem=85.328193 gbps=0.065630 gflops=0.0 err_ppm=0.0 bad=0
+RESULT op=rsqrt impl=arm-naive us=48952 cycles=34266266 cyc_per_elem=130.715423 gbps=0.042840 gflops=0.0 err_ppm=0.119214 bad=0
+RESULT op=rsqrt impl=arm-fast us=30996 cycles=21697637 cyc_per_elem=82.769912 gbps=0.067658 gflops=0.0 err_ppm=1690.935058 bad=0
+RESULT op=recip impl=qpu us=1277 cycles=0 cyc_per_elem=1.217842 gbps=1.642248 gflops=0.0 err_ppm=0.119219 bad=0
+RESULT op=recip impl=arm-naive us=21774 cycles=15242451 cyc_per_elem=58.145336 gbps=0.096314 gflops=0.0 err_ppm=0.0 bad=0
+RESULT op=recip impl=arm-fast us=27205 cycles=19043893 cyc_per_elem=72.646682 gbps=0.077087 gflops=0.0 err_ppm=7283.483647 bad=0
+RESULT op=idiv impl=qpu us=3172 cycles=0 cyc_per_elem=3.025054 gbps=1.322290 gflops=0.0 err_ppm=0.0 bad=0
+RESULT op=idiv impl=arm-naive us=146654 cycles=102657098 cyc_per_elem=391.605743 gbps=0.028599 gflops=0.0 err_ppm=0.0 bad=0
+RESULT op=idiv impl=arm-fast us=53910 cycles=37736944 cyc_per_elem=143.955017 gbps=0.077801 gflops=0.0 err_ppm=0.0 bad=0
+RESULT op=rowsum impl=qpu us=187 cycles=0 cyc_per_elem=0.713348 gbps=1.407315 gflops=0.350459 err_ppm=0.658797 bad=0
+RESULT op=rowsum impl=arm-naive us=1871 cycles=1309420 cyc_per_elem=19.980163 gbps=0.140656 gflops=0.035027 err_ppm=0.0 bad=0
+RESULT op=rowsum impl=arm-unroll us=1518 cycles=1062896 cyc_per_elem=16.218505 gbps=0.173364 gflops=0.043172 err_ppm=0.512397 bad=0
+RESULT op=rowsum impl=arm-vfp us=1400 cycles=980114 cyc_per_elem=14.955352 gbps=0.187977 gflops=0.046811 err_ppm=0.512397 bad=0
+RESULT op=rowmax impl=qpu us=196 cycles=0 cyc_per_elem=0.747680 gbps=1.342693 gflops=0.0 err_ppm=0.0 bad=0
+RESULT op=rowmax impl=arm-naive us=3134 cycles=2194362 cyc_per_elem=33.483306 gbps=0.083971 gflops=0.0 err_ppm=0.0 bad=0
+RESULT op=rowmax impl=arm-unroll us=2560 cycles=1792007 cyc_per_elem=27.343856 gbps=0.102800 gflops=0.0 err_ppm=0.0 bad=0
+RESULT op=transpose impl=qpu us=929 cycles=0 cyc_per_elem=3.543853 gbps=0.564357 gflops=0.0 err_ppm=0.0 bad=0
+RESULT op=transpose impl=arm-naive us=2362 cycles=1653835 cyc_per_elem=25.235519 gbps=0.221967 gflops=0.0 err_ppm=0.0 bad=0
+RESULT op=transpose impl=arm-blocked us=2622 cycles=1835430 cyc_per_elem=28.006439 gbps=0.199957 gflops=0.0 err_ppm=0.0 bad=0
+RESULT op=softmax impl=qpu us=560 cycles=0 cyc_per_elem=2.136230 gbps=0.936228 gflops=0.468114 err_ppm=0.707307 bad=0
+RESULT op=softmax impl=arm-naive us=21169 cycles=14818348 cyc_per_elem=226.110046 gbps=0.024766 gflops=0.012383 err_ppm=0.0 bad=0
+RESULT op=softmax impl=arm-fast us=18175 cycles=12723331 cyc_per_elem=194.142623 gbps=0.028846 gflops=0.014423 err_ppm=3534.483647 bad=0
+RESULT op=matmul impl=qpu us=3991 cycles=0 cyc_per_elem=15.224456 gbps=0.197051 gflops=8.407525 err_ppm=6.573965 bad=0
+RESULT op=matmul impl=arm-naive us=751809 cycles=526265298 cyc_per_elem=8030.483647 gbps=0.001046 gflops=0.044631 err_ppm=0.649280 bad=0
+RESULT op=matmul impl=arm-blocked us=73356 cycles=51349028 cyc_per_elem=783.523986 gbps=0.010720 gflops=0.457419 err_ppm=0.0 bad=0
+RESULT op=matmul impl=arm-vfp us=48201 cycles=33740586 cyc_per_elem=514.840454 gbps=0.016315 gflops=0.696135 err_ppm=0.649280 bad=0
+CHECK OK
+PITON_DONE
+DONE!!!
+
+BOOT: bootloader: pi exited.  cleaning up

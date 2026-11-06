@@ -16,6 +16,31 @@ Two changes are merged onto this branch's head (d164de2) but not yet gated on th
 The loop runs in "fast mode": one full host suite per landing, no separate merge review, noise
 rechecks only for cases whose code changed.
 
+## Progress 2026-11-05 (WSL2 machine, cs140e setup)
+- Pi runner env on this machine: `PITON_TTY=/dev/serial/by-id/usb-Silicon_Labs_CP2102N_...`
+  (survives renames), `PITON_BOOTLOADER=~/projects/cs140e/bin/pi-install.linux`,
+  `PITON_LIBPI_ROOT=CS140E_2026_PATH=~/projects/cs140e`, and
+  `LIB_POST=/usr/lib/gcc/arm-none-eabi/13.2.1/libgcc.a`: cs140e's libpi does not link libgcc, so any
+  ARM-side float math failed to link. test_hw 12/12.
+- Step 1 (H6) done: REJECTED on the Pi (matmul_8x64x8 0.716x, 8x64x4 0.803x; TMU stalls
+  0.22 -> 0.47), BACKLOG H6 + log row. perf-loop is unchanged, so C11 needs no rebase onto it.
+- Power: tools/pi_power_linux (libgpiod on the cp210x gpiochip), branch infra/linux-power. On this
+  head GPIO0 low powers the Pi off but the bridge stays up (no re-enumeration); power.cycle()
+  takes 2.1 s and test_hw passes after it, so hung kernels recover again.
+- Step 2 (C11) Pi gate ACCEPT on try/c11-pi (678b041: try/c11 + this branch), NOT landed: compiles
+  6.4x slower with pairing on; on-by-default is the user's call. Its PITON_PAIR=1 host suite
+  (try/c11 c784e58): 1368 passed, 57 skipped, 0 failed in 4:55:02.
+- ARM VFP code (digits' arm_vfp, primitives) needs the cs240lx libpi (-mfpu=vfp, FPU enabled at
+  boot); cs140e's builds soft-float. Build against a copy of ~/projects/cs240lx: its makefile
+  rebuilds TRACKED libpi.a / objs / libm objects in place.
+- Step 3 done: `pi-2026-11-05-final.json`, geomean 1.409x over the 11-03 baseline (BACKLOG log).
+- Step 4 done: digits 9.380 ms (14.218x over ARM VFP), matmul 8.21 / 10.15 / 9.30 GFLOPS
+  (128 / 512 / 1024), primitives rerun (58 rows checked, after fixing arm_vfp_ops.S for softfp:
+  dd18d2b); README.md, STATUS.md, perf/README.md updated. The README primitives table was regenerated
+  from the RESULT lines (it reproduces the 11-03 table from the 11-03 log).
+- Host suite on perf-loop 2557a06: 1276 passed, 33 skipped (1:02:21), 0 failed.
+- Open: C11 on-by-default (compile 6.4x) is the user's call; follow-ups below are unchanged.
+
 ## Commands, in order (from the repo root, `.venv/bin/python` = `PY`)
 
 1. H6 Pi gate (in a worktree of `try/h6`: `git worktree add .claude/worktrees/try-h6 try/h6`, cd there):

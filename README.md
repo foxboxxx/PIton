@@ -38,10 +38,21 @@ Status:
   ALUs (≈22-23 bits, within ~2 ulp) instead of the special function unit.
 * A trained **64→128→64→10 handwritten-digit classifier** now runs on the Pi: **96.995%**
   accuracy on all 1,797 official held-out images, with every QPU prediction matching the
-  independent host reference. Resident inference takes **11.161 ms** for the full test set,
-  **11.986× faster** than the same-board tuned ARM VFP implementation (median of five).
+  independent host reference. Resident inference takes **9.380 ms** for the full test set,
+  **14.218× faster** than the same-board tuned ARM VFP implementation (median of five,
+  2026-11-05).
 
 ## Performance (Pi Zero W, 12 QPUs @ 250 MHz, fp32)
+
+**2026-11-05, after the optimisation loop (`perf/`):** the Triton tutorial matmul (8×64×8,
+`benchmarks/matmul_pi.py 128 512 1024 --bk 8`, best of three, sampled outputs checked) reaches
+**8.21 GFLOPS at 128³, 10.15 at 512³ and 9.30 at 1024³**
+(`benchmarks/results/matmul-pi-2026-11-05.log`). The 23 kernels of the `perf/` suite run
+**1.409× faster** (geometric mean) than on 2026-11-03, every output checked
+(`perf/results/pi-2026-11-05-final.json`). These were measured on a different host and UART
+head, with the cs240lx libpi built by gcc 13.2 (`-mfloat-abi=softfp`). The same compiler timed
+there and on the earlier setup agrees within 0.2% (geometric mean over the suite). The
+paragraphs below are earlier checkpoints.
 
 **2026-10-30 tuning checkpoint:** the seven unfinished tiles were measured at both 512³ and
 1024³; **8×64×8 remains best**. The final compiler reaches **9.005 GFLOPS at 512³** with fixed
@@ -66,31 +77,34 @@ and complete sweep records alongside it.
 ### Every primitive against every CPU baseline
 
 `pi/examples/primitives` measures each supported Triton operation on its own, in one boot,
-against every CPU implementation we can write for it on the same board. Measured 2026-11-03 on a
+against every CPU implementation we can write for it on the same board. Measured 2026-11-05 on a
 Pi Zero W (ARM 700 MHz, V3D 250 MHz, SDRAM 400 MHz): 16 primitives against 42 CPU baselines
 (two or three each), 58 measured rows, every one checked against a reference implementation.
-Full log in `benchmarks/results/primitives-2026-11-03.log`; the "before" column is the same
-program before the instruction-cache and scheduling changes of 2026-11-02 (`perf/`), log in
-`benchmarks/results/primitives-2026-11-02.log`:
+Full log in `benchmarks/results/primitives-2026-11-05.log`; the "2026-11-03" column is the QPU
+time before the store-path, issue, launch and TMU changes of the optimisation loop (`perf/`),
+log in `benchmarks/results/primitives-2026-11-03.log`. The ARM baselines are a different build
+from 2026-11-03 (the cs240lx libpi with gcc 13.2, softfp) on a different host and UART head. Their
+times moved by 0.93-1.16× (`vsqrt` and `vdiv` are 12-16% slower), so the "vs" columns mix the QPU
+gains with whatever moved the ARM side:
 
-| primitive | QPU | before | vs `arm-naive` | vs best CPU baseline | best CPU baseline |
+| primitive | QPU | 2026-11-03 | vs `arm-naive` | vs best CPU baseline | best CPU baseline |
 |---|---|---|---|---|---|
-| `tl.exp` | 2.21 ms | 3.52 ms | 30.2× | **24.8×** | `arm-fast` 54.8 ms |
-| softmax (max+exp+sum+div) | 1.10 ms | 1.17 ms | 20.7× | 17.2× | `arm-fast` 18.9 ms |
-| `tl.log` | 2.17 ms | 3.37 ms | 26.3× | 16.3× | `arm-fast` 35.5 ms |
-| `tl.max` (row) | 0.18 ms | 0.19 ms | 17.2× | 15.0× | `arm-unroll` 2.72 ms |
-| `tl.rsqrt` | 2.14 ms | 2.91 ms | 22.1× | 13.8× | `arm-fast` 29.5 ms |
-| `tl.dot` (matmul 256³) | 4.57 ms | 4.65 ms | **164×** | 10.5× | `arm-vfp` 47.9 ms |
-| `1.0 / x` | 2.15 ms | 3.12 ms | 9.0× | 9.0× | `arm-naive` (`vdiv`) 19.4 ms |
-| `tl.sqrt` | 2.16 ms | 2.79 ms | 23.5× | 8.4× | `arm-vfp` (`vsqrt`) 18.3 ms |
-| `tl.sum` (row) | 0.18 ms | 0.19 ms | 10.2× | 7.6× | `arm-vfp` 1.39 ms |
-| `//` and `%` (exact i32) | 8.54 ms | 13.7 ms | 17.3× | 6.5× | `arm-fast` 55.5 ms |
-| `tl.load`/`store` + `+` | 2.34 ms | 2.40 ms | 9.1× | 6.1× | `arm-vfp` 14.2 ms |
-| `x*a+y` | 2.36 ms | 2.36 ms | 8.6× | 6.0× | `arm-vfp` 14.2 ms |
-| `tl.load`/`store` + `*` | 2.37 ms | 2.37 ms | 9.0× | 6.0× | `arm-vfp` 14.2 ms |
-| `tl.where` (scaled ReLU) | 2.17 ms | 2.18 ms | 8.0× | 5.5× | `arm-unroll` 12.0 ms |
-| copy (load+store only) | 2.17 ms | 2.18 ms | 5.3× | 3.4× | `arm-vfp` 7.40 ms |
-| `tl.trans` | 1.10 ms | 1.10 ms | 2.1× | 2.1× | `arm-naive` 2.36 ms |
+| `tl.exp` | 1.61 ms | 2.21 ms | 43.2× | 35.6× | `arm-fast` 57.3 ms |
+| softmax (max+exp+sum+div) | 0.56 ms | 1.10 ms | 37.8× | 32.5× | `arm-fast` 18.2 ms |
+| `tl.log` | 1.60 ms | 2.17 ms | 36.6× | 21.0× | `arm-fast` 33.6 ms |
+| `tl.rsqrt` | 1.66 ms | 2.14 ms | 29.5× | 18.7× | `arm-fast` 31.0 ms |
+| `1.0 / x` | 1.28 ms | 2.15 ms | 17.1× | 17.1× | `arm-naive` (`vdiv`) 21.8 ms |
+| `//` and `%` (exact i32) | 3.17 ms | 8.54 ms | 46.2× | 17.0× | `arm-fast` 53.9 ms |
+| `tl.max` (row) | 0.20 ms | 0.18 ms | 16.0× | 13.1× | `arm-unroll` 2.56 ms |
+| `tl.sqrt` | 1.65 ms | 2.16 ms | 31.6× | 12.9× | `arm-vfp` (`vsqrt`) 21.3 ms |
+| `tl.dot` (matmul 256³) | 3.99 ms | 4.57 ms | 188× | 12.1× | `arm-vfp` 48.2 ms |
+| `tl.where` (scaled ReLU) | 1.30 ms | 2.17 ms | 13.4× | 9.2× | `arm-unroll` 12.0 ms |
+| `tl.load`/`store` + `*` | 1.55 ms | 2.37 ms | 13.7× | 9.2× | `arm-vfp` 14.2 ms |
+| `tl.load`/`store` + `+` | 1.59 ms | 2.34 ms | 13.4× | 8.9× | `arm-vfp` 14.2 ms |
+| `x*a+y` | 1.66 ms | 2.36 ms | 12.2× | 8.5× | `arm-vfp` 14.2 ms |
+| `tl.sum` (row) | 0.19 ms | 0.18 ms | 10.0× | 7.5× | `arm-vfp` 1.40 ms |
+| copy (load+store only) | 1.23 ms | 2.17 ms | 9.4× | 6.0× | `arm-vfp` 7.40 ms |
+| `tl.trans` | 0.93 ms | 1.10 ms | 2.5× | 2.5× | `arm-naive` 2.36 ms |
 
 Baselines are labelled, not merged: `arm-naive` is the obvious scalar C loop, `arm-unroll` the
 same arithmetic 4× unrolled with prefetch, `arm-vfp` a VFP11 short-vector assembly or hardware
@@ -102,16 +116,18 @@ sqrt, rsqrt, reciprocal and integer division are all in `pi/examples/primitives/
 
 Things the table makes visible that the matmul-only comparison did not:
 
-* **Memory-bound work tops out around 5-9×, not 10-160×.** Elementwise kernels move 8-12 bytes
-  per element and reach only 0.95-1.34 GB/s on the QPU; `tl.dot` is the outlier precisely because
-  it reuses each loaded value O(BLOCK) times. `tl.trans` is the floor at 2.1×: pure data movement
+* **Memory-bound work tops out around 6-9×, not 10-190×.** Elementwise kernels move 8-12 bytes
+  per element and reach only 1.26-2.03 GB/s on the QPU; `tl.dot` is the outlier precisely because
+  it reuses each loaded value O(BLOCK) times. `tl.trans` is the floor at 2.5×: pure data movement
   with no arithmetic to hide the traffic behind.
-* **The transcendentals now cost no more than a copy.** exp, log, sqrt, rsqrt and `1.0 / x` take
-  2.14-2.21 ms against 2.17 ms for copy: all of them are limited by the single store DMA engine the
-  12 QPUs share, not by their arithmetic (`perf/README.md`). Before the instruction-cache fix they
-  took 2.8-3.5 ms, stalled on instruction fetch.
-* **Comparing against the *tuned* CPU shrinks the apparent win.** For matmul that is 164× naive
-  versus 10.5× over VFP assembly; the same gap, smaller, shows up in every elementwise row.
+* **The transcendentals cost about as much as a two-input elementwise op.** exp, log, sqrt and
+  rsqrt take 1.60-1.66 ms, against 1.55-1.66 ms for `+`, `*` and `x*a+y`, 1.28 ms for `1.0 / x`
+  and 1.23 ms for copy. On 2026-11-03 all of them took 2.14-2.21 ms, the same as copy, limited by
+  the single store DMA engine the 12 QPUs share. The optimisation loop's store-path, coarsening
+  and issue changes (`perf/BACKLOG.md`: A1, E1, C7) moved them all below it. Before the instruction-cache fix of
+  2026-11-02 they took 2.8-3.5 ms, stalled on instruction fetch.
+* **Comparing against the *tuned* CPU shrinks the apparent win.** For matmul that is 188× naive
+  versus 12.1× over VFP assembly; the same gap, smaller, shows up in every elementwise row.
 * **PIton's `exp`/`log` measure accurate to ~0.2 ppm**, not special-function-unit precision —
   they lower to ALU sequences, as the README notes above, and the benchmark confirms it against
   an independent accurate CPU implementation.
@@ -258,6 +274,15 @@ It correctly classifies **1,743/1,797 test images (96.995%)** from different wri
 compressed dataset, frozen weights, reproducible training code, checksums, training history,
 and CC BY 4.0 attribution are in `examples/data/digits/` and `examples/digits_model.py`.
 
+**Measured on the Pi Zero W on 2026-11-05**, after the optimisation loop (`perf/`): the full batch
+takes **9.380 ms on the QPUs** versus **133.366 ms on tuned ARM VFP**, a **14.218× speedup** and
+approximately **191,578 classified images/s**; a logical single-image batch takes **172 µs** versus
+**739 µs** (4.297×). Medians of five at the same clocks; QPU full-batch repeats 9,432, 9,191,
+9,137, 9,380 and 9,444 µs, ARM VFP 133,351, 133,366, 133,346, 133,391 and 133,394 µs; all 28,752
+logits and every prediction checked (`benchmarks/results/digits-pi-2026-11-05-final.json`). The
+ARM side was built with the cs240lx libpi and gcc 13.2 (softfp), and its full-batch time is
+0.31% below 2026-10-30's.
+
 **Measured on the Pi Zero W on 2026-10-30:** the full batch of 1,797 images (padded to 1,800
 rows) takes **11.161 ms on the QPUs**, versus **133.775 ms on tuned ARM VFP**, a **11.986×
 speedup** and approximately **161,007 classified images/s**. A logical single-image batch
@@ -296,6 +321,37 @@ stall cleared; a USB reconnect was confirmed.
 
 These digit-network timings were measured on 2026-10-30, before the 2026-11-02 compiler
 changes (`perf/`); the dense layer's own benchmark in `perf/` improved by about 4% since.
+
+## TinyGPT: a transformer language model on the QPUs
+
+`examples/tinygpt.py` runs a character-level GPT where every layer is a PIton kernel:
+token-gather embedding, LayerNorm, Q/K/V projections, causal multi-head **flash attention**
+(`examples/attention.py`, online softmax, the score matrix never touches memory), output
+projection with fused residual, and an MLP with GELU (`u·sigmoid(1.702u)`, since the SFU has
+sigmoid but no tanh/erf) and residual fused into the matmul epilogues. The host only picks the
+next character and slides the 32-character window. One token is 21 launches.
+
+The model is **32,476 float32 parameters** (d=32, 2 layers × 2 heads, MLP 128, context 32,
+92-character vocabulary), trained in about a minute by a NumPy-only trainer with hand-written
+backprop (checked against finite differences in the tests) on this README and `STATUS.md`. It
+reaches 1.81 nats/char on held-out text, so it babbles in the style of this document:
+
+```
+The QPU images. The
+ided.
+*   heldy orde on rund
+```
+
+On the strict emulator the QPU logits match a float64 NumPy reference to about 1e-5. **Not yet
+run on a Pi.** The emulator's rough timing model puts 40 tokens at 1.42 M QPU cycles
+(22.8 ms at 250 MHz, ≈1,750 tokens/s), but that excludes per-launch overhead, which at 21
+launches per token is likely to dominate on hardware. Treat it as an upper bound, not a measurement.
+
+```bash
+.venv/bin/python examples/tinygpt.py --prompt "The QPU " --tokens 40   # emulator (slow: ~20 s/token)
+.venv/bin/python examples/tinygpt_model.py --train                      # retrain the checkpoint
+.venv/bin/python -m pytest tests/test_tinygpt.py tests/test_attention.py -q
+```
 
 ## Interactive Mandelbrot
 
@@ -519,7 +575,7 @@ All verified with `tools/probes.py` on a Pi Zero W; the emulator models them:
 
 ```
 piton/            compiler, emulator, runtime (Python)
-examples/         Triton kernels: tutorials (vector add, softmax, matmul), digits, Mandelbrot, test kernels
+examples/         Triton kernels: tutorials (vector add, softmax, matmul), digits, TinyGPT + attention, Mandelbrot, test kernels
 tests/            pytest: emulator vs numpy, vc4asm bit-exactness, hardware (PITON_HW=1)
 perf/             benchmark suite, instruction-mix analyser, Pi profiler, hardware experiments
 benchmarks/       matmul sweeps and the saved results of every hardware run

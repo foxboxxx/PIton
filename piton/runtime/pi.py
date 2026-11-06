@@ -319,12 +319,12 @@ class PiRunner:
         for attempt in range(2):
             if not os.path.exists(self.tty):         # re-enumerated after a power cycle
                 self.tty = find_tty() or self.tty
-            if power.tool() and not power.ensure_ready(self.tty):
+            if power.tool(self.tty) and not power.ensure_ready(self.tty):
                 raise PiError("the Pi's bootloader is not answering, even after a power cycle")
             try:
                 return self._boot(binary)
             except PiError as ex:
-                if attempt or "PITON_START" in ex.log or not power.tool():
+                if attempt or "PITON_START" in ex.log or not power.tool(self.tty):
                     raise
                 if self.verbose:
                     print("pi: boot failed before the program started; retrying", flush=True)
