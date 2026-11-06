@@ -33,6 +33,9 @@ ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "examples" / "data" / "tinygpt"
 MODEL_PATH = DATA_DIR / "model.npz"
 CORPUS_FILES = ("README.md", "STATUS.md")
+# The larger sizes also read the compiler's own source, so they see ~15x more
+# text than the README alone and learn to write PIton-flavoured Python.
+CODE_CORPUS_GLOBS = ("README.md", "STATUS.md", "perf/README.md", "piton/**/*.py", "examples/*.py")
 EPS = 1e-5
 GELU_K = 1.702
 
@@ -51,12 +54,38 @@ class Config:
         return self.d_model // self.n_head
 
 
+# Model sizes. "tiny" is the original checkpoint (model.npz, README + STATUS);
+# the others are trained on CODE_CORPUS_GLOBS. Every shape here compiles for
+# the QPU kernels (examples/tinygpt_pi.py picks the tiles per size).
+SIZES = {
+    "tiny": {"ctx": 32, "d_model": 32, "n_head": 2, "n_layer": 2, "d_mlp": 128},
+    "small": {"ctx": 64, "d_model": 64, "n_head": 4, "n_layer": 4, "d_mlp": 256},
+    "medium": {"ctx": 128, "d_model": 128, "n_head": 4, "n_layer": 4, "d_mlp": 512},
+}
+TRAIN_STEPS = {"tiny": 4000, "small": 6000, "medium": 6000}
+
+
+def model_path(size: str = "tiny") -> Path:
+    if size not in SIZES:
+        raise ValueError(f"unknown TinyGPT size {size!r}; choose from {', '.join(SIZES)}")
+    return MODEL_PATH if size == "tiny" else DATA_DIR / f"model_{size}.npz"
+
+
 # ----------------------------------------------------------------------------
 # Corpus and tokenizer
 
-def load_corpus(root: Path = ROOT) -> str:
-    """README + STATUS, reduced to printable ASCII and newlines."""
-    text = "\n\n".join((root / name).read_text(encoding="utf-8") for name in CORPUS_FILES)
+def corpus_files(size: str = "tiny", root: Path = ROOT) -> list[str]:
+    if size == "tiny":
+        return list(CORPUS_FILES)
+    names = set()
+    for pattern in CODE_CORPUS_GLOBS:
+        names.update(str(path.relative_to(root)) for path in root.glob(pattern) if path.is_file())
+    return sorted(names)
+
+
+def load_corpus(root: Path = ROOT, size: str = "tiny") -> str:
+    """The size's corpus files, reduced to printable ASCII and newlines."""
+    text = "\n\n".join((root / name).read_text(encoding="utf-8") for name in corpus_files(size, root))
     return "".join(c for c in text if c == "\n" or " " <= c <= "~")
 
 
@@ -118,7 +147,9 @@ def save_model(path: Path, cfg: Config, tok: Tokenizer, params: dict, meta: dict
     np.savez_compressed(path, __meta__=np.array(header), **arrays)
 
 
-def load_model(path: Path = MODEL_PATH) -> tuple[Config, Tokenizer, dict[str, np.ndarray], dict]:
+def load_model(path: Path | str = MODEL_PATH) -> tuple[Config, Tokenizer, dict[str, np.ndarray], dict]:
+    if isinstance(path, str) and path in SIZES:
+        path = model_path(path)
     with np.load(path) as z:
         meta = json.loads(str(z["__meta__"]))
         params = {k: z[k] for k in z.files if k != "__meta__"}
@@ -252,21 +283,25 @@ def loss_and_grads(cfg: Config, params: dict, ids: np.ndarray, targets: np.ndarr
     return loss, g
 
 
-def train(steps: int = 4000, batch: int = 32, lr: float = 3e-3, seed: int = 0, log_every: int = 250):
-    text = load_corpus()
+def train(steps: int = 4000, batch: int = 32, lr: float = 3e-3, seed: int = 0, log_every: int = 250,
+          size: str = "tiny"):
+    """Adam with cosine decay. Larger sizes keep the checkpoint with the best
+    validation loss (their corpus is small enough to overfit)."""
+    text = load_corpus(size=size)
     tok = Tokenizer.from_text(text)
     data = tok.encode(text)
     split = int(0.9 * len(data))
     train_data, val_data = data[:split], data[split:]
-    cfg = Config(vocab=len(tok.chars))
+    cfg = Config(vocab=len(tok.chars), **SIZES[size])
     params = {k: v.astype(np.float32) for k, v in init_params(cfg, seed).items()}
+    best = (np.inf, params, 0)
     m = {k: np.zeros_like(v) for k, v in params.items()}
     v2 = {k: np.zeros_like(v) for k, v in params.items()}
     rng = np.random.default_rng(seed + 1)
     b1, b2 = 0.9, 0.99
 
-    def batch_of(src, size):
-        starts = rng.integers(0, len(src) - cfg.ctx - 1, size)
+    def batch_of(src, count):
+        starts = rng.integers(0, len(src) - cfg.ctx - 1, count)
         x = np.stack([src[s:s + cfg.ctx] for s in starts])
         y = np.stack([src[s + 1:s + cfg.ctx + 1] for s in starts])
         return x, y
@@ -286,10 +321,17 @@ def train(steps: int = 4000, batch: int = 32, lr: float = 3e-3, seed: int = 0, l
             xv, yv = batch_of(val_data, 64)
             val, _ = loss_and_grads(cfg, params, xv, yv, dtype=np.float32)
             print(f"step {step:5d}  train {loss:.3f}  val {val:.3f}  ({time.time() - t0:.0f}s)", flush=True)
+            if size != "tiny" and val < best[0]:
+                best = (val, dict(params), step)
+    if size != "tiny":
+        params = best[1]
     xv, yv = batch_of(val_data, 256)
     val, _ = loss_and_grads(cfg, params, xv, yv, dtype=np.float32)
     meta = {"steps": steps, "batch": batch, "lr": lr, "seed": seed, "val_loss": round(float(val), 4),
-            "corpus": list(CORPUS_FILES), "corpus_chars": len(text)}
+            "corpus": list(CORPUS_FILES) if size == "tiny" else list(CODE_CORPUS_GLOBS),
+            "corpus_chars": len(text), "size": size, "train_seconds": round(time.time() - t0)}
+    if size != "tiny":
+        meta["kept_step"] = best[2]
     return cfg, tok, params, meta
 
 
@@ -305,16 +347,17 @@ def generate_reference(cfg: Config, params: dict, prompt_ids: np.ndarray, n_new:
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--train", action="store_true", help="train and overwrite the saved model")
-    ap.add_argument("--steps", type=int, default=4000)
+    ap.add_argument("--size", default="tiny", choices=tuple(SIZES))
+    ap.add_argument("--steps", type=int, default=None, help="default: TRAIN_STEPS[size]")
     ap.add_argument("--prompt", default="The QPU ")
     ap.add_argument("--tokens", type=int, default=200)
     args = ap.parse_args()
     if args.train:
-        cfg, tok, params, meta = train(steps=args.steps)
-        save_model(MODEL_PATH, cfg, tok, params, meta)
+        cfg, tok, params, meta = train(steps=args.steps or TRAIN_STEPS[args.size], size=args.size)
+        save_model(model_path(args.size), cfg, tok, params, meta)
         n_params = sum(v.size for v in params.values())
-        print(f"saved {MODEL_PATH} ({n_params} parameters, val loss {meta['val_loss']})")
-    cfg, tok, params, _ = load_model()
+        print(f"saved {model_path(args.size)} ({n_params} parameters, val loss {meta['val_loss']})")
+    cfg, tok, params, _ = load_model(model_path(args.size))
     out = generate_reference(cfg, params, tok.encode(args.prompt), args.tokens)
     print(tok.decode(out))
 
